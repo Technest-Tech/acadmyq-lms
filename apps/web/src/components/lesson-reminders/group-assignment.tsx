@@ -17,7 +17,7 @@ import {
 import { foldForSearch } from "@/lib/search-fold";
 import { cn } from "@/lib/utils";
 
-const KNOWN_ERRORS = new Set(["not_connected", "gateway_unavailable", "not_a_member", "admins_only"]);
+const KNOWN_ERRORS = new Set(["not_connected", "gateway_unavailable", "not_a_member", "admins_only", "nobody_to_remind", "no_timing"]);
 
 /** What went wrong in the reader's language, from the code the API answers with. */
 export function useReminderError() {
@@ -49,7 +49,7 @@ export function useGroupOptions(person: ReminderPerson, groups: ReminderGroupOpt
     const options: ComboboxOption[] = [
       { value: "", label: t("noGroup") },
       ...sorted.map((g) => {
-        const used = g.assigned_students + g.assigned_teachers;
+        const used = g.assigned_students + g.assigned_teachers + g.assigned_classes;
         return {
           value: g.jid,
           label: g.name,

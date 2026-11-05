@@ -121,7 +121,8 @@ final class GroupAlerts
 
         $setup = $this->inAcademy($academyId, function () use ($academyId): ?array {
             $groups = $this->activeGroups($academyId);
-            if ($groups === []) {
+            // Private lesson reminders need no group; everything else does.
+            if ($groups === [] && ! $this->reminders->privateLive($academyId)) {
                 return null;
             }
             // A paused or unsold WhatsApp module stops the alerts; the groups stay linked for when it returns.
@@ -154,7 +155,7 @@ final class GroupAlerts
 
         [$detected, $claimed] = $this->inAcademy($academyId, function () use ($academyId, $setup, $connected, $reminderBudget, $now): array {
             [$inserted, $candidates] = $this->detect($academyId, $setup['groups'], $now, $setup['reminders'], $setup['reports'], $setup['group_lessons']);
-            $this->retire($academyId, $setup['groups'], $candidates, $now);
+            $this->retire($academyId, $setup['groups'], $candidates, $now, $this->privateOn($setup['reminders']));
             $this->recoverStaleClaims($academyId, $now);
 
             if (! $connected) {
@@ -169,7 +170,7 @@ final class GroupAlerts
         $result['detected'] = $detected;
 
         if ($connected && $token !== null) {
-            $outcomes = $this->dispatch($token, $setup['groups'], $claimed, $setup['timezone'], $now);
+            $outcomes = $this->dispatch($token, $setup['groups'], $claimed, $setup['timezone'], $now, $setup['reminders']['language'] ?? 'ar');
             if ($outcomes !== []) {
                 $this->inAcademy($academyId, fn () => $this->record($academyId, $setup['groups'], $outcomes, $now));
             }
@@ -325,11 +326,14 @@ final class GroupAlerts
         if ($reminders !== null) {
             $rows = [];
             foreach ($this->reminders->due($academyId, $groups, $reminders, $now) as $hit) {
-                $candidates[$hit['group_id']][$hit['type']][$hit['subject']] = true;
+                $candidates[$this->targetKey($hit['group_id'], $hit['phone'])][$hit['type']][$hit['subject']] = true;
                 $rows[] = [
                     'id' => (string) Str::uuid(),
                     'academy_id' => $academyId,
                     'group_id' => $hit['group_id'],
+                    'recipient_phone' => $hit['phone'],
+                    'recipient_kind' => $hit['recipient_kind'],
+                    'recipient_name' => $hit['recipient_name'],
                     'event_type' => $hit['type'],
                     'subject_key' => $hit['subject'],
                     'payload' => json_encode($hit['payload'], JSON_UNESCAPED_UNICODE),
@@ -801,7 +805,7 @@ final class GroupAlerts
      * @param  array<string, object>  $groups
      * @param  array<string, array<string, array<string, true>>>  $candidates
      */
-    private function retire(string $academyId, array $groups, array $candidates, CarbonImmutable $now): void
+    private function retire(string $academyId, array $groups, array $candidates, CarbonImmutable $now, bool $privateOn = false): void
     {
         $iso = $now->format(self::TS);
 
@@ -831,11 +835,23 @@ final class GroupAlerts
             ->where('attempts', '<', self::MAX_ATTEMPTS)
             ->where('event_type', '<>', GroupAlertCatalog::TEST)
             ->limit(2000)
-            ->get(['id', 'group_id', 'event_type', 'subject_key']);
+            ->get(['id', 'group_id', 'recipient_phone', 'event_type', 'subject_key']);
 
         $disabled = [];
         $resolved = [];
         foreach ($open as $row) {
+            // A private lesson reminder: owed while private reminders are launched and the lesson
+            // still stands, like its group twin.
+            if ($row->group_id === null) {
+                if (! $privateOn) {
+                    $disabled[] = $row->id;
+                } elseif (! isset($candidates[$this->targetKey(null, (string) $row->recipient_phone)][$row->event_type][$row->subject_key])) {
+                    $resolved[] = $row->id;
+                }
+
+                continue;
+            }
+
             $group = $groups[(string) $row->group_id] ?? null;
             // A lesson reminder is not a ticked alert: whether it is still owed is all that counts.
             $ticked = $group !== null && (in_array($row->event_type, $group->events, true)
@@ -936,36 +952,47 @@ final class GroupAlerts
                set status = 'SENDING', attempts = a.attempts + 1, updated_at = ?
               from picked
              where a.id = picked.id
-            returning a.id, a.group_id, a.event_type, a.subject_key, a.payload, a.due_at, a.attempts
+            returning a.id, a.group_id, a.recipient_phone, a.recipient_kind, a.recipient_name, a.event_type, a.subject_key, a.payload, a.due_at, a.attempts
         SQL, $bindings);
     }
 
     /**
-     * Batch claimed alerts into one message per (group, type) — split past MAX_ITEMS — and hand each
-     * to the gateway. No database work here: the caller records the outcomes in its own transaction.
+     * Batch claimed alerts into one message per (target, type) — split past MAX_ITEMS — and hand each
+     * to the gateway. A target is a group, or a phone for a private lesson reminder (written in the
+     * academy's reminder language). No database work here: the caller records the outcomes in its
+     * own transaction.
      *
      * @param  array<string, object>  $groups
      * @param  list<object>  $claimed
-     * @return list<array{group_id: string, event_type: string, ids: list<string>, ok: bool, message_id: ?string, error: ?string}>
+     * @return list<array{group_id: ?string, phone: ?string, recipient_kind: ?string, event_type: string, ids: list<string>, ok: bool, message_id: ?string, error: ?string}>
      */
-    private function dispatch(string $token, array $groups, array $claimed, string $timezone, CarbonImmutable $now): array
+    private function dispatch(string $token, array $groups, array $claimed, string $timezone, CarbonImmutable $now, string $directLanguage = 'ar'): array
     {
         $batches = [];
         foreach ($claimed as $row) {
-            $batches[$row->group_id.'|'.$row->event_type][] = $row;
+            $phone = isset($row->recipient_phone) ? (string) $row->recipient_phone : null;
+            $groupId = $row->group_id !== null ? (string) $row->group_id : null;
+            $batches[$this->targetKey($groupId, $phone).'|'.$row->event_type][] = $row;
         }
 
         $outcomes = [];
         foreach ($batches as $rows) {
             usort($rows, fn (object $a, object $b): int => strcmp((string) $a->due_at, (string) $b->due_at));
-            $group = $groups[(string) $rows[0]->group_id] ?? null;
-            $type = (string) $rows[0]->event_type;
+            $first = $rows[0];
+            $type = (string) $first->event_type;
+            $phone = $first->group_id === null ? (string) $first->recipient_phone : null;
+            $group = $phone === null ? ($groups[(string) $first->group_id] ?? null) : null;
+            $target = [
+                'group_id' => $phone === null ? (string) $first->group_id : null,
+                'phone' => $phone,
+                'recipient_kind' => $phone !== null ? (string) $first->recipient_kind : null,
+            ];
 
             foreach (array_chunk($rows, GroupAlertMessage::MAX_ITEMS) as $chunk) {
                 $ids = array_map(fn (object $r): string => (string) $r->id, $chunk);
 
-                if ($group === null) {
-                    $outcomes[] = ['group_id' => (string) $chunk[0]->group_id, 'event_type' => $type, 'ids' => $ids, 'ok' => false, 'message_id' => null, 'error' => 'group_unavailable'];
+                if ($phone === null && $group === null) {
+                    $outcomes[] = $target + ['event_type' => $type, 'ids' => $ids, 'ok' => false, 'message_id' => null, 'error' => 'group_unavailable'];
 
                     continue;
                 }
@@ -973,15 +1000,14 @@ final class GroupAlerts
                 $text = $this->messages->compose(
                     $type,
                     array_map(fn (object $r): array => json_decode((string) $r->payload, true) ?: [], $chunk),
-                    $group->language,
+                    $group !== null ? $group->language : $directLanguage,
                     $timezone,
-                    $group->settings,
+                    $group !== null ? $group->settings : GroupAlertCatalog::DEFAULT_SETTINGS,
                     $now,
                 );
 
-                $res = $this->client->sendMessage($token, $group->jid, $text);
-                $outcomes[] = [
-                    'group_id' => $group->id,
+                $res = $this->client->sendMessage($token, $group !== null ? $group->jid : (string) $phone, $text);
+                $outcomes[] = $target + [
                     'event_type' => $type,
                     'ids' => $ids,
                     'ok' => $res['ok'] && $res['message_id'] !== null,
@@ -996,7 +1022,7 @@ final class GroupAlerts
 
     /**
      * @param  array<string, object>  $groups
-     * @param  list<array{group_id: string, event_type: string, ids: list<string>, ok: bool, message_id: ?string, error: ?string}>  $outcomes
+     * @param  list<array{group_id: ?string, phone?: ?string, recipient_kind?: ?string, event_type: string, ids: list<string>, ok: bool, message_id: ?string, error: ?string}>  $outcomes
      */
     private function record(string $academyId, array $groups, array $outcomes, CarbonImmutable $now): void
     {
@@ -1025,18 +1051,19 @@ final class GroupAlerts
             // so the Super Admin activity feed and per-client counts stay whole. Its own savepoint: a
             // rejected insert poisons the surrounding Postgres transaction even when PHP catches it,
             // and the delivery record above matters more than the log line.
+            $private = ($o['phone'] ?? null) !== null;
             try {
                 DB::transaction(fn () => DB::table('automation_send_log')->insert([
                     'id' => (string) Str::uuid(),
                     'academy_id' => $academyId,
-                    'automation_type' => 'GROUP_ALERT',
+                    'automation_type' => $private ? 'TYPE2_LESSON' : 'GROUP_ALERT',
                     'channel' => 'WHATSAPP',
                     'transport' => 'WASENDER',
-                    'recipient_kind' => 'GROUP',
-                    'recipient_phone' => $groups[$o['group_id']]->jid ?? null,
+                    'recipient_kind' => $private ? (string) $o['recipient_kind'] : 'GROUP',
+                    'recipient_phone' => $private ? $o['phone'] : ($groups[$o['group_id']]->jid ?? null),
                     'template_key' => $o['event_type'],
-                    'ref_type' => 'whatsapp_group',
-                    'ref_id' => $o['group_id'],
+                    'ref_type' => $private ? 'lesson_reminder' : 'whatsapp_group',
+                    'ref_id' => $private ? null : $o['group_id'],
                     'status' => $o['ok'] ? 'SENT' : 'FAILED',
                     'error' => $o['ok'] ? null : $o['error'],
                     'provider_message_id' => $o['message_id'],
@@ -1091,6 +1118,18 @@ final class GroupAlerts
     // =========================================================================
     // Helpers
     // =========================================================================
+
+    /** Where a ledger row goes: its group, or the number of a private lesson reminder. */
+    private function targetKey(?string $groupId, ?string $phone): string
+    {
+        return $groupId ?? 'phone:'.$phone;
+    }
+
+    /** @param array{channel: string, live: bool}|null $reminders */
+    private function privateOn(?array $reminders): bool
+    {
+        return $reminders !== null && $reminders['live'] && LessonGroupReminders::usesPrivate($reminders);
+    }
 
     /**
      * Linked, active groups keyed by id, with their JSON columns decoded.

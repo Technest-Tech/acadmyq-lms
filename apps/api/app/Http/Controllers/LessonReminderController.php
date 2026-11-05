@@ -13,6 +13,7 @@ use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\DataTable;
+use App\Support\Entitlement;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
@@ -24,12 +25,14 @@ use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 /**
- * The academy's side of lesson reminders (`whatsapp.group_reminders`, opt-in, so every route is
- * `entitled:`): assign a WhatsApp group to a student or teacher, choose when reminders go out, and
- * see whether they are arriving. Delivery itself is {@see GroupAlerts}, on the scheduler.
+ * The academy's WhatsApp page (`whatsapp.group_reminders`, opt-in, so every route is `entitled:`):
+ * assign a WhatsApp group to a student, a teacher or a class, choose how reminders travel (groups,
+ * private messages or both), to whom and when, launch them, and see whether they are arriving.
+ * Delivery itself is {@see GroupAlerts}, on the scheduler.
  *
- * Assigning is `student.update` / `teacher.update`, the same people who edit that record — so a
- * supervisor can do it without reaching the academy's settings. The timing is `settings.manage`.
+ * Assigning is `student.update` / `teacher.update` / `group.manage`, the same people who edit that
+ * record — so a supervisor can do it without reaching the academy's settings. The choices and the
+ * launch button are `settings.manage`.
  *
  * A group is checked against the connected number when it is assigned: one the number has left, or
  * where only admins may post, would otherwise swallow every reminder without a word.
@@ -49,7 +52,7 @@ final class LessonReminderController extends Controller
         private readonly WhatsAppConnection $connection,
     ) {}
 
-    /** GET /api/lesson-reminders — timing, the number's state, and how the last day went. */
+    /** GET /api/lesson-reminders — the choices, the number's state, who can be reached, and how the last day went. */
     public function show(): JsonResponse
     {
         $ctx = $this->context();
@@ -78,11 +81,16 @@ final class LessonReminderController extends Controller
             'capacity' => $probe === null || $probe['daily_cap'] === null ? null : [
                 'sent_today' => (int) $probe['sent_today'],
                 'daily_cap' => $probe['daily_cap'],
-                'expected_next_day' => $this->expectedNextDay($academyId, $settings),
+                'expected_next_day' => $this->reminders->expectedNextDay($academyId, $this->alerts->activeGroups($academyId), $settings, CarbonImmutable::now()),
             ],
             'assigned' => [
-                'students' => $this->tally('students'),
-                'teachers' => $this->tally('teachers'),
+                'students' => $this->tally('student'),
+                'teachers' => $this->tally('teacher'),
+                'classes' => $this->hasClasses($academyId) ? $this->tally('class') : null,
+            ],
+            'phones' => [
+                'students' => $this->phoneTally('students'),
+                'teachers' => $this->phoneTally('teachers'),
             ],
             'last_day' => [
                 'sent' => $sum('SENT', 'DELIVERED'),
@@ -93,7 +101,7 @@ final class LessonReminderController extends Controller
         ]);
     }
 
-    /** PUT /api/lesson-reminders/settings — when reminders go out, and in which language. */
+    /** PUT /api/lesson-reminders/settings — how reminders travel, to whom, when, and in which language. */
     public function updateSettings(Request $request): JsonResponse
     {
         Gate::authorize('settings.manage');
@@ -104,27 +112,87 @@ final class LessonReminderController extends Controller
             'lead_minutes' => ['required', 'integer', Rule::in(LessonGroupReminders::LEAD_CHOICES)],
             'at_start' => ['required', 'boolean'],
             'language' => ['required', Rule::in(['ar', 'en'])],
+            'channel' => ['sometimes', Rule::in(LessonGroupReminders::CHANNELS)],
+            'audience' => ['sometimes', Rule::in(LessonGroupReminders::AUDIENCES)],
         ]);
 
-        $now = CarbonImmutable::now()->format(self::TS);
         $fields = [
             'lesson_reminder_lead_minutes' => (int) $data['lead_minutes'],
             'lesson_reminder_at_start' => (bool) $data['at_start'],
             'lesson_reminder_language' => $data['language'],
-            'updated_at' => $now,
+            ...(isset($data['channel']) ? ['lesson_reminder_channel' => $data['channel']] : []),
+            ...(isset($data['audience']) ? ['lesson_reminder_audience' => $data['audience']] : []),
         ];
+        $this->saveSettings($academyId, $fields);
 
-        $updated = DB::table('academy_automation_settings')->where('academy_id', $academyId)->update($fields);
-        if ($updated === 0) {
-            DB::table('academy_automation_settings')->insert($fields + ['academy_id' => $academyId]);
+        // Back to groups only: private messages still waiting are no longer owed. The sweep would
+        // retire them too, but it never visits an academy with no group linked.
+        if (($data['channel'] ?? null) === 'GROUPS') {
+            DB::table('whatsapp_group_alerts')
+                ->where('academy_id', $academyId)
+                ->whereNull('group_id')
+                ->whereIn('status', ['PENDING', 'FAILED'])
+                ->update(['status' => 'SKIPPED', 'error' => 'alert_turned_off', 'updated_at' => CarbonImmutable::now()->format(self::TS)]);
         }
 
         // A message is written in its group's language. A group a Super Admin linked for staff alerts
         // keeps the language chosen there.
         DB::table('whatsapp_groups')->where('academy_id', $academyId)->where('kind', 'LESSON')
-            ->update(['language' => $data['language'], 'updated_at' => $now]);
+            ->update(['language' => $data['language'], 'updated_at' => CarbonImmutable::now()->format(self::TS)]);
 
         Audit::log('lesson_reminders.settings', 'academy', $academyId, $academyId, $ctx->userId, $ctx->role, after: $data);
+
+        return response()->json(['settings' => $this->reminders->settings($academyId)]);
+    }
+
+    /**
+     * POST /api/lesson-reminders/launch — start sending. Refused while the number is unlinked, or
+     * when nobody could be reached with the current choices: "launched" must mean messages go out.
+     */
+    public function launch(): JsonResponse
+    {
+        Gate::authorize('settings.manage');
+        $ctx = $this->context();
+        $academyId = (string) $ctx->academyId;
+
+        if ($this->connection->status($ctx)['state'] !== 'connected') {
+            return response()->json(['error' => 'not_connected', 'message' => 'Connect your WhatsApp number first.'], 409);
+        }
+
+        $settings = $this->reminders->settings($academyId);
+        if ($settings['lead_minutes'] <= 0 && ! $settings['at_start']) {
+            return response()->json(['error' => 'no_timing', 'message' => 'Choose when reminders go out first.'], 422);
+        }
+        if (! $this->anyoneReachable($academyId, $settings)) {
+            return response()->json(['error' => 'nobody_to_remind', 'message' => 'Nobody can be reached with these choices yet.'], 422);
+        }
+
+        $this->saveSettings($academyId, [
+            'lesson_reminders_live' => true,
+            'lesson_reminders_live_since' => CarbonImmutable::now()->format(self::TS),
+        ]);
+        Audit::log('lesson_reminders.launched', 'academy', $academyId, $academyId, $ctx->userId, $ctx->role, after: [
+            'channel' => $settings['channel'], 'audience' => $settings['audience'],
+        ]);
+
+        return response()->json(['settings' => $this->reminders->settings($academyId)]);
+    }
+
+    /** POST /api/lesson-reminders/stop — stop sending; reminders already waiting are dropped, not held. */
+    public function stop(): JsonResponse
+    {
+        Gate::authorize('settings.manage');
+        $ctx = $this->context();
+        $academyId = (string) $ctx->academyId;
+        $now = CarbonImmutable::now()->format(self::TS);
+
+        $this->saveSettings($academyId, ['lesson_reminders_live' => false]);
+        DB::table('whatsapp_group_alerts')
+            ->where('academy_id', $academyId)
+            ->whereIn('event_type', GroupAlertCatalog::LESSON_REMINDERS)
+            ->whereIn('status', ['PENDING', 'FAILED'])
+            ->update(['status' => 'SKIPPED', 'error' => 'alert_turned_off', 'updated_at' => $now]);
+        Audit::log('lesson_reminders.stopped', 'academy', $academyId, $academyId, $ctx->userId, $ctx->role);
 
         return response()->json(['settings' => $this->reminders->settings($academyId)]);
     }
@@ -144,7 +212,8 @@ final class LessonReminderController extends Controller
         $assigned = collect(DB::select(<<<'SQL'
             select g.jid,
                    (select count(*) from students s where s.whatsapp_group_id = g.id and s.deleted_at is null) as students,
-                   (select count(*) from teachers t where t.whatsapp_group_id = g.id and t.deleted_at is null) as teachers
+                   (select count(*) from teachers t where t.whatsapp_group_id = g.id and t.deleted_at is null) as teachers,
+                   (select count(*) from class_groups c where c.whatsapp_group_id = g.id and c.status = 'ACTIVE') as classes
               from whatsapp_groups g
              where g.academy_id = ?
         SQL, [$academyId]))->keyBy('jid');
@@ -157,27 +226,33 @@ final class LessonReminderController extends Controller
                 'can_send' => $g['can_send'],
                 'assigned_students' => (int) ($assigned[$g['id']]->students ?? 0),
                 'assigned_teachers' => (int) ($assigned[$g['id']]->teachers ?? 0),
+                'assigned_classes' => (int) ($assigned[$g['id']]->classes ?? 0),
             ], $listing),
         ]);
     }
 
-    /** GET /api/lesson-reminders/assignments?kind=student|teacher — who has which group. */
+    /** GET /api/lesson-reminders/assignments?kind=student|teacher|class — who has which group. */
     public function assignments(Request $request): JsonResponse
     {
         $ctx = $this->context();
-        $kind = $request->validate(['kind' => ['required', Rule::in(['student', 'teacher'])]])['kind'];
+        $kind = $request->validate(['kind' => ['required', Rule::in(['student', 'teacher', 'class'])]])['kind'];
         // A teacher reads students row by row, so listing them all takes the power to edit them.
-        abort_unless($ctx->can($kind === 'student' ? 'student.update' : 'teacher.read'), 403);
+        abort_unless($ctx->can(match ($kind) {
+            'student' => 'student.update',
+            'teacher' => 'teacher.read',
+            // group.read is row-scoped to a teacher's own classes elsewhere; this list is every class.
+            'class' => 'group.manage',
+        }), 403);
+        $this->assertKind($kind);
 
-        $query = DB::table($kind === 'student' ? 'students as p' : 'teachers as p')
+        $query = $this->people($kind)
             ->leftJoin('whatsapp_groups as g', 'g.id', '=', 'p.whatsapp_group_id')
-            ->whereNull('p.deleted_at')
-            ->select(['p.id', 'p.full_name', 'g.id as group_id', 'g.jid as group_jid', 'g.name as group_name']);
+            ->select(['p.id', $kind === 'class' ? 'p.name as full_name' : 'p.full_name', 'g.id as group_id', 'g.jid as group_jid', 'g.name as group_name']);
 
         $result = DataTable::paginate($query, $request, [
             'idColumn' => 'p.id',
-            'searchable' => ['p.full_name', 'g.name'],
-            'sortable' => ['name' => 'p.full_name'],
+            'searchable' => [$kind === 'class' ? 'p.name' : 'p.full_name', 'g.name'],
+            'sortable' => ['name' => $kind === 'class' ? 'p.name' : 'p.full_name'],
             'filters' => [
                 'assigned' => fn (Builder $q, $value) => $value === 'yes'
                     ? $q->whereNotNull('p.whatsapp_group_id')
@@ -195,11 +270,12 @@ final class LessonReminderController extends Controller
         ]);
     }
 
-    /** GET /api/lesson-reminders/assignments/{kind}/{id} — one person, for their profile. */
+    /** GET /api/lesson-reminders/assignments/{kind}/{id} — one person (or class), for their profile. */
     public function person(string $kind, string $id): JsonResponse
     {
         $ctx = $this->context();
-        abort_unless($ctx->can($kind === 'student' ? 'student.update' : 'teacher.update'), 403);
+        abort_unless($ctx->can($this->editCapability($kind)), 403);
+        $this->assertKind($kind);
 
         return response()->json(['person' => $this->loadPerson($kind, $id)]);
     }
@@ -207,8 +283,9 @@ final class LessonReminderController extends Controller
     /** PUT /api/lesson-reminders/assignments/{kind}/{id} — assign a group; a null jid clears it. */
     public function assign(Request $request, string $kind, string $id): JsonResponse
     {
-        Gate::authorize($kind === 'student' ? 'student.update' : 'teacher.update');
+        Gate::authorize($this->editCapability($kind));
         $ctx = $this->context();
+        $this->assertKind($kind);
         $academyId = (string) $ctx->academyId;
 
         $data = $request->validate([
@@ -216,8 +293,7 @@ final class LessonReminderController extends Controller
         ]);
         $jid = $data['jid'];
 
-        $table = $kind === 'student' ? 'students' : 'teachers';
-        $person = DB::table($table)->where('id', $id)->whereNull('deleted_at')->first(['id', 'whatsapp_group_id']);
+        $person = $this->people($kind)->where('p.id', $id)->first(['p.id', 'p.whatsapp_group_id']);
         if ($person === null) {
             abort(404, 'Not found.');
         }
@@ -232,11 +308,11 @@ final class LessonReminderController extends Controller
         }
 
         if ($groupId !== ($person->whatsapp_group_id !== null ? (string) $person->whatsapp_group_id : null)) {
-            DB::table($table)->where('id', $id)->update([
+            DB::table($this->table($kind))->where('id', $id)->update([
                 'whatsapp_group_id' => $groupId,
                 'updated_at' => CarbonImmutable::now()->format(self::TS),
             ]);
-            Audit::log('lesson_reminders.group_assigned', $kind, $id, $academyId, $ctx->userId, $ctx->role,
+            Audit::log('lesson_reminders.group_assigned', $kind === 'class' ? 'class_group' : $kind, $id, $academyId, $ctx->userId, $ctx->role,
                 after: ['group_id' => $groupId], before: ['group_id' => $person->whatsapp_group_id]);
         }
 
@@ -274,13 +350,14 @@ final class LessonReminderController extends Controller
         abort_unless($ctx->can('settings.manage') || $this->mayAssign($ctx), 403);
 
         $rows = DB::table('whatsapp_group_alerts as a')
-            ->join('whatsapp_groups as g', 'g.id', '=', 'a.group_id')
+            ->leftJoin('whatsapp_groups as g', 'g.id', '=', 'a.group_id')
             ->where('a.academy_id', $ctx->academyId)
             ->whereIn('a.event_type', GroupAlertCatalog::LESSON_REMINDERS)
             ->when($request->boolean('problems'), fn ($q) => $q->whereIn('a.status', ['FAILED', 'EXPIRED']), fn ($q) => $q->where('a.status', '<>', 'SKIPPED'))
             ->orderByDesc('a.due_at')
             ->limit(max(1, min(100, (int) $request->query('limit', 50))))
-            ->get(['a.id', 'a.event_type', 'a.status', 'a.error', 'a.payload', 'a.due_at', 'a.sent_at', 'a.delivered_at', 'g.name as group_name']);
+            ->get(['a.id', 'a.event_type', 'a.status', 'a.error', 'a.payload', 'a.due_at', 'a.sent_at', 'a.delivered_at', 'g.name as group_name',
+                'a.recipient_phone', 'a.recipient_kind', 'a.recipient_name']);
 
         return response()->json([
             'rows' => $rows->map(fn (object $a): array => [
@@ -288,7 +365,10 @@ final class LessonReminderController extends Controller
                 'event_type' => (string) $a->event_type,
                 'status' => (string) $a->status,
                 'error' => $a->error,
-                'group_name' => (string) $a->group_name,
+                // A private reminder names the person it went to; a group one, the group.
+                'channel' => $a->recipient_phone !== null ? 'PRIVATE' : 'GROUP',
+                'group_name' => $a->recipient_phone !== null ? (string) ($a->recipient_name ?: $a->recipient_phone) : (string) $a->group_name,
+                'recipient_kind' => $a->recipient_kind,
                 'lesson' => json_decode((string) $a->payload, true) ?: (object) [],
                 'due_at' => $this->iso($a->due_at),
                 'sent_at' => $this->iso($a->sent_at),
@@ -400,11 +480,10 @@ final class LessonReminderController extends Controller
     /** @return array<string,mixed> */
     private function loadPerson(string $kind, string $id): array
     {
-        $row = DB::table($kind === 'student' ? 'students as p' : 'teachers as p')
+        $row = $this->people($kind)
             ->leftJoin('whatsapp_groups as g', 'g.id', '=', 'p.whatsapp_group_id')
             ->where('p.id', $id)
-            ->whereNull('p.deleted_at')
-            ->first(['p.id', 'p.full_name', 'g.id as group_id', 'g.jid as group_jid', 'g.name as group_name']);
+            ->first(['p.id', $kind === 'class' ? 'p.name as full_name' : 'p.full_name', 'g.id as group_id', 'g.jid as group_jid', 'g.name as group_name']);
         if ($row === null) {
             abort(404, 'Not found.');
         }
@@ -458,47 +537,123 @@ final class LessonReminderController extends Controller
             ->all();
     }
 
-    /**
-     * Roughly how many reminders the next 24 hours will take: every private lesson, once per distinct
-     * group it reaches, per stage switched on. So the screen can warn before the number's daily cap
-     * is hit, not after.
-     *
-     * @param  array{lead_minutes: int, at_start: bool, language: string}  $settings
-     */
-    private function expectedNextDay(string $academyId, array $settings): int
-    {
-        $now = CarbonImmutable::now();
-        $row = DB::selectOne(<<<'SQL'
-            select count(*) as n
-              from sessions se
-              join students st on st.id = se.student_id and st.deleted_at is null
-              left join teachers te on te.id = se.teacher_id and te.deleted_at is null
-             cross join lateral (
-               select distinct g from unnest(array[st.whatsapp_group_id, te.whatsapp_group_id]) as g where g is not null
-             ) target
-             where se.academy_id = ?
-               and se.status = 'SCHEDULED'
-               and se.hidden_at is null
-               and se.scheduled_at_utc >= ?::timestamptz
-               and se.scheduled_at_utc < ?::timestamptz
-        SQL, [$academyId, $now->format(self::TS), $now->addDay()->format(self::TS)]);
-
-        return (int) $row->n * (($settings['lead_minutes'] > 0 ? 1 : 0) + ($settings['at_start'] ? 1 : 0));
-    }
-
     /** @return array{assigned: int, total: int} */
-    private function tally(string $table): array
+    private function tally(string $kind): array
     {
-        $row = DB::table($table)->whereNull('deleted_at')
-            ->selectRaw('count(*) as total, count(whatsapp_group_id) as assigned')
+        $row = $this->people($kind)
+            ->selectRaw('count(*) as total, count(p.whatsapp_group_id) as assigned')
             ->first();
 
         return ['assigned' => (int) $row->assigned, 'total' => (int) $row->total];
     }
 
+    /**
+     * How many could get a private message: a student on their family's number or their own, a
+     * teacher on theirs — counted the way the sender reads them, so "has a number" means reachable.
+     *
+     * @return array{with_phone: int, total: int}
+     */
+    private function phoneTally(string $table): array
+    {
+        $phones = $table === 'students'
+            ? DB::table('students as p')
+                ->leftJoin('guardians as gu', fn ($j) => $j->on('gu.id', '=', 'p.guardian_id')->whereNull('gu.deleted_at'))
+                ->whereNull('p.deleted_at')
+                ->pluck(DB::raw('coalesce(gu.whatsapp_phone, p.whatsapp_phone) as phone'))
+            : DB::table('teachers as p')->whereNull('p.deleted_at')->pluck('p.phone');
+
+        return [
+            'with_phone' => $phones->filter(fn ($phone) => LessonGroupReminders::phone($phone !== null ? (string) $phone : null) !== null)->count(),
+            'total' => $phones->count(),
+        ];
+    }
+
+    /**
+     * Whether launching with these choices would reach anybody: a group assigned to someone in the
+     * audience, or a number on file for them.
+     *
+     * @param  array{channel: string, audience: string}  $settings
+     */
+    private function anyoneReachable(string $academyId, array $settings): bool
+    {
+        $students = LessonGroupReminders::reachesStudents($settings);
+        $teachers = LessonGroupReminders::reachesTeachers($settings);
+
+        if (LessonGroupReminders::usesGroups($settings)) {
+            if ($students && ($this->tally('student')['assigned'] > 0 || ($this->hasClasses($academyId) && $this->tally('class')['assigned'] > 0))) {
+                return true;
+            }
+            if ($teachers && $this->tally('teacher')['assigned'] > 0) {
+                return true;
+            }
+        }
+
+        if (LessonGroupReminders::usesPrivate($settings)) {
+            if ($students && $this->phoneTally('students')['with_phone'] > 0) {
+                return true;
+            }
+            if ($teachers && $this->phoneTally('teachers')['with_phone'] > 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** @param array<string, mixed> $fields */
+    private function saveSettings(string $academyId, array $fields): void
+    {
+        $fields['updated_at'] = CarbonImmutable::now()->format(self::TS);
+        $updated = DB::table('academy_automation_settings')->where('academy_id', $academyId)->update($fields);
+        if ($updated === 0) {
+            DB::table('academy_automation_settings')->insert($fields + ['academy_id' => $academyId]);
+        }
+    }
+
+    /** The live rows of one kind, aliased `p`: students and teachers not deleted, classes still running. */
+    private function people(string $kind): Builder
+    {
+        $query = DB::table($this->table($kind).' as p');
+
+        return $kind === 'class'
+            ? $query->where('p.status', 'ACTIVE')
+            : $query->whereNull('p.deleted_at');
+    }
+
+    private function table(string $kind): string
+    {
+        return match ($kind) {
+            'student' => 'students',
+            'teacher' => 'teachers',
+            'class' => 'class_groups',
+        };
+    }
+
+    private function editCapability(string $kind): string
+    {
+        return match ($kind) {
+            'student' => 'student.update',
+            'teacher' => 'teacher.update',
+            default => 'group.manage',
+        };
+    }
+
+    /** A class's group exists only for an academy that runs group classes. */
+    private function assertKind(string $kind): void
+    {
+        if ($kind === 'class' && ! $this->hasClasses((string) app(AuthContext::class)->academyId)) {
+            abort(404, 'Not found.');
+        }
+    }
+
+    private function hasClasses(string $academyId): bool
+    {
+        return Entitlement::hasCapability($academyId, 'groups');
+    }
+
     private function mayAssign(AuthContext $ctx): bool
     {
-        return $ctx->can('student.update') || $ctx->can('teacher.update');
+        return $ctx->can('student.update') || $ctx->can('teacher.update') || $ctx->can('group.manage');
     }
 
     private function iso(mixed $value): ?string

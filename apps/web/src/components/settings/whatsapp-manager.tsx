@@ -2,7 +2,7 @@
 
 import { CheckCircle2, Loader2, MessageCircle, QrCode, RefreshCw, Unlink, WifiOff } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SectionCard } from "@/components/settings/section-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -20,11 +20,13 @@ const IN_PROGRESS = new Set(["qr", "connecting"]);
 const POLL_MS = 3000;
 
 /**
- * Settings → WhatsApp: the academy links its own number by scanning a QR, instead of waiting on
- * us to send a connect link. "Connect" is safe to press any time — the API returns a live
- * connection untouched and only starts a new pairing when the number is really unlinked.
+ * The WhatsApp page's first step: the academy links its own number by scanning a QR, instead of
+ * waiting on us to send a connect link. "Connect" is safe to press any time — the API returns a
+ * live connection untouched and only starts a new pairing when the number is really unlinked.
+ *
+ * `onStateChange` hears every new state, so the reminders below can tell the moment it links.
  */
-export function WhatsAppManager() {
+export function WhatsAppManager({ onStateChange }: { onStateChange?: (state: string) => void } = {}) {
   const t = useTranslations("settings.whatsapp");
   const [wa, setWa] = useState<AcademyWhatsApp | null>(null);
   const [busy, setBusy] = useState(false);
@@ -49,6 +51,15 @@ export function WhatsAppManager() {
 
   const state = wa?.state ?? null;
   const connected = state === "connected";
+
+  // Told on a change only, so a poll that finds the same state is not news.
+  const notify = useRef(onStateChange);
+  useEffect(() => {
+    notify.current = onStateChange;
+  });
+  useEffect(() => {
+    if (state !== null) notify.current?.(state);
+  }, [state]);
   const watching = !connected && (IN_PROGRESS.has(state ?? "") || pairing);
 
   // The QR rotates every ~20s and the phone links at any moment: poll while a pairing is under way.

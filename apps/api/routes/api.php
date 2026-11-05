@@ -852,19 +852,22 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/academy/whatsapp/logout', [AcademyWhatsAppController::class, 'logout']);
     });
 
-    // Lesson reminders in WhatsApp groups: a group per student and teacher, reminders ahead of a
-    // lesson and when it starts. Switched on per client by a Super Admin (opt-in); gates inside.
+    // The academy's WhatsApp page: lesson reminders into WhatsApp groups (a student's, a teacher's, a
+    // class's) and/or private messages, ahead of a lesson and when it starts, sent once the academy
+    // launches them. Switched on per client by a Super Admin (opt-in); gates inside.
     Route::middleware('entitled:whatsapp.group_reminders')->group(function () {
         Route::get('/lesson-reminders', [LessonReminderController::class, 'show']);
         Route::put('/lesson-reminders/settings', [LessonReminderController::class, 'updateSettings']);
+        Route::post('/lesson-reminders/launch', [LessonReminderController::class, 'launch']);
+        Route::post('/lesson-reminders/stop', [LessonReminderController::class, 'stop']);
         Route::get('/lesson-reminders/groups', [LessonReminderController::class, 'groups']);
         Route::post('/lesson-reminders/groups/{groupId}/test', [LessonReminderController::class, 'test'])
             ->whereUuid('groupId')->middleware('throttle:10,1');
         Route::get('/lesson-reminders/assignments', [LessonReminderController::class, 'assignments']);
         Route::get('/lesson-reminders/assignments/{kind}/{id}', [LessonReminderController::class, 'person'])
-            ->whereIn('kind', ['student', 'teacher'])->whereUuid('id');
+            ->whereIn('kind', ['student', 'teacher', 'class'])->whereUuid('id');
         Route::put('/lesson-reminders/assignments/{kind}/{id}', [LessonReminderController::class, 'assign'])
-            ->whereIn('kind', ['student', 'teacher'])->whereUuid('id');
+            ->whereIn('kind', ['student', 'teacher', 'class'])->whereUuid('id');
         Route::get('/lesson-reminders/log', [LessonReminderController::class, 'log']);
     });
 
@@ -1357,6 +1360,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::get('/receipts', [ReceiptController::class, 'index']);
             Route::post('/receipts', [ReceiptController::class, 'store']);
             Route::get('/receipts/{id}', [ReceiptController::class, 'show'])->whereUuid('id');
+            Route::post('/receipts/{id}/amend', [ReceiptController::class, 'amend'])->whereUuid('id');
             Route::post('/receipts/{id}/void', [ReceiptController::class, 'void'])->whereUuid('id');
             Route::post('/receipts/{id}/send', [ReceiptController::class, 'send'])->whereUuid('id');
             Route::get('/receipts/{id}/proof', [ReceiptController::class, 'proof'])->whereUuid('id');

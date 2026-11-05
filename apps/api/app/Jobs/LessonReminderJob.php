@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
+use App\Services\Whatsapp\LessonGroupReminders;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use App\Support\Tenancy;
 use App\Support\TenantContext;
 use Illuminate\Bus\Queueable;
@@ -71,6 +73,11 @@ final class LessonReminderJob implements ShouldQueue
         $recipients = DB::table('academy_automation_settings')->where('academy_id', $academyId)
             ->where('type2_lessons_enabled', true)->value('type2_recipients');
         if ($recipients === null) {
+            return 0;
+        }
+        // An academy with its own WhatsApp page sends private reminders from there, on its own
+        // timing ({@see LessonGroupReminders}); this hourly sweep would message the same people twice.
+        if (Entitlement::hasCapability($academyId, 'whatsapp.group_reminders')) {
             return 0;
         }
         $toStudents = $recipients !== 'TEACHERS';

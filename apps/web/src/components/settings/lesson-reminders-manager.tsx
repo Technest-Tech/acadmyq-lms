@@ -1,6 +1,26 @@
 "use client";
 
-import { AlarmClock, BellRing, ChevronLeft, ChevronRight, History, Loader2, RefreshCw, Search, Users2, WifiOff } from "lucide-react";
+import {
+  AlarmClock,
+  BellRing,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleStop,
+  History,
+  Layers,
+  Loader2,
+  MessageCircle,
+  Phone,
+  RefreshCw,
+  Rocket,
+  Search,
+  User,
+  Users2,
+  WifiOff,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -12,12 +32,17 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/components/ui/toast";
 import {
   getLessonReminders,
+  launchLessonReminders,
   listReminderAssignments,
   listReminderGroups,
   listReminderLog,
+  stopLessonReminders,
   updateLessonReminderSettings,
+  type LessonReminderChoices,
   type LessonReminderSettings,
   type LessonRemindersOverview,
+  type ReminderAudience,
+  type ReminderChannel,
   type ReminderGroupOption,
   type ReminderLogRow,
   type ReminderPerson,
@@ -29,21 +54,69 @@ import { cn } from "@/lib/utils";
 const selectClass =
   "border-input bg-background focus:border-primary focus:ring-primary/20 h-10 w-full rounded-xl border px-3 text-sm outline-none transition-all focus:ring-2 disabled:opacity-50";
 
+const CHANNELS: ReadonlyArray<{ key: ReminderChannel; icon: LucideIcon }> = [
+  { key: "GROUPS", icon: Users2 },
+  { key: "PRIVATE", icon: User },
+  { key: "BOTH", icon: Layers },
+];
+const AUDIENCES: readonly ReminderAudience[] = ["BOTH", "STUDENTS", "TEACHERS"];
+
+const usesGroups = (c: LessonReminderChoices) => c.channel !== "PRIVATE";
+const usesPrivate = (c: LessonReminderChoices) => c.channel !== "GROUPS";
+const reachesStudents = (c: LessonReminderChoices) => c.audience !== "TEACHERS";
+const reachesTeachers = (c: LessonReminderChoices) => c.audience !== "STUDENTS";
+
+function choicesOf(s: LessonReminderSettings): LessonReminderChoices {
+  return { lead_minutes: s.lead_minutes, at_start: s.at_start, language: s.language, channel: s.channel, audience: s.audience };
+}
+
+function sameChoices(a: LessonReminderChoices, b: LessonReminderChoices): boolean {
+  return (
+    a.lead_minutes === b.lead_minutes &&
+    a.at_start === b.at_start &&
+    a.language === b.language &&
+    a.channel === b.channel &&
+    a.audience === b.audience
+  );
+}
+
+/** Whether anybody would get a reminder with these choices — the same test the API runs before a launch. */
+function reachable(o: LessonRemindersOverview, c: LessonReminderChoices): boolean {
+  const groups =
+    usesGroups(c) &&
+    ((reachesStudents(c) && o.assigned.students.assigned + (o.assigned.classes?.assigned ?? 0) > 0) ||
+      (reachesTeachers(c) && o.assigned.teachers.assigned > 0));
+  const phones =
+    usesPrivate(c) &&
+    ((reachesStudents(c) && o.phones.students.with_phone > 0) || (reachesTeachers(c) && o.phones.teachers.with_phone > 0));
+  return groups || phones;
+}
+
 /**
- * Settings → Lesson reminders (`whatsapp.group_reminders`, off until a Super Admin turns it on for
- * the client): give each student and teacher a WhatsApp group, choose when reminders go out, and
- * see whether they are arriving. Sending is the API's, on the scheduler.
+ * The lesson reminders on the academy's WhatsApp page (`whatsapp.group_reminders`, off until a Super
+ * Admin turns it on for the client). The academy chooses how they travel (its WhatsApp groups, a
+ * private message to each number, or both), to whom, and when — then launches them. Nothing is sent
+ * before the launch. Sending is the API's, on the scheduler.
+ *
+ * `connectionVersion` changes when the number above links or drops, so the readiness list follows.
  */
-export function LessonRemindersManager() {
+export function LessonRemindersManager({ connectionVersion = 0 }: { connectionVersion?: number }) {
   const t = useTranslations("settings.lessonReminders");
+  const toast = useToast();
   const describe = useReminderError();
   const { can } = useAuth();
+  const canEdit = can("settings.manage");
   const [overview, setOverview] = useState<LessonRemindersOverview | null>(null);
+  const [form, setForm] = useState<LessonReminderChoices | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<"save" | "launch" | "stop" | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setOverview(await getLessonReminders());
+      const next = await getLessonReminders();
+      setOverview(next);
+      // Unsaved choices survive a refresh of the counts.
+      setForm((current) => current ?? choicesOf(next.settings));
     } catch (err) {
       setError(describe(err));
     }
@@ -52,9 +125,9 @@ export function LessonRemindersManager() {
 
   useEffect(() => {
     void load();
-  }, [load]);
+  }, [load, connectionVersion]);
 
-  if (overview === null) {
+  if (overview === null || form === null) {
     return error ? (
       <AlertBanner variant="error" message={error} />
     ) : (
@@ -65,10 +138,62 @@ export function LessonRemindersManager() {
   }
 
   const connected = overview.whatsapp.state === "connected";
+  const dirty = !sameChoices(form, choicesOf(overview.settings));
+
+  function applied(settings: LessonReminderSettings) {
+    setOverview((current) => (current ? { ...current, settings } : current));
+    setForm(choicesOf(settings));
+  }
+
+  async function save(): Promise<boolean> {
+    if (!form) return false;
+    setBusy("save");
+    setError(null);
+    try {
+      applied((await updateLessonReminderSettings(form)).settings);
+      void load();
+      return true;
+    } catch (err) {
+      setError(describe(err));
+      return false;
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function launch() {
+    // The launch sends what is on screen, so unsaved choices are saved first.
+    if (dirty && !(await save())) return;
+    setBusy("launch");
+    setError(null);
+    try {
+      applied((await launchLessonReminders()).settings);
+      toast.success(t("launch.launched"));
+      void load();
+    } catch (err) {
+      setError(describe(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function stop() {
+    setBusy("stop");
+    setError(null);
+    try {
+      applied((await stopLessonReminders()).settings);
+      toast.success(t("launch.stopped"));
+      void load();
+    } catch (err) {
+      setError(describe(err));
+    } finally {
+      setBusy(null);
+    }
+  }
 
   return (
     <div className="space-y-6" data-testid="lesson-reminders">
-      {!connected && (
+      {!connected && overview.settings.live && (
         <div
           className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm"
           data-testid="reminders-not-connected"
@@ -81,12 +206,323 @@ export function LessonRemindersManager() {
         </div>
       )}
 
-      <Summary overview={overview} />
+      {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
 
-      <TimingCard overview={overview} canEdit={can("settings.manage")} onSaved={load} />
-      <AssignCard connected={connected} canEditStudents={can("student.update")} canEditTeachers={can("teacher.update")} canSeeTeachers={can("teacher.read")} onChanged={load} />
+      <LaunchCard overview={overview} form={form} canEdit={canEdit} busy={busy} onLaunch={() => void launch()} onStop={() => void stop()} />
+
+      <SetupCard overview={overview} form={form} onChange={setForm} canEdit={canEdit} dirty={dirty} saving={busy === "save"} onSave={() => void save()} />
+
+      {usesGroups(form) && (
+        <AssignCard
+          connected={connected}
+          canEditStudents={can("student.update")}
+          canEditTeachers={can("teacher.update")}
+          canSeeTeachers={can("teacher.read")}
+          canEditClasses={overview.assigned.classes !== null && can("group.manage")}
+          onChanged={load}
+        />
+      )}
+
+      {usesPrivate(form) && <PrivateReachCard overview={overview} form={form} />}
+
+      <Summary overview={overview} />
       <LogCard timezone={overview.timezone} />
     </div>
+  );
+}
+
+/** The state of the reminders and the one button that starts or stops them. */
+function LaunchCard({
+  overview,
+  form,
+  canEdit,
+  busy,
+  onLaunch,
+  onStop,
+}: {
+  overview: LessonRemindersOverview;
+  form: LessonReminderChoices;
+  canEdit: boolean;
+  busy: "save" | "launch" | "stop" | null;
+  onLaunch: () => void;
+  onStop: () => void;
+}) {
+  const t = useTranslations("settings.lessonReminders");
+  const locale = useLocale();
+  const { live, live_since: since } = overview.settings;
+  const connected = overview.whatsapp.state === "connected";
+  const timed = form.lead_minutes > 0 || form.at_start;
+  const reach = reachable(overview, form);
+  const ready = connected && timed && reach;
+
+  const checks: ReadonlyArray<{ key: string; ok: boolean; label: string }> = [
+    { key: "connected", ok: connected, label: connected ? t("launch.checkConnected") : t("launch.checkNotConnected") },
+    { key: "timing", ok: timed, label: timed ? t("launch.checkTiming") : t("launch.checkNoTiming") },
+    {
+      key: "reach",
+      ok: reach,
+      label: reach ? t("launch.checkReach") : usesGroups(form) && !usesPrivate(form) ? t("launch.checkNoGroups") : t("launch.checkNoReach"),
+    },
+  ];
+
+  return (
+    <div
+      className={cn(
+        "overflow-hidden rounded-2xl border shadow-sm",
+        live ? "border-emerald-500/40 bg-emerald-500/[0.06]" : "bg-card",
+      )}
+      data-testid="reminders-launch"
+      data-live={live ? "true" : "false"}
+    >
+      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-6">
+        <div className="flex min-w-0 flex-1 items-start gap-3.5">
+          <div
+            className={cn(
+              "flex size-11 shrink-0 items-center justify-center rounded-2xl text-white shadow-sm",
+              live ? "bg-gradient-to-br from-emerald-500 to-green-600" : "bg-gradient-to-br from-slate-400 to-slate-600",
+            )}
+          >
+            {live ? <BellRing className="size-5" aria-hidden /> : <Rocket className="size-5" aria-hidden />}
+          </div>
+          <div className="min-w-0">
+            <p className="text-base font-semibold" data-testid="reminders-launch-state">
+              {live ? t("launch.liveTitle") : t("launch.offTitle")}
+            </p>
+            <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">
+              {live
+                ? since
+                  ? t("launch.liveSince", { date: formatDateTime(since, overview.timezone, locale) })
+                  : t("launch.liveDesc")
+                : t("launch.offDesc")}
+            </p>
+            {live && (
+              <p className="mt-1.5 text-xs font-medium">
+                {t(`channel.${overview.settings.channel}.title`)} · {t(`audience.${overview.settings.audience}`)}
+              </p>
+            )}
+          </div>
+        </div>
+
+        {canEdit &&
+          (live ? (
+            <Button variant="outline" disabled={busy !== null} onClick={onStop} data-testid="reminders-stop">
+              {busy === "stop" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <CircleStop className="size-4" aria-hidden />}
+              {t("launch.stop")}
+            </Button>
+          ) : (
+            <Button size="lg" disabled={busy !== null || !ready} onClick={onLaunch} data-testid="reminders-launch-button">
+              {busy === "launch" || busy === "save" ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Rocket className="size-4" aria-hidden />}
+              {t("launch.button")}
+            </Button>
+          ))}
+      </div>
+
+      {!live && (
+        <ul className="grid gap-2 border-t px-4 py-3 sm:grid-cols-3 sm:px-6" data-testid="reminders-checklist">
+          {checks.map(({ key, ok, label }) => (
+            <li key={key} className="flex items-start gap-2 text-xs" data-testid={`reminders-check-${key}`} data-ok={ok ? "true" : "false"}>
+              <span
+                className={cn(
+                  "mt-px flex size-4 shrink-0 items-center justify-center rounded-full",
+                  ok ? "bg-emerald-500 text-white" : "bg-muted text-muted-foreground",
+                )}
+              >
+                {ok ? <Check className="size-3" aria-hidden /> : <X className="size-3" aria-hidden />}
+              </span>
+              <span className={cn("min-w-0 break-words", !ok && "text-muted-foreground")}>{label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!canEdit && <p className="text-muted-foreground border-t px-4 py-2.5 text-xs sm:px-6">{t("launch.viewOnly")}</p>}
+    </div>
+  );
+}
+
+/** How reminders travel, to whom, and when. */
+function SetupCard({
+  overview,
+  form,
+  onChange,
+  canEdit,
+  dirty,
+  saving,
+  onSave,
+}: {
+  overview: LessonRemindersOverview;
+  form: LessonReminderChoices;
+  onChange: (form: LessonReminderChoices) => void;
+  canEdit: boolean;
+  dirty: boolean;
+  saving: boolean;
+  onSave: () => void;
+}) {
+  const t = useTranslations("settings.lessonReminders");
+  const silent = form.lead_minutes === 0 && !form.at_start;
+
+  return (
+    <SectionCard
+      icon={AlarmClock}
+      title={t("setupTitle")}
+      description={t("setupDesc")}
+      iconClassName="bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/25"
+      testId="reminders-timing"
+    >
+      <fieldset disabled={!canEdit} className="space-y-5">
+        <div className="space-y-2">
+          <span className="block text-sm font-medium">{t("channel.title")}</span>
+          <div role="radiogroup" aria-label={t("channel.title")} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {CHANNELS.map(({ key, icon: Icon }) => {
+              const selected = form.channel === key;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  onClick={() => onChange({ ...form, channel: key })}
+                  data-testid={`reminders-channel-${key}`}
+                  className={cn(
+                    "flex items-start gap-3 rounded-xl border p-3 text-start transition-all disabled:cursor-not-allowed disabled:opacity-60",
+                    selected ? "border-primary bg-primary/5 ring-primary/20 ring-2" : "hover:bg-muted/50",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex size-8 shrink-0 items-center justify-center rounded-lg",
+                      selected ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground",
+                    )}
+                  >
+                    <Icon className="size-4" aria-hidden />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-sm font-semibold">{t(`channel.${key}.title`)}</span>
+                    <span className="text-muted-foreground mt-0.5 block text-xs leading-relaxed">{t(`channel.${key}.desc`)}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {usesGroups(form) && <p className="text-muted-foreground text-xs">{t("sharedHint")}</p>}
+        </div>
+
+        <div className="space-y-2">
+          <span className="block text-sm font-medium">{t("audience.title")}</span>
+          <div role="radiogroup" aria-label={t("audience.title")} className="no-scrollbar flex gap-1 overflow-x-auto rounded-xl border bg-muted/40 p-1">
+            {AUDIENCES.map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="radio"
+                aria-checked={form.audience === key}
+                onClick={() => onChange({ ...form, audience: key })}
+                data-testid={`reminders-audience-${key}`}
+                className={cn(
+                  "flex-1 shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all disabled:cursor-not-allowed",
+                  form.audience === key ? "bg-card shadow-sm ring-1 ring-black/5" : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {t(`audience.${key}`)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">{t("lead")}</span>
+            <select
+              className={selectClass}
+              value={form.lead_minutes}
+              onChange={(e) => onChange({ ...form, lead_minutes: Number(e.target.value) })}
+              data-testid="reminders-lead"
+            >
+              {overview.lead_choices.map((n) => (
+                <option key={n} value={n}>
+                  {n === 0 ? t("leadOff") : t("leadMinutes", { n })}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="block space-y-1.5">
+            <span className="text-sm font-medium">{t("language")}</span>
+            <select
+              className={selectClass}
+              value={form.language}
+              onChange={(e) => onChange({ ...form, language: e.target.value === "en" ? "en" : "ar" })}
+              data-testid="reminders-language"
+            >
+              <option value="ar">{t("arabic")}</option>
+              <option value="en">{t("english")}</option>
+            </select>
+          </label>
+        </div>
+
+        <label className="flex items-start justify-between gap-4 rounded-xl border p-3">
+          <span className="min-w-0">
+            <span className="block text-sm font-medium">{t("atStart")}</span>
+            <span className="text-muted-foreground mt-0.5 block text-xs">{t("atStartHint")}</span>
+          </span>
+          <Switch
+            checked={form.at_start}
+            disabled={!canEdit}
+            onChange={(e) => onChange({ ...form, at_start: e.target.checked })}
+            aria-label={t("atStart")}
+            data-testid="reminders-at-start"
+          />
+        </label>
+      </fieldset>
+
+      {silent && <p className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-400">{t("silentWarn")}</p>}
+
+      {canEdit && (
+        <div className="mt-4 flex items-center justify-end gap-3">
+          {dirty && overview.settings.live && <p className="text-muted-foreground text-xs">{t("liveSaveHint")}</p>}
+          <Button disabled={!dirty || saving} onClick={onSave} data-testid="reminders-save">
+            {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            {t("save")}
+          </Button>
+        </div>
+      )}
+    </SectionCard>
+  );
+}
+
+/** Private messages go to the numbers on file: how many of the chosen people have one. */
+function PrivateReachCard({ overview, form }: { overview: LessonRemindersOverview; form: LessonReminderChoices }) {
+  const t = useTranslations("settings.lessonReminders.private");
+  const rows: ReadonlyArray<{ key: "students" | "teachers"; on: boolean }> = [
+    { key: "students", on: reachesStudents(form) },
+    { key: "teachers", on: reachesTeachers(form) },
+  ];
+
+  return (
+    <SectionCard
+      icon={Phone}
+      title={t("title")}
+      description={t("desc")}
+      iconClassName="bg-gradient-to-br from-sky-500 to-blue-600 shadow-sky-500/25"
+      testId="reminders-private"
+    >
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        {rows
+          .filter((row) => row.on)
+          .map(({ key }) => {
+            const { with_phone: withPhone, total } = overview.phones[key];
+            return (
+              <div key={key} className="rounded-xl border p-3" data-testid={`reminders-phones-${key}`}>
+                <p className="text-muted-foreground text-xs">{t(`${key}Label`)}</p>
+                <p className={cn("mt-1 text-xl font-bold tabular-nums", withPhone === 0 && "text-destructive")}>
+                  {withPhone} <span className="text-muted-foreground text-sm font-medium">/ {total}</span>
+                </p>
+                <p className="text-muted-foreground mt-0.5 text-xs">{t(key, { with: withPhone, total })}</p>
+              </div>
+            );
+          })}
+      </div>
+      <p className="text-muted-foreground mt-3 text-xs leading-relaxed">{t("hint")}</p>
+    </SectionCard>
   );
 }
 
@@ -115,6 +551,7 @@ function Summary({ overview }: { overview: LessonRemindersOverview }) {
       </div>
       <p className="text-muted-foreground text-xs">
         {t("statsHint")} · {t("assignedStudents", assigned.students)} · {t("assignedTeachers", assigned.teachers)}
+        {assigned.classes && <> · {t("assignedClasses", assigned.classes)}</>}
         {capacity && <> · {t("sentToday", { sent: capacity.sent_today, cap: capacity.daily_cap })}</>}
       </p>
       {tight && capacity && (
@@ -126,131 +563,29 @@ function Summary({ overview }: { overview: LessonRemindersOverview }) {
   );
 }
 
-function TimingCard({
-  overview,
-  canEdit,
-  onSaved,
-}: {
-  overview: LessonRemindersOverview;
-  canEdit: boolean;
-  onSaved: () => Promise<void>;
-}) {
-  const t = useTranslations("settings.lessonReminders");
-  const toast = useToast();
-  const describe = useReminderError();
-  const [form, setForm] = useState<LessonReminderSettings>(overview.settings);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const saved = overview.settings;
-  const dirty = form.lead_minutes !== saved.lead_minutes || form.at_start !== saved.at_start || form.language !== saved.language;
-  const silent = form.lead_minutes === 0 && !form.at_start;
-
-  async function save() {
-    setSaving(true);
-    setError(null);
-    try {
-      await updateLessonReminderSettings(form);
-      toast.success(t("saved"));
-      await onSaved();
-    } catch (err) {
-      setError(describe(err));
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <SectionCard
-      icon={AlarmClock}
-      title={t("timingTitle")}
-      description={t("timingDesc")}
-      iconClassName="bg-gradient-to-br from-amber-500 to-orange-600 shadow-amber-500/25"
-      testId="reminders-timing"
-    >
-      {error && (
-        <div className="mb-4">
-          <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <label className="block space-y-1.5">
-          <span className="text-sm font-medium">{t("lead")}</span>
-          <select
-            className={selectClass}
-            value={form.lead_minutes}
-            disabled={!canEdit}
-            onChange={(e) => setForm({ ...form, lead_minutes: Number(e.target.value) })}
-            data-testid="reminders-lead"
-          >
-            {overview.lead_choices.map((n) => (
-              <option key={n} value={n}>
-                {n === 0 ? t("leadOff") : t("leadMinutes", { n })}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="block space-y-1.5">
-          <span className="text-sm font-medium">{t("language")}</span>
-          <select
-            className={selectClass}
-            value={form.language}
-            disabled={!canEdit}
-            onChange={(e) => setForm({ ...form, language: e.target.value === "en" ? "en" : "ar" })}
-            data-testid="reminders-language"
-          >
-            <option value="ar">{t("arabic")}</option>
-            <option value="en">{t("english")}</option>
-          </select>
-        </label>
-      </div>
-
-      <label className="mt-4 flex items-start justify-between gap-4 rounded-xl border p-3">
-        <span className="min-w-0">
-          <span className="block text-sm font-medium">{t("atStart")}</span>
-          <span className="text-muted-foreground mt-0.5 block text-xs">{t("atStartHint")}</span>
-        </span>
-        <Switch
-          checked={form.at_start}
-          disabled={!canEdit}
-          onChange={(e) => setForm({ ...form, at_start: e.target.checked })}
-          aria-label={t("atStart")}
-          data-testid="reminders-at-start"
-        />
-      </label>
-
-      {silent && <p className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-400">{t("silentWarn")}</p>}
-
-      {canEdit && (
-        <div className="mt-4 flex justify-end">
-          <Button disabled={!dirty || saving} onClick={() => void save()} data-testid="reminders-save">
-            {saving && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {t("save")}
-          </Button>
-        </div>
-      )}
-    </SectionCard>
-  );
-}
-
 function AssignCard({
   connected,
   canEditStudents,
   canEditTeachers,
   canSeeTeachers,
+  canEditClasses,
   onChanged,
 }: {
   connected: boolean;
   canEditStudents: boolean;
   canEditTeachers: boolean;
   canSeeTeachers: boolean;
+  /** A centre's classes, each with one WhatsApp group for all its students. */
+  canEditClasses: boolean;
   onChanged: () => Promise<void>;
 }) {
   const t = useTranslations("settings.lessonReminders");
   const describe = useReminderError();
-  const kinds: ReminderPersonKind[] = [...(canEditStudents ? (["student"] as const) : []), ...(canSeeTeachers ? (["teacher"] as const) : [])];
+  const kinds: ReminderPersonKind[] = [
+    ...(canEditClasses ? (["class"] as const) : []),
+    ...(canEditStudents ? (["student"] as const) : []),
+    ...(canSeeTeachers ? (["teacher"] as const) : []),
+  ];
   const [kind, setKind] = useState<ReminderPersonKind>(kinds[0] ?? "student");
   const [assigned, setAssigned] = useState<"" | "yes" | "no">("");
   const [typed, setTyped] = useState("");
@@ -323,7 +658,8 @@ function AssignCard({
   }
 
   const pages = Math.max(1, Math.ceil(total / pageSize));
-  const canEdit = kind === "student" ? canEditStudents : canEditTeachers;
+  const canEdit = kind === "student" ? canEditStudents : kind === "teacher" ? canEditTeachers : canEditClasses;
+  const kindLabel = (k: ReminderPersonKind) => t(k === "student" ? "students" : k === "teacher" ? "teachers" : "classes");
 
   return (
     <SectionCard
@@ -341,7 +677,7 @@ function AssignCard({
 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
         {kinds.length > 1 && (
-          <div role="tablist" aria-label={t("assignTitle")} className="flex shrink-0 gap-1 rounded-xl border bg-muted/40 p-1">
+          <div role="tablist" aria-label={t("assignTitle")} className="no-scrollbar flex shrink-0 gap-1 overflow-x-auto rounded-xl border bg-muted/40 p-1">
             {kinds.map((k) => (
               <button
                 key={k}
@@ -354,11 +690,11 @@ function AssignCard({
                 }}
                 data-testid={`reminders-kind-${k}`}
                 className={cn(
-                  "flex-1 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all",
+                  "flex-1 shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-all",
                   kind === k ? "bg-card shadow-sm ring-1 ring-black/5" : "text-muted-foreground hover:text-foreground",
                 )}
               >
-                {t(k === "student" ? "students" : "teachers")}
+                {kindLabel(k)}
               </button>
             ))}
           </div>
@@ -398,6 +734,8 @@ function AssignCard({
           </Button>
         )}
       </div>
+
+      {kind === "class" && <p className="text-muted-foreground mt-3 text-xs">{t("classesHint")}</p>}
 
       <div className="mt-4 divide-y rounded-xl border">
         {rows === null ? (
@@ -499,32 +837,41 @@ function LogCard({ timezone }: { timezone: string }) {
         </div>
       ) : (
         <ul className="divide-y rounded-xl border">
-          {rows.map((row) => (
-            <li key={row.id} className="flex flex-col gap-1 p-3 sm:flex-row sm:items-center sm:gap-3" data-testid={`reminder-log-${row.id}`}>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium break-words">{row.group_name}</p>
-                <p className="text-muted-foreground mt-0.5 text-xs break-words">
-                  {t(`stage.${row.event_type}`)}
-                  {row.lesson.starts_at && <> · {formatDateTime(row.lesson.starts_at, timezone, locale)}</>}
-                  {" · "}
-                  {row.lesson.class ?? row.lesson.student ?? "—"}
-                  {row.lesson.teacher && <> — {row.lesson.teacher}</>}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  "w-fit shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
-                  row.status === "FAILED" || row.status === "EXPIRED"
-                    ? "bg-destructive/10 text-destructive"
-                    : row.status === "SENT" || row.status === "DELIVERED"
-                      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-                      : "bg-muted text-muted-foreground",
-                )}
-              >
-                {t(`status.${row.status}`)}
-              </span>
-            </li>
-          ))}
+          {rows.map((row) => {
+            const Icon = row.channel === "PRIVATE" ? MessageCircle : Users2;
+            return (
+              <li key={row.id} className="flex flex-col gap-1 p-3 sm:flex-row sm:items-center sm:gap-3" data-testid={`reminder-log-${row.id}`}>
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-1.5 text-sm font-medium break-words">
+                    <Icon className="text-muted-foreground size-3.5 shrink-0" aria-label={t(row.channel === "PRIVATE" ? "logPrivate" : "logGroup")} />
+                    <span className="min-w-0 break-words">{row.group_name}</span>
+                    {row.recipient_kind && (
+                      <span className="text-muted-foreground shrink-0 text-xs font-normal">· {t(`recipient.${row.recipient_kind}`)}</span>
+                    )}
+                  </p>
+                  <p className="text-muted-foreground mt-0.5 text-xs break-words">
+                    {t(`stage.${row.event_type}`)}
+                    {row.lesson.starts_at && <> · {formatDateTime(row.lesson.starts_at, timezone, locale)}</>}
+                    {" · "}
+                    {row.lesson.class ?? row.lesson.student ?? "—"}
+                    {row.lesson.teacher && <> — {row.lesson.teacher}</>}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "w-fit shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold",
+                    row.status === "FAILED" || row.status === "EXPIRED"
+                      ? "bg-destructive/10 text-destructive"
+                      : row.status === "SENT" || row.status === "DELIVERED"
+                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                        : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {t(`status.${row.status}`)}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </SectionCard>

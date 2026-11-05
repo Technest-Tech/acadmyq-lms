@@ -1,21 +1,36 @@
 /**
- * Lesson reminders in WhatsApp groups — the API client for /api/lesson-reminders.
+ * Lesson reminders — the API client for /api/lesson-reminders, behind the academy's WhatsApp page.
  *
  * Kept out of `api.ts` like `groups-api.ts`: a module of its own behind its own feature switch
  * (`whatsapp.group_reminders`, off until a Super Admin turns it on for the client).
  */
 import { apiFetch } from "@/lib/api";
 
-export type ReminderPersonKind = "student" | "teacher";
+export type ReminderPersonKind = "student" | "teacher" | "class";
+/** How reminders travel: the assigned WhatsApp groups, a private message to each number, or both. */
+export type ReminderChannel = "GROUPS" | "PRIVATE" | "BOTH";
+export type ReminderAudience = "BOTH" | "STUDENTS" | "TEACHERS";
 export type ReminderStage = "LESSON_REMINDER" | "LESSON_STARTING";
 export type ReminderStatus = "PENDING" | "SENDING" | "QUEUED" | "SENT" | "DELIVERED" | "FAILED" | "EXPIRED" | "SKIPPED";
 
-export interface LessonReminderSettings {
+/** What the academy can change from the page; `live` moves only with launch / stop. */
+export interface LessonReminderChoices {
   /** 0 = no reminder ahead of the lesson. */
   lead_minutes: number;
   at_start: boolean;
   language: "ar" | "en";
+  channel: ReminderChannel;
+  audience: ReminderAudience;
 }
+
+export interface LessonReminderSettings extends LessonReminderChoices {
+  /** Launched: nothing is sent until the academy presses the button. */
+  live: boolean;
+  live_since: string | null;
+}
+
+// A type, not an interface: it is handed straight to next-intl as the message's values.
+type Tally = { assigned: number; total: number };
 
 export interface LessonRemindersOverview {
   settings: LessonReminderSettings;
@@ -26,8 +41,15 @@ export interface LessonRemindersOverview {
   /** null when the gateway does not report its queue. */
   capacity: { sent_today: number; daily_cap: number; expected_next_day: number } | null;
   assigned: {
-    students: { assigned: number; total: number };
-    teachers: { assigned: number; total: number };
+    students: Tally;
+    teachers: Tally;
+    /** null when the academy runs no group classes. */
+    classes: Tally | null;
+  };
+  /** Who could get a private message: a number on file the sender can read. */
+  phones: {
+    students: { with_phone: number; total: number };
+    teachers: { with_phone: number; total: number };
   };
   last_day: { sent: number; waiting: number; failed: number; missed: number };
 }
@@ -41,6 +63,7 @@ export interface ReminderGroupOption {
   can_send: boolean;
   assigned_students: number;
   assigned_teachers: number;
+  assigned_classes: number;
 }
 
 export interface AssignedReminderGroup {
@@ -63,7 +86,10 @@ export interface ReminderLogRow {
   event_type: ReminderStage;
   status: ReminderStatus;
   error: string | null;
+  channel: "GROUP" | "PRIVATE";
+  /** The group's name, or for a private message the person it was about. */
   group_name: string;
+  recipient_kind: "STUDENT" | "GUARDIAN" | "TEACHER" | null;
   lesson: { kind?: "LESSON" | "TRIAL" | "CLASS"; student?: string | null; teacher?: string | null; class?: string | null; starts_at?: string };
   due_at: string | null;
   sent_at: string | null;
@@ -74,8 +100,17 @@ export function getLessonReminders(): Promise<LessonRemindersOverview> {
   return apiFetch("/api/lesson-reminders");
 }
 
-export function updateLessonReminderSettings(settings: LessonReminderSettings): Promise<{ settings: LessonReminderSettings }> {
+export function updateLessonReminderSettings(settings: LessonReminderChoices): Promise<{ settings: LessonReminderSettings }> {
   return apiFetch("/api/lesson-reminders/settings", { method: "PUT", body: JSON.stringify(settings) });
+}
+
+/** Start sending. 409 `not_connected`, 422 `nobody_to_remind` / `no_timing` when it would send nothing. */
+export function launchLessonReminders(): Promise<{ settings: LessonReminderSettings }> {
+  return apiFetch("/api/lesson-reminders/launch", { method: "POST" });
+}
+
+export function stopLessonReminders(): Promise<{ settings: LessonReminderSettings }> {
+  return apiFetch("/api/lesson-reminders/stop", { method: "POST" });
 }
 
 /** `refresh` skips the server's short cache — the number was just added to a group. */

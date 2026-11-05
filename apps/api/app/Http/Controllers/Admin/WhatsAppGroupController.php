@@ -271,10 +271,11 @@ final class WhatsAppGroupController extends Controller
         $ctx = app(AuthContext::class);
 
         $deleted = $this->inAcademyContext($id, function () use ($id, $groupId, $ctx): int {
-            // Students or teachers still assigned to it: it stops taking staff alerts but stays
+            // Students, teachers or classes still assigned to it: it stops taking staff alerts but stays
             // linked for their lesson reminders, rather than silently forgetting those assignments.
             $assigned = DB::table('students')->where('whatsapp_group_id', $groupId)->exists()
-                || DB::table('teachers')->where('whatsapp_group_id', $groupId)->exists();
+                || DB::table('teachers')->where('whatsapp_group_id', $groupId)->exists()
+                || DB::table('class_groups')->where('whatsapp_group_id', $groupId)->exists();
 
             if ($assigned) {
                 $now = CarbonImmutable::now()->toIso8601String();

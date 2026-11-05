@@ -1,41 +1,36 @@
 "use client";
 
-import { BellRing, BookOpen, CalendarOff, ClipboardList, DatabaseBackup, MessageCircle, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { BookOpen, CalendarOff, ClipboardList, DatabaseBackup, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { HolidaysManager } from "@/components/holidays/holidays-manager";
-import { AbsenceAlertManager } from "@/components/settings/absence-alert-manager";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { AdminsCard } from "@/components/settings/admins-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
 import { DataExportCard } from "@/components/settings/data-export-card";
 import { GroupDefaultsManager } from "@/components/settings/group-defaults-manager";
-import { LessonRemindersManager } from "@/components/settings/lesson-reminders-manager";
 import { LessonReportManager } from "@/components/settings/lesson-report-manager";
 import { LevelsManager } from "@/components/settings/levels-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { RoomsManager } from "@/components/settings/rooms-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
-import { WhatsAppManager } from "@/components/settings/whatsapp-manager";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
-type TabKey = "courses" | "lessonReport" | "reportCard" | "whatsapp" | "lessonReminders" | "holidays" | "controls" | "account";
+type TabKey = "courses" | "lessonReport" | "reportCard" | "holidays" | "controls" | "account";
 
 /**
  * Each tab names the capability it needs: the course list and the report card are day-to-day
- * (a supervisor keeps them), the WhatsApp pairing and the Controls switches are the academy's own
- * settings (settings.manage, the owner's). Account & data (other admins, the data export) is for
- * the academy's admins only — no delegated role reaches it, whatever it holds. Lesson reminders are
- * for whoever edits students, since assigning a family's group is day-to-day work.
+ * (a supervisor keeps them), the Controls switches are the academy's own settings (settings.manage,
+ * the owner's). Account & data (other admins, the data export) is for the academy's admins only —
+ * no delegated role reaches it, whatever it holds. The WhatsApp number, its lesson reminders and a
+ * centre's absence alert moved to their own page (/whatsapp, components/whatsapp/whatsapp-page).
  */
 const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon; permission: string }> = [
   { key: "courses", icon: BookOpen, permission: "specialization.manage" },
   { key: "lessonReport", icon: ClipboardList, permission: "report_field.manage" },
   { key: "reportCard", icon: ScrollText, permission: "report_field.manage" },
-  { key: "whatsapp", icon: MessageCircle, permission: "settings.manage" },
-  { key: "lessonReminders", icon: BellRing, permission: "student.update" },
   // A centre's closed days (docs/centre-profile, Phase 2 §3) — its own settings, centre only.
   { key: "holidays", icon: CalendarOff, permission: "settings.manage" },
   { key: "controls", icon: SlidersHorizontal, permission: "settings.manage" },
@@ -54,24 +49,14 @@ export function SettingsManager() {
   // The academy's own lesson-report form and message — switched on per client by a Super Admin
   // (opt-in, so strict: no capability list means off).
   const hasLessonReport = session?.capabilities?.includes("lesson_report") ?? false;
-  // Only clients with the WhatsApp module have a number to link.
-  const hasWhatsApp = useCapability("whatsapp.automation");
   // A learning centre keeps a list of levels / grades next to its courses.
   const hasCentre = useCapability("centre");
-  // Reminders in WhatsApp groups — switched on per client by a Super Admin (opt-in, so strict).
-  const hasLessonReminders = session?.capabilities?.includes("whatsapp.group_reminders") ?? false;
   const isCentre = useCapability("centre");
-  // A centre's absence alert rides the WhatsApp tab: it is a WhatsApp send, and it needs the number
-  // linked there. Opt-in (`centre`), so strict, and the groups it reads must be on.
-  const hasGroups = useCapability("groups");
-  const hasAbsenceAlert = (session?.capabilities?.includes("centre") ?? false) && hasGroups;
   const tabs = TABS.filter(
     (tab) =>
       can(tab.permission) &&
       (tab.key !== "reportCard" || hasReportCard) &&
       (tab.key !== "lessonReport" || hasLessonReport) &&
-      (tab.key !== "whatsapp" || hasWhatsApp) &&
-      (tab.key !== "lessonReminders" || hasLessonReminders) &&
       (tab.key !== "holidays" || isCentre) &&
       (tab.key !== "account" || isAdmin),
   );
@@ -141,13 +126,6 @@ export function SettingsManager() {
         )}
         {active === "lessonReport" && <LessonReportManager />}
         {active === "reportCard" && <ReportCardManager />}
-        {active === "whatsapp" && (
-          <div className="space-y-6">
-            <WhatsAppManager />
-            {hasAbsenceAlert && <AbsenceAlertManager />}
-          </div>
-        )}
-        {active === "lessonReminders" && <LessonRemindersManager />}
         {active === "holidays" && <HolidaysManager />}
         {active === "controls" && <ControlsManager />}
         {active === "account" && (
