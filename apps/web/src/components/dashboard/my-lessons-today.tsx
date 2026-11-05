@@ -14,6 +14,7 @@ import { StatusBadge } from "@/components/attendance/status-badge";
 import { getSessionsByDay, type DaySession } from "@/lib/api";
 import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
 import { cn } from "@/lib/utils";
+import { useOnlineLessons } from "@/lib/capabilities";
 
 /** Today's local-day window as ISO instants — the API takes the browser's own day bounds. */
 function todayWindow(): { from: string; to: string } {
@@ -36,6 +37,7 @@ function todayWindow(): { from: string; to: string } {
  */
 export function MyLessonsToday({ groups = false }: { groups?: boolean }) {
   const t = useTranslations("dashboard.today");
+  const onlineLessons = useOnlineLessons();
   const locale = useLocale();
   const now = useNow();
   const [lessons, setLessons] = useState<DaySession[] | null>(null);
@@ -135,12 +137,14 @@ export function MyLessonsToday({ groups = false }: { groups?: boolean }) {
                   {t("ended")}
                 </span>
               )}
-              <EnterLessonButton
-                lesson={l}
-                meetingUrl={l.meeting_url}
-                now={now}
-                onEntered={(at) => setEntered((m) => ({ ...m, [l.id]: at }))}
-              />
+              {onlineLessons && (
+                <EnterLessonButton
+                  lesson={l}
+                  meetingUrl={l.meeting_url}
+                  now={now}
+                  onEntered={(at) => setEntered((m) => ({ ...m, [l.id]: at }))}
+                />
+              )}
             </li>
           );
         })}

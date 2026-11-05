@@ -216,6 +216,8 @@ export interface SessionAcademy {
   profile?: AcademyKind;
   /** What the classification is called (lib/levels.ts `levelWord`); absent on an older session ⇒ LEVEL. */
   levelLabel?: "LEVEL" | "GRADE" | "YEAR";
+  /** Does it teach online (the setting, else worked out); read through `useOnlineLessons`. */
+  onlineLessons?: boolean;
 }
 
 export type AcademyKind = "QURAN" | "CENTRE";
@@ -2886,6 +2888,8 @@ export interface AcademyProfile {
   billing_day: number;
   /** What the classification is called; null has always read as LEVEL. */
   level_label?: "LEVEL" | "GRADE" | "YEAR";
+  /** What the academy said about online lessons; null = automatic. */
+  online_lessons?: boolean | null;
 }
 
 export function getAcademyProfile(): Promise<{ academy: AcademyProfile }> {
@@ -2897,6 +2901,7 @@ export function updateAcademyProfile(patch: {
   timezone?: string;
   country?: string | null;
   default_currency?: string;
+  online_lessons?: boolean | null;
 }): Promise<{ ok: boolean }> {
   return apiFetch("/api/academy", {
     method: "PATCH",

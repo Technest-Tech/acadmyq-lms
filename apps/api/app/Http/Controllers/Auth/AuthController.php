@@ -12,6 +12,7 @@ use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
 use App\Support\LmsSite;
+use App\Support\OnlineLessons;
 use App\Support\PermissionResolver;
 use App\Support\Subdomain;
 use Illuminate\Http\JsonResponse;
@@ -225,6 +226,9 @@ final class AuthController extends Controller
             // What the classification is called — LEVEL, GRADE or YEAR (null has always read as
             // LEVEL): every label naming it on the web reads through lib/levels.ts.
             'levelLabel' => AcademyLevelLabel::of($academy->level_label ?? null),
+            // Does it teach online (the setting, else worked out)? A centre's Enter button, teacher
+            // meeting link and Punctuality tab hang on it; nobody else's screens read it.
+            'onlineLessons' => OnlineLessons::forAcademy($academyId),
         ];
     }
 

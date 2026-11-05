@@ -1612,7 +1612,16 @@
       "defaultsHint": "Pre-selected on every student and parent form (country, dial code, currency). Each form can still change them.",
       "pickCountry": "Pick a country",
       "pickCurrency": "Pick a currency",
-      "search": "Search…"
+      "search": "Search…",
+      "online": {
+        "label": "Online lessons",
+        "hint": "The Enter button, the teacher's meeting link and the Punctuality tab. Automatic turns them on when you have an active online group or a teacher with a meeting link.",
+        "AUTO": "Automatic",
+        "ON": "On",
+        "OFF": "Off",
+        "nowOn": "On right now.",
+        "nowOff": "Off right now."
+      }
     },
     "lessonReport": {
       "presetsTitle": "Start from a template",

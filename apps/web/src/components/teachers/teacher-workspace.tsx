@@ -33,7 +33,7 @@ import { TeacherSalary } from "@/components/teachers/teacher-salary";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard } from "@/components/ui/profile-card";
 import { getTeacher, type TeacherRow, type TeacherStudent } from "@/lib/api";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, useOnlineLessons } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 type Tab = "profile" | "lessons" | "groups" | "calendar" | "punctuality" | "salary" | "reports";
@@ -71,6 +71,8 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
   const [students, setStudents] = useState<TeacherStudent[]>([]);
   const [tab, setTab] = useState<Tab>("profile");
   const paySummary = usePaySummary();
+  // A room-based centre has no Enter press to measure.
+  const onlineLessons = useOnlineLessons();
 
   const loadHeader = useCallback(async () => {
     const res = await getTeacher(teacherId);
@@ -90,7 +92,7 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
     { key: "groups", icon: Users, show: hasGroups && can("group.read") },
     { key: "calendar", icon: CalendarDays, show: can("schedule.read") },
     // When the teacher pressed Enter on each lesson — the workspace itself is teacher.read.
-    { key: "punctuality", icon: AlarmClock, show: can("teacher.read") },
+    { key: "punctuality", icon: AlarmClock, show: can("teacher.read") && onlineLessons },
     // The pay card lives here too — whoever sets the hourly rate must reach it without payroll.
     { key: "salary", icon: Wallet, show: can("payout.read") || can("teacher.set_pay") },
     {

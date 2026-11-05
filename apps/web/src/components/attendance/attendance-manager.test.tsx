@@ -403,6 +403,37 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     expect(screen.queryByTestId("row-following")).not.toBeInTheDocument();
   });
 
+  describe("the Enter button and the online-lessons switch", () => {
+    const onNow = { ...daySession, scheduled_at_utc: new Date().toISOString(), meeting_url: "https://zoom.us/j/111" };
+    const teacher = (over: { centre: boolean; onlineLessons: boolean }) =>
+      makeSession("TEACHER", {
+        permissions: ["session.read", "session.mark_attendance"],
+        capabilities: over.centre ? ["groups", "accounting", "centre"] : ["groups"],
+        academy: { name: "Lingo", displayName: "Lingo", logoUrl: null, onlineLessons: over.onlineLessons },
+      });
+
+    beforeEach(() => {
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [onNow] });
+    });
+
+    it("keeps it for an academy without the centre switch, whatever the session says", async () => {
+      renderManager(teacher({ centre: false, onlineLessons: false }));
+      expect((await screen.findAllByTestId("row-enter")).length).toBeGreaterThan(0);
+    });
+
+    it("keeps it for a centre with online lessons", async () => {
+      renderManager(teacher({ centre: true, onlineLessons: true }));
+      expect((await screen.findAllByTestId("row-enter")).length).toBeGreaterThan(0);
+    });
+
+    it("does not render it for a centre with online lessons off", async () => {
+      renderManager(teacher({ centre: true, onlineLessons: false }));
+      await screen.findByTestId("day-list");
+      expect(screen.queryByTestId("row-enter")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("row-enter-early")).not.toBeInTheDocument();
+    });
+  });
+
   it("does not offer reschedule without the session.reschedule capability", async () => {
     vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
     renderManager(ownerSession());

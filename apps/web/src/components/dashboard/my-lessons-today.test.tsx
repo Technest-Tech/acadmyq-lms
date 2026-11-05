@@ -1,6 +1,8 @@
 import { render, screen, within } from "@testing-library/react";
 import { NextIntlClientProvider } from "next-intl";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AuthContext } from "@/components/auth-provider";
+import { authValue, makeSession } from "@/test/auth";
 import enMessages from "../../../messages/en.json";
 import { MyLessonsToday } from "./my-lessons-today";
 
@@ -66,6 +68,31 @@ describe("MyLessonsToday", () => {
     expect(within(byId("early")).getByTestId("row-enter-early")).toBeDisabled();
     expect(within(byId("ended")).queryByTestId("row-enter")).not.toBeInTheDocument();
     expect(byId("ended")).toHaveTextContent(/Entered at/);
+  });
+
+  it("follows the online-lessons switch: a centre with it off has no Enter, anyone else keeps it", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [row("now", "2026-09-26T13:00:00Z")] });
+    const withSession = (capabilities: string[], onlineLessons: boolean) => (
+      <AuthContext.Provider
+        value={authValue(
+          makeSession("TEACHER", { capabilities, academy: { name: "Lingo", displayName: "Lingo", logoUrl: null, onlineLessons } }),
+        )}
+      >
+        <MyLessonsToday />
+      </AuthContext.Provider>
+    );
+
+    const off = render(wrap(withSession(["centre", "groups"], false)));
+    await screen.findByTestId("my-lesson");
+    expect(screen.queryByTestId("row-enter")).not.toBeInTheDocument();
+    off.unmount();
+
+    const on = render(wrap(withSession(["centre", "groups"], true)));
+    expect(await screen.findByTestId("row-enter")).toBeInTheDocument();
+    on.unmount();
+
+    render(wrap(withSession(["groups"], false)));
+    expect(await screen.findByTestId("row-enter")).toBeInTheDocument();
   });
 
   it("tells a teacher with no link to ask for one", async () => {

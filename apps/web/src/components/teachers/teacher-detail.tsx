@@ -46,6 +46,7 @@ import {
 import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
+import { useOnlineLessons } from "@/lib/capabilities";
 
 const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
   value: c.code,
@@ -136,6 +137,8 @@ export function TeacherDetail({
 }) {
   const t = useTranslations("teachers");
   const { can } = useAuth();
+  // Hidden, not cleared: the link saved on the teacher stays with them for when the switch comes back.
+  const onlineLessons = useOnlineLessons();
   const paySummary = usePaySummary();
 
   const [teacher, setTeacher] = useState<TeacherRow | null>(null);
@@ -371,24 +374,26 @@ export function TeacherDetail({
 
             {/* The room this teacher teaches in. Their Enter button on each lesson opens it, and
                 the press is what the Punctuality tab measures. */}
-            <Field label={t("form.meetingUrl")}>
-              <div className="relative">
-                <Video className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                <input
-                  dir="ltr"
-                  type="url"
-                  inputMode="url"
-                  aria-label={t("form.meetingUrl")}
-                  className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                  placeholder={t("form.meetingUrlPlaceholder")}
-                  value={meetingUrl}
-                  disabled={!canEdit}
-                  onChange={(e) => setMeetingUrl(e.target.value)}
-                  data-testid="meeting-url"
-                />
-              </div>
-              <p className="text-muted-foreground text-[11px]">{t("form.meetingUrlHint")}</p>
-            </Field>
+            {onlineLessons && (
+              <Field label={t("form.meetingUrl")}>
+                <div className="relative">
+                  <Video className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                  <input
+                    dir="ltr"
+                    type="url"
+                    inputMode="url"
+                    aria-label={t("form.meetingUrl")}
+                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                    placeholder={t("form.meetingUrlPlaceholder")}
+                    value={meetingUrl}
+                    disabled={!canEdit}
+                    onChange={(e) => setMeetingUrl(e.target.value)}
+                    data-testid="meeting-url"
+                  />
+                </div>
+                <p className="text-muted-foreground text-[11px]">{t("form.meetingUrlHint")}</p>
+              </Field>
+            )}
 
             {/* ── Payout destination ──────────────────────────────────────
                 Payroll works out WHAT to pay; this is the only place that says where it goes.
