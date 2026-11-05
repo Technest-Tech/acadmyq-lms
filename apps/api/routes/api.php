@@ -33,6 +33,7 @@ use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\ClientErrorController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Centre\GroupDefaultsController;
 use App\Http\Controllers\Centre\HolidayController;
 use App\Http\Controllers\CentreDashboardController;
 use App\Http\Controllers\CertificateTemplateController;
@@ -967,6 +968,14 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/rooms', [RoomController::class, 'store']);
         Route::patch('/rooms/{id}', [RoomController::class, 'update'])->whereUuid('id');
         Route::delete('/rooms/{id}', [RoomController::class, 'destroy'])->whereUuid('id');
+    });
+
+    // ── Group defaults (docs/centre-profile/02-COHERENCE-AUDIT §3) ──────────────────────────
+    // What a centre's new group opens on (lesson length, billing, lessons a month, teacher pay,
+    // online or in a room): the group form pre-fills from them on create. A centre's only.
+    Route::middleware('entitled:centre')->group(function () {
+        Route::get('/group-defaults', [GroupDefaultsController::class, 'show']);
+        Route::patch('/group-defaults', [GroupDefaultsController::class, 'update']);
     });
 
     // Group classes (docs/groups) — one teacher, several students, a weekly timetable, its own

@@ -10,6 +10,7 @@ import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { AdminsCard } from "@/components/settings/admins-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
 import { DataExportCard } from "@/components/settings/data-export-card";
+import { GroupDefaultsManager } from "@/components/settings/group-defaults-manager";
 import { LessonRemindersManager } from "@/components/settings/lesson-reminders-manager";
 import { LessonReportManager } from "@/components/settings/lesson-report-manager";
 import { LevelsManager } from "@/components/settings/levels-manager";
@@ -134,6 +135,8 @@ export function SettingsManager() {
             {hasCentre && <LevelsManager />}
             {/* …and its rooms, which groups pick and the timetable filters by (02-COHERENCE-AUDIT §3). */}
             {hasCentre && <RoomsManager />}
+            {/* …and what its new groups open on. */}
+            {hasCentre && <GroupDefaultsManager />}
           </div>
         )}
         {active === "lessonReport" && <LessonReportManager />}

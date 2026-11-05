@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -38,7 +39,7 @@ function labelCentreOn(string $academyId): void
     DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
     DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
     try {
-        app(\App\Services\ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre']);
+        app(ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre']);
     } finally {
         DB::statement("select set_config('app.current_academy_id', '', true)");
         DB::statement("select set_config('app.current_role', '', true)");

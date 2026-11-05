@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -54,7 +55,7 @@ function roomsInContext(string $academyId, callable $fn): mixed
 
 function roomsCentreOn(string $academyId): void
 {
-    roomsInContext($academyId, fn () => app(\App\Services\ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre']));
+    roomsInContext($academyId, fn () => app(ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre']));
 }
 
 function roomsAdd($test, string $name, array $over = []): string

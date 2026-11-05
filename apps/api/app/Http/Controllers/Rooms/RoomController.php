@@ -35,7 +35,7 @@ final class RoomController extends Controller
 
         $rows = DB::table('academy_rooms as r')
             ->select(['r.id', 'r.name', 'r.capacity', 'r.position', 'r.is_active'])
-            ->selectRaw("(select count(*) from class_groups g where g.room_id = r.id) as groups_count")
+            ->selectRaw('(select count(*) from class_groups g where g.room_id = r.id) as groups_count')
             ->orderBy('r.position')->orderBy('r.created_at')
             ->get()
             ->map(fn ($r) => $this->present($r));

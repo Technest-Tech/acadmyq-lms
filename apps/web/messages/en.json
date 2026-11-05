@@ -11273,5 +11273,18 @@
       "loading": "Loading…",
       "withCapacity": "{name} ({capacity} seats)"
     }
+  },
+  "groupDefaults": {
+    "cardTitle": "Group defaults",
+    "hint": "What a new group opens on: lesson length, how students pay, lessons a month and the teacher's pay. Change them on any group as you like; existing groups do not move.",
+    "lessonMinutes": "Lesson length",
+    "noDefault": "No default",
+    "save": "Save",
+    "saved": "Defaults saved.",
+    "loadFailed": "Could not load the defaults.",
+    "saveFailed": "Could not save the defaults.",
+    "errors": {
+      "monthLessons": "Lessons a month is a whole number from 1 to 500."
+    }
   }
 }
