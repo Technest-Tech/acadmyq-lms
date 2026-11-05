@@ -23,7 +23,7 @@ import {
   type GroupAttendanceStatus,
   type GroupLessonSheet,
 } from "@/lib/groups-api";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 /** A centre's sheet opens on the four counts as coloured blocks. */
@@ -60,7 +60,7 @@ export function AttendanceSheet({
   const locale = useLocale();
   const { session, can } = useAuth();
   const canRemove = can("group.manage");
-  const look = useCentreLook();
+  const look = useModernLook();
   const isOwner = session?.role === "ACADEMY_OWNER" || session?.role === "SUPER_ADMIN";
 
   const [sheet, setSheet] = useState<GroupLessonSheet | null>(null);

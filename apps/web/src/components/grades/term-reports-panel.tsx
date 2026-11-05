@@ -9,7 +9,7 @@ import { apiErrorMessage } from "@/components/groups/group-form";
 import { PersonAvatar, SectionCard, SoftBadge, rateTone, type PastelTone } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { listTermReports, percentTone, publishAllTermReports, type TermReportList } from "@/lib/grades-api";
 import { cn } from "@/lib/utils";
 
@@ -29,7 +29,7 @@ const TONE_BADGE: Record<ReturnType<typeof percentTone>, PastelTone> = { low: "r
  */
 export function TermReportsPanel({ groupId }: { groupId: string }) {
   const t = useTranslations("grades");
-  const look = useCentreLook();
+  const look = useModernLook();
   const [data, setData] = useState<TermReportList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

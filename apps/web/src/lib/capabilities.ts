@@ -50,3 +50,14 @@ export function useOnlineLessons(): boolean {
 export function useCentreLook(): boolean {
   return useContext(AuthContext)?.session?.academy?.profile === "CENTRE";
 }
+
+/**
+ * Is this workspace in the modern design (`html[data-look="modern"]`, centre-look.css)? A centre always
+ * is; any other academy only once a Super Admin switched `modern_look` on for it. The look and nothing
+ * else: a behaviour never keys on this, and `useCentreLook` stays the centre's own question. Safe outside
+ * an AuthProvider.
+ */
+export function useModernLook(): boolean {
+  const session = useContext(AuthContext)?.session;
+  return session?.academy?.profile === "CENTRE" || (session?.capabilities?.includes("modern_look") ?? false);
+}

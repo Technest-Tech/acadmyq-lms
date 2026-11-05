@@ -21,7 +21,7 @@ import {
   type Waitlist,
   type WaitlistEntry,
 } from "@/lib/groups-api";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,7 +34,7 @@ export function WaitlistPanel({ group, onGroupChanged }: { group: GroupDetail; o
   const t = useTranslations("courseTerm");
   const { can } = useAuth();
   const canManage = can("group.manage") && group.status === "ACTIVE";
-  const look = useCentreLook();
+  const look = useModernLook();
   const [list, setList] = useState<Waitlist | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

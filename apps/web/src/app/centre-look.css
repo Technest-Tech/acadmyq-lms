@@ -1,17 +1,131 @@
 /*
- * THE LEARNING CENTRE'S LOOK. Everything here hangs off `html[data-profile="centre"]`, set by the
- * app shell from the session's academy.profile, so a Quran academy never matches a single rule and
- * renders exactly what it always did. On <html> rather than a wrapper because modals, tooltips and
- * menus portal to <body>.
+ * THE MODERN WORKSPACE. The design hangs off `html[data-look="modern"]`, set by the app shell for a
+ * learning centre (always) and for a Quran academy a Super Admin switched `modern_look` on for; a
+ * classic academy never matches a single rule and renders exactly what it always did. On <html>
+ * rather than a wrapper because modals, tooltips and menus portal to <body>.
  *
- * A white card on a faint lavender ground under a deep violet sidebar: big bold numbers, pastel icon
- * tiles, soft shadows, and none of the Quran academy's khatam lattice or gold. Tokens first, then
+ * Two palettes wear the same design. A centre (`data-profile="centre"` on top) is violet, with none of
+ * the Quran academy's khatam lattice or gold. A Quran academy keeps its gold and its ornaments in a
+ * calm navy: white cards on a cool near-white ground under a deep navy sidebar. Tokens first, then
  * the shared kit (the page band, the tiles, the panels, the tables) so every screen follows without
  * being rewritten. Unlayered on purpose: it has to beat Tailwind's layered utilities.
  */
-html[data-profile="centre"] {
+
+/* ── What every modern workspace shares: the face and a type scale one step up ─────────────── */
+html[data-look="modern"] {
   --font-sans: var(--font-centre), ui-sans-serif, system-ui, sans-serif;
 
+  /* The small print is what people were squinting at. */
+  --text-xs: 0.8125rem;
+  --text-xs--line-height: 1.35;
+  --text-sm: 0.9375rem;
+  --text-sm--line-height: 1.45;
+}
+
+/* ── The Quran academy's palette: a calm navy and its gold ──────────────────────────────────── */
+/*
+ * Low in colour on purpose (Ahmed, 2026-11-06: the emerald was tiring to look at all day; he then picked
+ * navy over petrol, sage, coffee and slate): a soft navy blue for what acts, a deep navy sidebar,
+ * near-white cool grounds, and the gold kept for the ornaments.
+ */
+html[data-look="modern"]:not([data-profile="centre"]) {
+  --background: oklch(0.978 0.005 255);
+  --foreground: oklch(0.24 0.03 262);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.24 0.03 262);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.24 0.03 262);
+  --primary: oklch(0.5 0.09 258);
+  --primary-foreground: oklch(1 0 0);
+  --ring: oklch(0.5 0.09 258);
+  --chart-1: oklch(0.5 0.09 258);
+  --secondary: oklch(0.965 0.008 255);
+  --secondary-foreground: oklch(0.3 0.035 262);
+  --muted: oklch(0.966 0.007 255);
+  --muted-foreground: oklch(0.48 0.025 260);
+  --accent: oklch(0.965 0.008 255);
+  --accent-foreground: oklch(0.3 0.035 262);
+  --border: oklch(0.925 0.01 255);
+  --input: oklch(0.905 0.012 255);
+
+  --sidebar: oklch(0.27 0.04 262);
+  --sidebar-foreground: oklch(0.95 0.008 255);
+  --sidebar-primary: oklch(0.56 0.09 255);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(1 0 0 / 8%);
+  --sidebar-accent-foreground: oklch(1 0 0);
+  --sidebar-border: oklch(1 0 0 / 9%);
+  --sidebar-ring: oklch(0.72 0.08 255);
+
+  --hero-gradient: linear-gradient(270deg, oklch(0.975 0.008 255) 0%, oklch(0.95 0.018 255) 52%, oklch(0.91 0.035 255) 100%);
+  --hero-foreground: oklch(0.24 0.035 262);
+  --hero-muted: oklch(0.42 0.03 260);
+  --hero-border: oklch(0.91 0.018 255);
+
+  --card-shadow: 0 1px 2px oklch(0.3 0.04 260 / 4%), 0 10px 28px -14px oklch(0.3 0.05 260 / 14%);
+  --primary-gradient: linear-gradient(135deg, oklch(0.54 0.09 255), oklch(0.44 0.09 262));
+  --primary-glow: oklch(0.42 0.08 260 / 55%);
+  --primary-glow-strong: oklch(0.42 0.08 260 / 80%);
+  --float-shadow: oklch(0.3 0.05 260 / 30%);
+  --scrollbar-thumb: oklch(0.86 0.014 255);
+
+  /*
+   * The centre's screens (groups, the boards, grades, the dashboard kit) were drawn with violet as their
+   * house tone: tiles, badges, the first section of a form. Here that house tone is a soft navy, so the
+   * same screens sit in this palette without a line of them changing. Tailwind reads every colour
+   * through these variables, opacity modifiers included.
+   */
+  --color-violet-50: oklch(0.975 0.01 255);
+  --color-violet-100: oklch(0.94 0.025 255);
+  --color-violet-200: oklch(0.89 0.045 255);
+  --color-violet-300: oklch(0.81 0.075 255);
+  --color-violet-400: oklch(0.71 0.1 257);
+  --color-violet-500: oklch(0.62 0.12 258);
+  --color-violet-600: oklch(0.54 0.12 260);
+  --color-violet-700: oklch(0.47 0.11 262);
+  --color-violet-800: oklch(0.41 0.09 263);
+  --color-violet-900: oklch(0.36 0.07 264);
+  --color-violet-950: oklch(0.27 0.05 265);
+}
+
+html[dir="ltr"][data-look="modern"]:not([data-profile="centre"]) {
+  --hero-gradient: linear-gradient(90deg, oklch(0.975 0.008 255) 0%, oklch(0.95 0.018 255) 52%, oklch(0.91 0.035 255) 100%);
+}
+
+html.dark[data-look="modern"]:not([data-profile="centre"]) {
+  --background: oklch(0.16 0.018 262);
+  --foreground: oklch(0.95 0.006 255);
+  --card: oklch(0.205 0.022 262);
+  --card-foreground: oklch(0.95 0.006 255);
+  --popover: oklch(0.205 0.022 262);
+  --popover-foreground: oklch(0.95 0.006 255);
+  --primary: oklch(0.64 0.09 255);
+  --ring: oklch(0.64 0.09 255);
+  --chart-1: oklch(0.68 0.09 255);
+  --secondary: oklch(0.26 0.024 262);
+  --secondary-foreground: oklch(0.95 0.006 255);
+  --muted: oklch(0.26 0.024 262);
+  --muted-foreground: oklch(0.74 0.018 255);
+  --accent: oklch(0.26 0.024 262);
+  --accent-foreground: oklch(0.95 0.006 255);
+  --border: oklch(1 0 0 / 9%);
+  --input: oklch(1 0 0 / 14%);
+  --sidebar: oklch(0.18 0.03 262);
+  --sidebar-primary: oklch(0.58 0.09 255);
+  --hero-gradient: linear-gradient(270deg, oklch(0.24 0.03 262) 0%, oklch(0.28 0.042 260) 55%, oklch(0.35 0.06 257) 100%);
+  --hero-foreground: oklch(0.96 0.006 255);
+  --hero-muted: oklch(0.83 0.02 255);
+  --hero-border: oklch(1 0 0 / 10%);
+  --card-shadow: 0 1px 2px oklch(0 0 0 / 30%);
+  --scrollbar-thumb: oklch(1 0 0 / 20%);
+}
+
+html.dark[dir="ltr"][data-look="modern"]:not([data-profile="centre"]) {
+  --hero-gradient: linear-gradient(90deg, oklch(0.24 0.03 262) 0%, oklch(0.28 0.042 260) 55%, oklch(0.35 0.06 257) 100%);
+}
+
+/* ── The learning centre's palette: violet ─────────────────────────────────────────────────── */
+html[data-profile="centre"] {
   --background: oklch(0.982 0.006 292);
   --foreground: oklch(0.22 0.045 285);
   --card: oklch(1 0 0);
@@ -53,11 +167,10 @@ html[data-profile="centre"] {
   --card-shadow: 0 1px 2px oklch(0.3 0.06 285 / 4%), 0 10px 28px -14px oklch(0.3 0.09 285 / 14%);
   --primary-gradient: linear-gradient(135deg, oklch(0.56 0.2 292), oklch(0.46 0.21 288));
 
-  /* One step up across the product: the small print is what people here were squinting at. */
-  --text-xs: 0.8125rem;
-  --text-xs--line-height: 1.35;
-  --text-sm: 0.9375rem;
-  --text-sm--line-height: 1.45;
+  --primary-glow: oklch(0.45 0.2 292 / 70%);
+  --primary-glow-strong: oklch(0.45 0.21 292 / 90%);
+  --float-shadow: oklch(0.3 0.09 285 / 30%);
+  --scrollbar-thumb: oklch(0.86 0.02 285);
 }
 
 html[dir="ltr"][data-profile="centre"] {
@@ -89,6 +202,7 @@ html.dark[data-profile="centre"] {
   --hero-muted: oklch(0.84 0.03 285);
   --hero-border: oklch(1 0 0 / 10%);
   --card-shadow: 0 1px 2px oklch(0 0 0 / 30%);
+  --scrollbar-thumb: oklch(1 0 0 / 20%);
 }
 
 html.dark[dir="ltr"][data-profile="centre"] {
@@ -108,80 +222,80 @@ html[data-profile="centre"] [class*="via-gold"] {
 }
 
 /* ── Scrollbars: thin and quiet ─────────────────────────────────────────────────────────── */
-html[data-profile="centre"] *,
-html[data-profile="centre"] .scroll-ornate {
-  scrollbar-color: oklch(0.86 0.02 285) transparent;
+html[data-look="modern"] *,
+html[data-look="modern"] .scroll-ornate {
+  scrollbar-color: var(--scrollbar-thumb) transparent;
 }
 
-html.dark[data-profile="centre"] *,
-html.dark[data-profile="centre"] .scroll-ornate {
+html.dark[data-look="modern"] *,
+html.dark[data-look="modern"] .scroll-ornate {
   scrollbar-color: oklch(1 0 0 / 20%) transparent;
 }
 
-html[data-profile="centre"] [data-testid="sidebar"],
-html[data-profile="centre"] [data-testid="sidebar"] * {
+html[data-look="modern"] [data-testid="sidebar"],
+html[data-look="modern"] [data-testid="sidebar"] * {
   scrollbar-color: oklch(1 0 0 / 18%) transparent;
 }
 
 /* ── Surfaces ───────────────────────────────────────────────────────────────────────────── */
-html[data-profile="centre"] .centre-surface,
-html[data-profile="centre"] [data-slot="card"] {
+html[data-look="modern"] .centre-surface,
+html[data-look="modern"] [data-slot="card"] {
   border-color: color-mix(in oklab, var(--border) 70%, transparent);
   border-radius: 1.125rem;
   box-shadow: var(--card-shadow);
 }
 
 /* Every panel in the product is the same soft white card, whichever screen drew it. */
-html[data-profile="centre"] .bg-card.border[class*="rounded-"]:not(input, select, textarea, button, a) {
+html[data-look="modern"] .bg-card.border[class*="rounded-"]:not(input, select, textarea, button, a) {
   border-color: color-mix(in oklab, var(--border) 70%, transparent);
   box-shadow: var(--card-shadow);
 }
 
-html[data-profile="centre"] .bg-card[class*="bg-gradient-to-"] {
+html[data-look="modern"] .bg-card[class*="bg-gradient-to-"] {
   background-image: none;
 }
 
 /* A panel's title bar sits on the card itself, not on a tinted wash. */
-html[data-profile="centre"] [class*="from-primary/[0.07]"],
-html[data-profile="centre"] .profile-card__head {
+html[data-look="modern"] [class*="from-primary/[0.07]"],
+html[data-look="modern"] .profile-card__head {
   background-image: none;
 }
 
 /* ── Buttons ────────────────────────────────────────────────────────────────────────────── */
-html[data-profile="centre"] [data-slot="button"] {
+html[data-look="modern"] [data-slot="button"] {
   border-radius: 0.75rem;
   font-weight: 600;
 }
 
-html[data-profile="centre"] [data-slot="button"][data-size="default"] {
+html[data-look="modern"] [data-slot="button"][data-size="default"] {
   height: 2.5rem;
   padding-inline: 0.875rem;
 }
 
-html[data-profile="centre"] [data-slot="button"][data-size="lg"] {
+html[data-look="modern"] [data-slot="button"][data-size="lg"] {
   height: 2.75rem;
   padding-inline: 1.125rem;
 }
 
-html[data-profile="centre"] [data-slot="button"][data-size="sm"] {
+html[data-look="modern"] [data-slot="button"][data-size="sm"] {
   height: 2.125rem;
   padding-inline: 0.75rem;
 }
 
-html[data-profile="centre"] [data-slot="button"][data-size="icon"] {
+html[data-look="modern"] [data-slot="button"][data-size="icon"] {
   height: 2.5rem;
   width: 2.5rem;
 }
 
-html[data-profile="centre"] [data-slot="button"][data-variant="default"],
-html[data-profile="centre"] .collect-quick-action,
-html[data-profile="centre"] .centre-button-primary {
+html[data-look="modern"] [data-slot="button"][data-variant="default"],
+html[data-look="modern"] .collect-quick-action,
+html[data-look="modern"] .centre-button-primary {
   background-image: var(--primary-gradient);
   color: var(--primary-foreground);
-  box-shadow: 0 8px 18px -10px oklch(0.45 0.2 292 / 70%);
+  box-shadow: 0 8px 18px -10px var(--primary-glow);
 }
 
-html[data-profile="centre"] .collect-quick-action {
+html[data-look="modern"] .collect-quick-action {
   height: 2.5rem;
   border-radius: 0.75rem;
   padding-inline: 0.875rem;
@@ -189,7 +303,7 @@ html[data-profile="centre"] .collect-quick-action {
 }
 
 /* ── The band every screen opens on: light, with dark text, like the dashboard's ─────────── */
-html[data-profile="centre"] .page-hero {
+html[data-look="modern"] .page-hero {
   border: 1px solid var(--hero-border);
   border-radius: 1.25rem;
   box-shadow: none;
@@ -197,31 +311,31 @@ html[data-profile="centre"] .page-hero {
   padding: 1.125rem 1.5rem;
 }
 
-html[data-profile="centre"] .page-hero__title {
+html[data-look="modern"] .page-hero__title {
   font-size: 1.5rem;
   font-weight: 800;
   filter: none;
 }
 
-html[data-profile="centre"] .page-hero [class*="text-white"] {
+html[data-look="modern"] .page-hero [class*="text-white"] {
   color: var(--hero-muted);
 }
 
-html[data-profile="centre"] .page-hero__tile {
+html[data-look="modern"] .page-hero__tile {
   background: var(--card);
   color: var(--primary);
   box-shadow: var(--card-shadow);
   --tw-ring-color: transparent;
 }
 
-html[data-profile="centre"] .page-hero .hero-pill {
+html[data-look="modern"] .page-hero .hero-pill {
   background: var(--card);
   border-color: var(--hero-border);
   color: var(--hero-foreground);
   backdrop-filter: none;
 }
 
-html[data-profile="centre"] .page-hero [class*="border-white"] {
+html[data-look="modern"] .page-hero [class*="border-white"] {
   border-color: var(--hero-border);
 }
 
@@ -229,22 +343,22 @@ html[data-profile="centre"] .page-hero [class*="border-white"] {
  * Every screen's main action is a solid white button in the Quran academy's colours, and what they all
  * share is `hover:bg-white/90` (the text colour varies: emerald-800 on most, primary on the trials board).
  */
-html[data-profile="centre"] .page-hero [class*="hover:bg-white/90"],
-html[data-profile="centre"] .page-hero .hero-main-action {
+html[data-look="modern"] .page-hero [class*="hover:bg-white/90"],
+html[data-look="modern"] .page-hero .hero-main-action {
   background-color: transparent;
   background-image: var(--primary-gradient);
   color: var(--primary-foreground);
-  box-shadow: 0 8px 18px -10px oklch(0.45 0.2 292 / 70%);
+  box-shadow: 0 8px 18px -10px var(--primary-glow);
 }
 
 /* The band's other controls: white chips on the lavender, not glass on a dark ground. */
-html[data-profile="centre"] .page-hero [class*="bg-white/"]:not(.hero-pill, [class*="hover:bg-white/90"]) {
+html[data-look="modern"] .page-hero [class*="bg-white/"]:not(.hero-pill, [class*="hover:bg-white/90"]) {
   background-color: var(--card);
   color: var(--hero-foreground);
 }
 
 /* ── SegmentTile becomes the dashboard's stat card: label, big number, icon tile at the end ── */
-html[data-profile="centre"] .segment-tile {
+html[data-look="modern"] .segment-tile {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
@@ -261,12 +375,12 @@ html[data-profile="centre"] .segment-tile {
   box-shadow: var(--card-shadow);
 }
 
-html[data-profile="centre"] .segment-tile__top,
-html[data-profile="centre"] .segment-tile__body {
+html[data-look="modern"] .segment-tile__top,
+html[data-look="modern"] .segment-tile__body {
   display: contents;
 }
 
-html[data-profile="centre"] .segment-tile__chip {
+html[data-look="modern"] .segment-tile__chip {
   grid-area: chip;
   align-self: center;
   height: 3rem;
@@ -275,19 +389,19 @@ html[data-profile="centre"] .segment-tile__chip {
   box-shadow: none;
 }
 
-html[data-profile="centre"] .segment-tile__chip svg {
+html[data-look="modern"] .segment-tile__chip svg {
   height: 1.375rem;
   width: 1.375rem;
 }
 
-html[data-profile="centre"] .segment-tile__label {
+html[data-look="modern"] .segment-tile__label {
   grid-area: label;
   margin-top: 0;
   font-size: 0.875rem;
   font-weight: 700;
 }
 
-html[data-profile="centre"] .segment-tile__value {
+html[data-look="modern"] .segment-tile__value {
   grid-area: value;
   margin-block: 0.25rem;
   font-size: 1.75rem;
@@ -295,13 +409,13 @@ html[data-profile="centre"] .segment-tile__value {
   line-height: 1.15;
 }
 
-html[data-profile="centre"] .segment-tile__hint {
+html[data-look="modern"] .segment-tile__hint {
   grid-area: hint;
   align-self: center;
   font-size: 0.75rem;
 }
 
-html[data-profile="centre"] .segment-tile__share {
+html[data-look="modern"] .segment-tile__share {
   grid-area: share;
   justify-self: end;
   border-radius: 999px;
@@ -312,21 +426,21 @@ html[data-profile="centre"] .segment-tile__share {
   font-weight: 700;
 }
 
-html.dark[data-profile="centre"] .segment-tile__share {
+html.dark[data-look="modern"] .segment-tile__share {
   background: oklch(0.3 0.06 160);
   color: oklch(0.85 0.1 160);
 }
 
-html[data-profile="centre"] .segment-tile__bar {
+html[data-look="modern"] .segment-tile__bar {
   display: none;
 }
 
-html[data-profile="centre"] .fact-card {
+html[data-look="modern"] .fact-card {
   background-image: none;
   padding: 1rem;
 }
 
-html[data-profile="centre"] .fact-card > div:first-child {
+html[data-look="modern"] .fact-card > div:first-child {
   height: 2.75rem;
   width: 2.75rem;
   border-radius: 0.875rem;
@@ -334,133 +448,133 @@ html[data-profile="centre"] .fact-card > div:first-child {
 }
 
 /* The money screens' tile: the same card, its number the loudest thing on it. */
-html[data-profile="centre"] .centre-tile {
+html[data-look="modern"] .centre-tile {
   border-radius: 1.125rem;
   padding: 1rem 1.125rem;
 }
 
-html[data-profile="centre"] .centre-tile__bar {
+html[data-look="modern"] .centre-tile__bar {
   display: none;
 }
 
-html[data-profile="centre"] .centre-tile__label {
+html[data-look="modern"] .centre-tile__label {
   color: oklch(from var(--foreground) l c h / 85%);
   font-size: 0.875rem;
   font-weight: 700;
 }
 
-html[data-profile="centre"] .centre-tile__chip {
+html[data-look="modern"] .centre-tile__chip {
   height: 2.75rem;
   width: 2.75rem;
   border-radius: 0.875rem;
   box-shadow: none;
 }
 
-html[data-profile="centre"] .centre-tile__chip svg {
+html[data-look="modern"] .centre-tile__chip svg {
   height: 1.25rem;
   width: 1.25rem;
 }
 
-html[data-profile="centre"] .centre-tile__value {
+html[data-look="modern"] .centre-tile__value {
   font-size: 1.5rem;
   font-weight: 800;
   line-height: 1.2;
 }
 
 /* ── Tables: plain, legible headers and calm rows ───────────────────────────────────────── */
-html[data-profile="centre"] .dt-table thead th {
+html[data-look="modern"] .dt-table thead th {
   font-size: 0.8125rem;
   font-weight: 700;
   letter-spacing: 0;
   text-transform: none;
 }
 
-html[data-profile="centre"] .dt-table thead tr {
+html[data-look="modern"] .dt-table thead tr {
   background: var(--muted);
   backdrop-filter: none;
 }
 
 /* The product's tiniest print, at a size people can read. */
-html[data-profile="centre"] .text-\[10px\] {
+html[data-look="modern"] .text-\[10px\] {
   font-size: 0.75rem;
 }
 
-html[data-profile="centre"] .text-\[11px\] {
+html[data-look="modern"] .text-\[11px\] {
   font-size: 0.78125rem;
 }
 
 /* ── The sidebar ────────────────────────────────────────────────────────────────────────── */
-html[data-profile="centre"] .centre-nav-active {
+html[data-look="modern"] .centre-nav-active {
   background-image: var(--primary-gradient);
-  box-shadow: 0 10px 22px -12px oklch(0.45 0.21 292 / 90%);
+  box-shadow: 0 10px 22px -12px var(--primary-glow-strong);
 }
 
 /* The drawer's tools were written for a white header. */
-html[data-profile="centre"] .centre-drawer-tools button {
+html[data-look="modern"] .centre-drawer-tools button {
   color: var(--sidebar-foreground);
   background: var(--sidebar-accent);
   border-color: var(--sidebar-border);
 }
 
 /* ── The dashboard's opening banner ─────────────────────────────────────────────────────── */
-html[data-profile="centre"] .centre-hero {
+html[data-look="modern"] .centre-hero {
   background: var(--hero-gradient);
   border: 1px solid var(--hero-border);
   color: var(--hero-foreground);
 }
 
-html[data-profile="centre"] .centre-hero__sub {
+html[data-look="modern"] .centre-hero__sub {
   color: var(--hero-muted);
 }
 
 /* The light behind the drawing is for the lavender band; on a dark one it reads as a grey smudge. */
-html.dark[data-profile="centre"] .centre-art-glow {
+html.dark[data-look="modern"] .centre-art-glow {
   display: none;
 }
 
 /* ── Dialogs and forms ─────────────────────────────────────────────────────────────────── */
-html[data-profile="centre"] input[type="checkbox"],
-html[data-profile="centre"] input[type="radio"] {
+html[data-look="modern"] input[type="checkbox"],
+html[data-look="modern"] input[type="radio"] {
   accent-color: var(--primary);
 }
 
-html[data-profile="centre"] [role="dialog"] h2 {
+html[data-look="modern"] [role="dialog"] h2 {
   font-size: 1.125rem;
   font-weight: 800;
 }
 
 /* The cards of a sectioned form stand on the page's lavender, not white on white. */
-html[data-profile="centre"] [role="dialog"]:has(.group-form--centre) > div:nth-child(2) {
+html[data-look="modern"] [role="dialog"]:has(.group-form--centre) > div:nth-child(2) {
   background: var(--background);
 }
 
-html[data-profile="centre"] .group-form--centre input:not([type="checkbox"], [type="radio"]),
-html[data-profile="centre"] .group-form--centre select,
-html[data-profile="centre"] .group-form--centre textarea {
+html[data-look="modern"] .group-form--centre input:not([type="checkbox"], [type="radio"]),
+html[data-look="modern"] .group-form--centre select,
+html[data-look="modern"] .group-form--centre textarea {
   background-color: var(--card);
 }
 
-html[data-profile="centre"] .group-form--centre button[class*="bg-background"] {
+html[data-look="modern"] .group-form--centre button[class*="bg-background"] {
   background-color: var(--card);
 }
 
-html[data-profile="centre"] .group-form--centre label {
+html[data-look="modern"] .group-form--centre label {
   font-weight: 700;
 }
 
-html[data-profile="centre"] .group-form--centre label[class*="cursor-pointer"] {
+html[data-look="modern"] .group-form--centre label[class*="cursor-pointer"] {
   font-weight: 400;
 }
 
 /* The save bar floats over the form; the strip under it is painted, so no card shows through there. */
-html[data-profile="centre"] .group-form--centre .group-form__bar {
+html[data-look="modern"] .group-form--centre .group-form__bar {
   border-color: color-mix(in oklab, var(--border) 70%, transparent);
-  box-shadow: 0 1.25rem 0 0 var(--background), 0 -6px 18px -12px oklch(0.3 0.09 285 / 30%);
+  box-shadow: 0 1.25rem 0 0 var(--background), 0 -6px 18px -12px var(--float-shadow);
 }
 
 /* Every dialog's fields on white, with the same weight of label. */
-html[data-profile="centre"] [role="dialog"] input:not([type="checkbox"], [type="radio"]),
-html[data-profile="centre"] [role="dialog"] select,
-html[data-profile="centre"] [role="dialog"] textarea {
+html[data-look="modern"] [role="dialog"] input:not([type="checkbox"], [type="radio"]),
+html[data-look="modern"] [role="dialog"] select,
+html[data-look="modern"] [role="dialog"] textarea {
   background-color: var(--card);
 }

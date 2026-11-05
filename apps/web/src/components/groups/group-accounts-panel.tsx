@@ -12,7 +12,7 @@ import { PersonAvatar } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { getGroupAccounts, type GroupAccountRow, type GroupAccounts } from "@/lib/accounting-api";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import type { GroupDetail } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -267,7 +267,7 @@ export function GroupAccountsPanel({ group }: { group: GroupDetail }) {
 
 function StudentCell({ row }: { row: GroupAccountRow }) {
   const t = useTranslations("accounting");
-  const look = useCentreLook();
+  const look = useModernLook();
   const cell = (
     <div className="min-w-0">
       <p className={cn("font-medium break-words", look && "font-bold")}>

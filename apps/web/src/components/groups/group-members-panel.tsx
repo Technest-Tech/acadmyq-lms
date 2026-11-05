@@ -23,7 +23,7 @@ import {
   type GroupMember,
   type GroupRow,
 } from "@/lib/groups-api";
-import { useCapability, useCentreLook } from "@/lib/capabilities";
+import { useCapability, useModernLook } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -58,7 +58,7 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
   const locale = useLocale();
   // A member's own price only means something on a priced group the caller may price.
   const canPrice = can("student.set_price") && group.pricing !== null;
-  const look = useCentreLook();
+  const look = useModernLook();
 
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
   const [notice, setNotice] = useState<string | null>(null);

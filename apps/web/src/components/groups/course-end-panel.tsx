@@ -11,7 +11,7 @@ import { LevelSelect } from "@/components/levels/level-select";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { closeGroup, promoteGroup, renewGroup, type GroupDetail } from "@/lib/groups-api";
 import { type Level, listLevels } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
@@ -48,7 +48,7 @@ export function CourseEndPanel({ group, onClosed }: { group: GroupDetail; onClos
   const word = useLevelWord();
   const [action, setAction] = useState<Action | null>(null);
   const endingSoon = group.ending_soon === true;
-  const look = useCentreLook();
+  const look = useModernLook();
 
   return (
     <section

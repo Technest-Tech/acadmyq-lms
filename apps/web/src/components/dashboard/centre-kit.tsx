@@ -55,6 +55,7 @@ export function KpiCard({
   tone,
   label,
   value,
+  display,
   chip,
   note,
   loading,
@@ -66,6 +67,8 @@ export function KpiCard({
   label: string;
   /** null ⇒ "—": the figure could not be read, which is not the same as zero. */
   value: number | null;
+  /** The figure already written out (an amount of money), shown instead of counting `value` up. */
+  display?: string;
   chip?: ReactNode;
   note?: string;
   loading: boolean;
@@ -80,8 +83,14 @@ export function KpiCard({
           {loading ? (
             <div className="bg-muted mt-2 h-9 w-20 animate-pulse rounded-lg" />
           ) : (
-            <p className="mt-1 text-[1.625rem] leading-tight font-extrabold tracking-tight tabular-nums sm:text-[2rem]">
-              {value === null ? "—" : <CountUp value={value} locale={locale} />}
+            <p
+              className={cn(
+                "mt-1 leading-tight font-extrabold tracking-tight tabular-nums",
+                // An amount is longer than a count: one step down, so it never runs out of a phone's half-width card.
+                display === undefined ? "text-[1.625rem] sm:text-[2rem]" : "text-xl sm:text-[1.625rem]",
+              )}
+            >
+              {value === null ? "—" : (display ?? <CountUp value={value} locale={locale} />)}
             </p>
           )}
         </div>

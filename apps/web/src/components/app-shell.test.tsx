@@ -733,3 +733,84 @@ describe("AppShell — the learning centre's look", () => {
     expect(keys).toEqual(["dashboard", "groups", "attendance", "students"]);
   });
 });
+
+describe("AppShell — the modern look for a Quran academy (`modern_look`)", () => {
+  const permissions = ["session.read", "schedule.read", "student.read", "invoice.read", "notification.read"];
+  const academy = { name: "Al-Huda", displayName: "Al-Huda", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "QURAN" as const };
+
+  it("wears the modern design in its own palette once the switch is on, and keeps its own sidebar", async () => {
+    document.documentElement.style.setProperty("--primary", "#2f9e6f");
+    localStorage.removeItem("acq.workspace");
+    renderShell("ACADEMY_OWNER", { permissions, capabilities: ["invoicing", "packages", "modern_look"], academy });
+    await ready();
+
+    expect(document.documentElement.dataset.look).toBe("modern");
+    // Not a centre: no violet palette, and the inline colours give way to the stylesheet's green.
+    expect(document.documentElement.dataset.profile).toBeUndefined();
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("");
+    expect(localStorage.getItem("acq.workspace")).toBe("modern");
+    // The Quran academy's own sidebar: invoices still there, no centre-only groups.
+    expect(navKeys()).toContain("invoices");
+    expect(screen.queryByText(arMessages.navGroup.teaching)).toBeNull();
+    // A phone bar of its own day.
+    const keys = Array.from(screen.getByTestId("bottom-nav").querySelectorAll("[data-bottom-nav]")).map((el) =>
+      el.getAttribute("data-bottom-nav"),
+    );
+    expect(keys).toEqual(["dashboard", "attendance", "students", "schedule"]);
+  });
+
+  it("leaves every other Quran academy exactly as it was", async () => {
+    document.documentElement.dataset.look = "modern";
+    localStorage.setItem("acq.workspace", "modern");
+    renderShell("ACADEMY_OWNER", { permissions, capabilities: ["invoicing", "packages"], academy });
+    await ready();
+
+    expect(document.documentElement.dataset.look).toBeUndefined();
+    expect(document.documentElement.dataset.profile).toBeUndefined();
+    expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#2f9e6f");
+    expect(localStorage.getItem("acq.workspace")).toBeNull();
+    expect(screen.queryByTestId("bottom-nav")).toBeNull();
+  });
+
+  it("gives it the centre's groups menu once it teaches groups, and keeps its calendar without them", async () => {
+    const groupPerms = [...permissions, "group.read", "invoice.read"];
+    const { unmount } = renderShell("ACADEMY_OWNER", { permissions: groupPerms, capabilities: ["invoicing", "packages", "groups", "modern_look"], academy });
+    await ready();
+    fireEvent.click(document.querySelector('[data-nav="groups"]')!);
+    const keys = navKeys();
+    expect(keys).toEqual(expect.arrayContaining(["groupsAll", "groupsPayments", "groupsReports", "calendarCentre"]));
+    expect(keys).not.toContain("groupsLessons");
+    expect(keys).not.toContain("groupsStudents");
+    // الجدول الأسبوعي is the groups' board; the calendar keeps a row of its own.
+    const schedule = document.querySelector('[data-nav="schedule"]')!;
+    expect(schedule).toHaveAttribute("href", "/groups/lessons");
+    expect(schedule.textContent).toContain(arMessages.nav.scheduleCentre);
+    expect(document.querySelector('[data-nav="calendarCentre"]')).toHaveAttribute("href", "/calendar");
+    expect(document.querySelector('[data-nav="groupsReports"]')?.textContent).toContain(arMessages.nav.groupsReportsCentre);
+    // Still a Quran academy everywhere else: its invoices and packages stay.
+    expect(keys).toContain("invoices");
+    unmount();
+
+    renderShell("ACADEMY_OWNER", { permissions: groupPerms, capabilities: ["invoicing", "packages", "modern_look"], academy });
+    await ready();
+    expect(document.querySelector('[data-nav="schedule"]')).toHaveAttribute("href", "/calendar");
+    expect(navKeys()).not.toContain("calendarCentre");
+  });
+
+  it("leaves a classic Quran academy's groups menu as it was", async () => {
+    renderShell("ACADEMY_OWNER", { permissions: [...permissions, "group.read"], capabilities: ["invoicing", "packages", "groups"], academy });
+    await ready();
+    fireEvent.click(document.querySelector('[data-nav="groups"]')!);
+    expect(navKeys()).toEqual(expect.arrayContaining(["groupsLessons", "groupsStudents"]));
+    expect(document.querySelector('[data-nav="schedule"]')).toHaveAttribute("href", "/calendar");
+    expect(navKeys()).not.toContain("calendarCentre");
+  });
+
+  it("puts a centre on the same design with its own palette on top", async () => {
+    renderShell("ACADEMY_OWNER", { permissions, capabilities: ["centre"], academy: { ...academy, profile: "CENTRE" as const } });
+    await ready();
+
+    expect(document.documentElement.dataset.look).toBe("modern");
+    expect(document.documentElement.dataset.profile).toBe("centre");
+  });
+});

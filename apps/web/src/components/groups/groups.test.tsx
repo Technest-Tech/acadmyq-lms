@@ -249,6 +249,25 @@ describe("GroupsManager — a learning centre's look", () => {
     expect(within(await screen.findByTestId("groups-empty")).getByRole("button", { name: ar.new })).toBeInTheDocument();
   });
 
+  it("gives a Quran academy on the modern look the centre's stat cards and group cards", async () => {
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", {
+          academy: { name: "Al-Huda", displayName: "Al-Huda", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "QURAN" },
+          capabilities: ["groups", "modern_look"],
+          permissions: ["group.read", "group.manage"],
+        }),
+        <GroupsManager />,
+      ),
+    );
+
+    const card = await screen.findByTestId("group-card-g1");
+    expect(screen.getByTestId("groups-tiles")).toBeInTheDocument();
+    expect(screen.getByTestId("groups-filters")).toBeInTheDocument();
+    expect(screen.queryByTestId("groups-tab-ACTIVE")).toBeNull();
+    expect(within(card).getByTestId("group-overdue")).toBeInTheDocument();
+  });
+
   it("keeps the old tabs and card for every other academy", async () => {
     render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.read"] }), <GroupsManager />));
 

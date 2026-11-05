@@ -16,7 +16,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
-import { useCapability, useCentreLook } from "@/lib/capabilities";
+import { useCapability, useModernLook } from "@/lib/capabilities";
 import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
 import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { formatNumber } from "@/lib/money";
@@ -50,7 +50,7 @@ export function LessonsBoard() {
   const views: View[] = centre ? ["timetable", "day", "week", "owed"] : ["day", "week", "owed"];
   // A learning centre reads this board in its own look (group-look): white cards, pastel blocks,
   // soft badges. Everyone else's markup is exactly what it was.
-  const look = useCentreLook();
+  const look = useModernLook();
 
   const [view, setView] = useState<View>(centre ? "timetable" : "day");
   const [date, setDate] = useState(() => todayIn(browserTz));

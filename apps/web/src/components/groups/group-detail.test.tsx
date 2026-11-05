@@ -136,6 +136,30 @@ describe("GroupDetailScreen — a learning centre's look", () => {
   });
 });
 
+describe("GroupDetailScreen — a Quran academy on the modern look", () => {
+  it("opens on the same band, numbers and pill tabs as a centre", async () => {
+    const user = userEvent.setup();
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", {
+          academy: { name: "Al-Huda", displayName: "Al-Huda", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "QURAN" },
+          capabilities: ["groups", "modern_look"],
+          permissions: ["group.read", "group.manage", "session.mark_attendance"],
+        }),
+        <GroupDetailScreen groupId="g1" />,
+      ),
+    );
+
+    const hero = within(await screen.findByTestId("group-hero"));
+    expect(hero.getByRole("heading", { name: "IELTS" })).toBeInTheDocument();
+    expect(screen.getByTestId("group-stats")).toBeInTheDocument();
+    expect(await screen.findByTestId("lessons-owed")).toHaveTextContent(ar.lessons.takeAttendance);
+
+    await user.click(screen.getByTestId("group-tab-members"));
+    expect(within(await screen.findByTestId("member-s1")).getByText("AC")).toBeInTheDocument();
+  });
+});
+
 describe("GroupDetailScreen — every other academy", () => {
   it("keeps the band, the underlined tabs and the overview's own numbers", async () => {
     const user = userEvent.setup();

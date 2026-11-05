@@ -10,7 +10,7 @@ import { fieldClass, todayIn } from "@/components/groups/group-format";
 import { EmptyCard, PersonAvatar, SectionCard, SoftBadge, StatCard, pastelFor } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { PageHero } from "@/components/ui/page-hero";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { getGroupPayments, type GroupPayments } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 export function PaymentsBoard() {
   const t = useTranslations("groups");
   const locale = useLocale();
-  const look = useCentreLook();
+  const look = useModernLook();
   const [month, setMonth] = useState(() => todayIn(Intl.DateTimeFormat().resolvedOptions().timeZone).slice(0, 7));
   const [data, setData] = useState<GroupPayments | null>(null);
   const [error, setError] = useState<string | null>(null);

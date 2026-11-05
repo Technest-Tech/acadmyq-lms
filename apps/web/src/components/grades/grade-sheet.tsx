@@ -18,7 +18,7 @@ import {
   type GradeSheet as Sheet,
   type ScoreEntry,
 } from "@/lib/grades-api";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
 /** What a cell looks like while it is being typed: the score as text, and the absence flag. */
@@ -70,7 +70,7 @@ function sameCell(d: CellDraft, saved: { score: number | null; absent: boolean }
  */
 export function GradeSheet({ groupId }: { groupId: string }) {
   const t = useTranslations("grades");
-  const look = useCentreLook();
+  const look = useModernLook();
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [drafts, setDrafts] = useState<Drafts>({});
   const [error, setError] = useState<string | null>(null);

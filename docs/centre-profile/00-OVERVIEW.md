@@ -67,6 +67,42 @@ name.
 
 Make-up lessons already existed (`ClassGroupController::addLesson`, `is_extra`) and were not rebuilt.
 
+## The modern look for a Quran academy (`modern_look`)
+
+The centre's design, without becoming a centre. `modern_look` is an OPT-IN feature on the MANAGEMENT
+module (`FeatureCatalog::OPT_IN_CAPABILITIES`): off for every client until a Super Admin ticks it on the
+client's Features card. It changes the look and the home screen only. It moves no other feature, applies
+no preset, and leaves the profile QURAN.
+
+- **On `<html>`**: `data-look="modern"` carries the design (`app/centre-look.css`: cards, buttons, page
+  band, tables, Almarai, the type scale). A centre also gets `data-profile="centre"` on top for the violet
+  palette and for hiding the khatam lattice and gold. A Quran academy in the modern look keeps its gold
+  and ornaments on a calm navy (`html[data-look="modern"]:not([data-profile="centre"])`;
+  2026-11-06: emerald was tiring, petrol was rejected, Ahmed picked navy from four options). Set by `applyWorkspaceTheme`
+  (lib/branding.ts), remembered in `acq.workspace` for the first frame.
+- **Shell**: `app-shell.tsx` splits `centreShape` (the centre's sidebar: groups, order, words) from
+  `modernLook` (how it is painted). A modern Quran academy keeps its own sidebar and gets a phone bar of
+  its own (`MODERN_BOTTOM_NAV`).
+- **Dashboard**: `DashboardHome` → `ModernDashboard` (components/dashboard/modern-dashboard.tsx) on the
+  centre kit. It opens on the centre's banner with a mushaf, mosque and lantern drawing (`QuranHeroArt`,
+  components/quran-art.tsx) instead of the laptop. Then up to four numbers (students, teachers, today's
+  lessons, what students owe; a teacher's own pay), the week's lessons as a ring, six months of revenue,
+  pending attendance and this week's trials. It drops the red overdue-lessons banner, the plan-usage
+  rings, the invoice breakdown and collection gauge, the average bill, salaries and net profit, the
+  hours of the month and the quick-action tiles.
+- **Groups menu** (2026-11-06): with groups, a modern Quran academy's sidebar shares the centre's groups
+  section (`GROUPS_SHAPE_*` / `GROUPS_HREF_OF` in app-shell): كل المجموعات، المدفوعات، إحصائيات المجموعات;
+  الجدول الأسبوعي opens the groups' board and التقويم keeps the calendar. Without groups, الجدول stays
+  the calendar. The rest of its sidebar (invoices, packages) is its own.
+- **Groups** (2026-11-06): the groups list, the group form, the group page and its panels, the boards
+  (timetable, lessons, payments, reports) and the grade sheet / term reports ask `useModernLook()`, so a
+  modern Quran academy gets the centre's group screens. In its palette the centre's house tone (violet)
+  is a soft navy: `--color-violet-*` are repointed in centre-look.css, so not one of those screens changed.
+- **Hooks**: `useModernLook()` is for the look only. `useCentreLook()` stays the centre's own question:
+  the student timetable and the students list key behaviour on it, so it must not widen.
+- Classic Quran academies are untouched. That is pinned by app-shell.test ("leaves every other Quran
+  academy exactly as it was") and modern-dashboard.test.
+
 ## Working on it with several agents
 
 Each feature was built on its own branch in its own git worktree, then merged here. Two things bit:

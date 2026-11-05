@@ -29,7 +29,7 @@ import { LevelSelect } from "@/components/levels/level-select";
 import { RoomSelect } from "@/components/rooms/room-select";
 import { listRooms, type Room } from "@/lib/rooms-api";
 import { getGroupDefaults } from "@/lib/group-defaults-api";
-import { useCapability, useProfile } from "@/lib/capabilities";
+import { useCapability, useModernLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 import { useLevelWord } from "@/lib/levels";
 
@@ -175,7 +175,7 @@ export function GroupForm({
   const tw = useTranslations("scheduling");
   const locale = useLocale();
   const { can } = useAuth();
-  const look = useProfile() === "CENTRE";
+  const look = useModernLook();
   const editing = group !== undefined;
   // Each half of the money is its own capability, and an edit only shows what the API showed us.
   const canPrice = can("student.set_price") && (!editing || group.pricing !== null);

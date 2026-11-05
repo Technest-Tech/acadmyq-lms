@@ -94,7 +94,7 @@ import {
   Octagram,
   OrnateRule,
 } from "@/components/ornaments";
-import { applyWorkspaceTheme, rememberedCentre, rememberWorkspace } from "@/lib/branding";
+import { applyWorkspaceTheme, clearWorkspaceTheme, rememberedLook, rememberWorkspace, type WorkspaceLook } from "@/lib/branding";
 import { getEnrolmentSummary } from "@/lib/enrolment-api";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { roleLabel } from "@/lib/roles";
@@ -170,6 +170,7 @@ type NavKey =
   | "financialStats"
   | "audit"
   | "settings"
+  | "whatsapp"
   | "platformSettings"
   | "roles"
   | "academyRoles";
@@ -289,7 +290,19 @@ const CENTRE_ORDER: readonly NavKey[] = [
  * preset switches them off, so NAV_CAPABILITY already hides them — and the server refuses them,
  * which a hidden link never does.
  */
-const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "groupsLessons", "groupsStudents", "packages", "packagesDue", "packagesFinished"]);
+const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "packages", "packagesDue", "packagesFinished"]);
+
+/**
+ * The groups section as a centre has it, which a Quran academy in the modern look with groups shares
+ * (Ahmed, 2026-11-06: "the same group pages as the centres"). The dropdown is all groups, their
+ * payments and their statistics; the lessons-and-sheets board is الجدول الأسبوعي (`schedule` →
+ * GROUPS_HREF_OF), with the calendar on a row of its own (`calendarCentre`); and the groups' students
+ * page is not a menu item (each group lists its own). Only where a link sits and what it is called:
+ * every page still opens by its URL.
+ */
+const GROUPS_SHAPE_HIDDEN_KEYS = new Set<NavKey>(["groupsLessons", "groupsStudents"]);
+const GROUPS_SHAPE_ONLY_KEYS = new Set<NavKey>(["calendarCentre"]);
+const GROUPS_SHAPE_LABEL_KEYS = new Set<NavKey>(["schedule", "groupsReports"]);
 
 /**
  * The centre's subscriptions pages (docs/centre-profile/01-PRIVATE-SUBSCRIPTION-SPLIT.md): four views
@@ -297,7 +310,7 @@ const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "groupsLessons", "groups
  * centre — the hour-package pages keep serving the Quran academy and are hidden here — and exist for
  * no other shape: the server answers 402 on them without `centre`.
  */
-const CENTRE_ONLY_KEYS = new Set<NavKey>(["subsDue", "subsOpen", "subsFinished", "subsOutside", "calendarCentre"]);
+const CENTRE_ONLY_KEYS = new Set<NavKey>(["subsDue", "subsOpen", "subsFinished", "subsOutside"]);
 
 /**
  * Where a centre's "timetable" goes. The item named الجدول الأسبوعي opened the generic calendar for
@@ -306,7 +319,7 @@ const CENTRE_ONLY_KEYS = new Set<NavKey>(["subsDue", "subsOpen", "subsFinished",
  * the only place private lessons, trials and group lessons sit together — keeps a row under its own
  * name (`calendarCentre`, a centre-only item). A Quran academy's `schedule` is `/calendar`, as it was.
  */
-const CENTRE_HREF_OF: Partial<Record<NavKey, string>> = { schedule: "/groups/lessons" };
+const GROUPS_HREF_OF: Partial<Record<NavKey, string>> = { schedule: "/groups/lessons" };
 
 /**
  * Items whose switch reads differently for a centre. Discounts & Awards shares `teacher_quality` with
@@ -346,14 +359,16 @@ const CENTRE_BOTTOM_NAV: readonly NavKey[] = [
   "myPayroll",
 ];
 
+/** The same phone bar for a Quran academy in the modern look: its day is lessons, not groups. */
+const MODERN_BOTTOM_NAV: readonly NavKey[] = ["dashboard", "attendance", "students", "schedule", "myPayroll"];
+
 /** Items whose label a centre reads differently (`nav.<key>Centre`). */
 const CENTRE_LABEL_KEYS = new Set<NavKey>([
   "packages",
   "packagesDue",
   "packagesFinished",
   "trials",
-  "schedule",
-  "groupsReports",
+  ...GROUPS_SHAPE_LABEL_KEYS,
 ]);
 
 /**
@@ -794,6 +809,15 @@ const NAV: ReadonlyArray<{
     href: "/settings",
     group: "system",
   },
+  // The academy's WhatsApp page: link the number, choose and launch lesson reminders. The owner's,
+  // plus whoever assigns families' groups once reminders are on — see the filter below.
+  {
+    key: "whatsapp",
+    icon: MessageCircle,
+    permission: null,
+    href: "/whatsapp",
+    group: "system",
+  },
   {
     key: "audit",
     icon: History,
@@ -858,6 +882,7 @@ const PLATFORM_NAV: readonly NavKey[] = [
  */
 const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
   videoClassroom: "video.conferencing",
+  whatsapp: "whatsapp.automation",
   staff: "staff",
   academyRoles: "custom_roles",
   trials: "trials",
@@ -1023,10 +1048,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // "subscriptions", as it did before profiles — a Quran academy switched onto the centre's ways
   // keeps reading its money the centre's way.
   const centreShape = (session?.academy?.profile ?? "QURAN") === "CENTRE";
+  // The workspace's LOOK, apart from its shape: a centre always wears the modern design, a Quran academy
+  // only once a Super Admin switched `modern_look` on for it, and then with its own sidebar, its own
+  // order and its own words. Everything below that only paints keys on this, never on `centreShape`.
+  const modernLook = centreShape || (capabilities?.includes("modern_look") ?? false);
+  const workspaceLook: WorkspaceLook = centreShape ? "centre" : modernLook ? "modern" : "classic";
+  // The groups section's shape (GROUPS_SHAPE_*): a centre's always, a modern Quran academy's once it
+  // teaches groups. Without groups a Quran academy's الجدول stays its calendar.
+  const groupsShape = centreShape || (modernLook && (capabilities?.includes("groups") ?? false));
   const centre = (capabilities?.includes("centre") ?? false) || centreShape;
   const navLabel = (key: NavKey): string =>
     (centre && (key === "packages" || key === "packagesDue" || key === "packagesFinished")) ||
-    (centreShape && CENTRE_LABEL_KEYS.has(key))
+    (centreShape && CENTRE_LABEL_KEYS.has(key)) ||
+    (groupsShape && GROUPS_SHAPE_LABEL_KEYS.has(key))
       ? t(`nav.${key}Centre`)
       : t(`nav.${key}`);
 
@@ -1272,17 +1306,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // default colours.
   useLayoutEffect(() => {
     if (loading) {
-      applyWorkspaceTheme(rememberedCentre());
+      applyWorkspaceTheme(rememberedLook());
       return;
     }
-    applyWorkspaceTheme(centreShape);
-    if (session !== null) rememberWorkspace(centreShape);
-  }, [loading, session, centreShape]);
+    applyWorkspaceTheme(workspaceLook);
+    if (session !== null) rememberWorkspace(workspaceLook);
+  }, [loading, session, workspaceLook]);
 
   // Off the (app) area altogether (a shared link opened in this tab): not a centre's page any more.
   useEffect(
     () => () => {
-      delete document.documentElement.dataset.profile;
+      clearWorkspaceTheme();
     },
     [],
   );
@@ -1374,6 +1408,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
     if (item.key === "staff" && !can("staff.read") && !can("role.manage")) return false;
+    if (
+      item.key === "whatsapp" &&
+      !can("settings.manage") &&
+      !((can("student.update") || can("teacher.update") || can("group.manage")) && (capabilities?.includes("whatsapp.group_reminders") ?? false))
+    )
+      return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
     // The Audit Log link is Super-Admin-only in the sidebar. Academy owners retain
     // audit.read (the page and API stay reachable) — this just keeps it out of the
@@ -1388,12 +1428,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     // A centre's shape (CENTRE_HIDDEN_KEYS): the month-bill page gives way to Accounting.
     if (centreShape && CENTRE_HIDDEN_KEYS.has(item.key)) return false;
     if (!centreShape && (CENTRE_ONLY_PARENTS.has(item.key) || CENTRE_ONLY_KEYS.has(item.key))) return false;
+    if (groupsShape && GROUPS_SHAPE_HIDDEN_KEYS.has(item.key)) return false;
+    if (!groupsShape && GROUPS_SHAPE_ONLY_KEYS.has(item.key)) return false;
     return true;
   })
     .map((item) => {
-      if (!centreShape) return item;
-      const parent = CENTRE_PARENT_OF[item.key];
-      const href = CENTRE_HREF_OF[item.key];
+      if (!groupsShape) return item;
+      const parent = centreShape ? CENTRE_PARENT_OF[item.key] : undefined;
+      const href = GROUPS_HREF_OF[item.key];
       return parent !== undefined || href !== undefined
         ? { ...item, ...(parent !== undefined ? { parent } : {}), ...(href !== undefined ? { href } : {}) }
         : item;
@@ -1504,8 +1546,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         label: `${salesCount} payment receipts awaiting review`,
       };
     }
-    // A centre's `schedule` IS the groups' board, so the sheets owed count on it there.
-    if ((key === "groupsLessons" || (centreShape && key === "schedule")) && groupOwedCount > 0) {
+    // With the groups' shape `schedule` IS the groups' board, so the sheets owed count on it there.
+    if ((key === "groupsLessons" || (groupsShape && key === "schedule")) && groupOwedCount > 0) {
       return {
         count: groupOwedCount,
         label: `${groupOwedCount} group lessons waiting for attendance`,
@@ -1568,11 +1610,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-current={isActive ? "page" : undefined}
         className={cn(
           "group relative flex items-center font-medium transition-colors duration-150",
-          centreShape ? "rounded-xl text-[0.9375rem]" : "rounded-lg text-sm",
+          modernLook ? "rounded-xl text-[0.9375rem]" : "rounded-lg text-sm",
           "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
-          collapsed ? "justify-center px-0 py-2.5" : centreShape ? "gap-3 px-3.5 py-2.5" : "gap-3 px-3 py-2.5",
+          collapsed ? "justify-center px-0 py-2.5" : modernLook ? "gap-3 px-3.5 py-2.5" : "gap-3 px-3 py-2.5",
           isActive
-            ? centreShape
+            ? modernLook
               ? "centre-nav-active text-sidebar-primary-foreground font-bold"
               : "bg-primary/[0.12] text-primary font-semibold"
             : "text-sidebar-foreground hover:bg-sidebar-accent",
@@ -1589,12 +1631,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <Icon
           className={cn(
             "shrink-0 transition-colors",
-            centreShape ? "size-5" : "size-4",
+            modernLook ? "size-5" : "size-4",
             isActive
-              ? centreShape
+              ? modernLook
                 ? "text-sidebar-primary-foreground"
                 : "text-primary"
-              : centreShape
+              : modernLook
                 ? "text-sidebar-foreground/80 group-hover:text-sidebar-foreground"
                 : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
           )}
@@ -1664,10 +1706,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           data-nav={item.key}
           className={cn(
             "group relative flex w-full items-center gap-3 text-start font-medium transition-colors duration-150",
-            centreShape ? "rounded-xl px-3.5 py-2.5 text-[0.9375rem]" : "rounded-lg px-3 py-2.5 text-sm",
+            modernLook ? "rounded-xl px-3.5 py-2.5 text-[0.9375rem]" : "rounded-lg px-3 py-2.5 text-sm",
             "focus-visible:ring-ring/50 outline-none focus-visible:ring-2",
             holdsPage
-              ? centreShape
+              ? modernLook
                 ? "bg-sidebar-accent text-sidebar-accent-foreground font-bold"
                 : "text-primary font-semibold"
               : "text-sidebar-foreground hover:bg-sidebar-accent",
@@ -1676,12 +1718,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Icon
             className={cn(
               "shrink-0 transition-colors",
-              centreShape ? "size-5" : "size-4",
+              modernLook ? "size-5" : "size-4",
               holdsPage
-                ? centreShape
+                ? modernLook
                   ? "text-sidebar-accent-foreground"
                   : "text-primary"
-                : centreShape
+                : modernLook
                   ? "text-sidebar-foreground/80 group-hover:text-sidebar-foreground"
                   : "text-sidebar-foreground/60 group-hover:text-sidebar-foreground",
             )}
@@ -1692,7 +1734,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <ChevronDown
             className={cn(
               "shrink-0 transition-transform",
-              centreShape ? "text-sidebar-foreground/70 size-4" : "text-sidebar-foreground/50 size-3.5",
+              modernLook ? "text-sidebar-foreground/70 size-4" : "text-sidebar-foreground/50 size-3.5",
               isOpen && "rotate-180",
             )}
             aria-hidden
@@ -1704,7 +1746,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             // width, so a long name is never cut. The soft panel is what says they belong to it.
             className={cn(
               "mt-0.5 space-y-0.5",
-              centreShape ? "bg-sidebar-accent/50 rounded-xl" : "border-sidebar-border ms-5 border-s ps-2",
+              modernLook ? "bg-sidebar-accent/50 rounded-xl" : "border-sidebar-border ms-5 border-s ps-2",
             )}
             data-nav-children={item.key}
           >
@@ -1721,7 +1763,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const groupLabel = (label: string) =>
     collapsed ? (
       <div className="bg-sidebar-border mx-auto mb-1.5 h-px w-6" aria-hidden />
-    ) : centreShape ? (
+    ) : modernLook ? (
       <p className="text-sidebar-foreground/75 mb-2 flex select-none items-center gap-2.5 px-3.5 text-[0.8125rem] font-semibold">
         <span className="shrink-0">{label}</span>
         <span className="bg-sidebar-border h-px flex-1" aria-hidden />
@@ -1753,8 +1795,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className={cn(
             "bg-sidebar text-sidebar-foreground border-sidebar-border relative fixed inset-y-0 z-30 flex shrink-0 flex-col border-e transition-[width,transform] duration-200 md:static md:h-full md:translate-x-0",
             // The rail keeps the icons on the same optical axis as the expanded list.
-            collapsed ? "w-[4.5rem]" : centreShape ? "w-[17rem]" : "w-60",
-            centreShape && "overflow-hidden border-e-0",
+            collapsed ? "w-[4.5rem]" : modernLook ? "w-[17rem]" : "w-60",
+            modernLook && "overflow-hidden border-e-0",
             open
               ? "translate-x-0"
               : "max-md:-translate-x-full max-md:rtl:translate-x-full",
@@ -1796,11 +1838,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div
             className={cn(
               "border-sidebar-border relative flex shrink-0 items-center overflow-hidden",
-              centreShape && "border-b",
+              modernLook && "border-b",
               // A centre's brand block is exactly the header's height, so the logo and the profile
               // picture across the top sit on one line.
-              centreShape ? "h-16 md:h-[4.5rem]" : "h-14 border-b",
-              collapsed ? "justify-center px-2" : centreShape ? "justify-between gap-1 px-3" : "justify-between px-4",
+              modernLook ? "h-16 md:h-[4.5rem]" : "h-14 border-b",
+              collapsed ? "justify-center px-2" : modernLook ? "justify-between gap-1 px-3" : "justify-between px-4",
             )}
           >
             <div
@@ -1822,7 +1864,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <div
               className={cn(
                 "relative flex min-w-0 items-center",
-                centreShape
+                modernLook
                   ? cn("gap-3", !collapsed && "flex-1 rounded-2xl bg-white/[0.06] px-2 py-1.5 ring-1 ring-white/10")
                   : "gap-2.5",
               )}
@@ -1834,7 +1876,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   alt={academyName}
                   className={cn(
                     "shrink-0 bg-white object-contain p-0.5",
-                    centreShape ? "size-10 rounded-xl" : "ring-gold/30 size-8 rounded-lg ring-1",
+                    modernLook ? "size-10 rounded-xl" : "ring-gold/30 size-8 rounded-lg ring-1",
                   )}
                 />
               ) : session.academy ? (
@@ -1842,7 +1884,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   aria-hidden
                   className={cn(
                     "flex shrink-0 items-center justify-center font-bold",
-                    centreShape
+                    modernLook
                       ? "centre-nav-active text-sidebar-primary-foreground size-10 rounded-xl text-sm"
                       : "bg-primary/12 text-primary ring-gold/30 size-8 rounded-lg text-[11px] ring-1",
                   )}
@@ -1862,13 +1904,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   <div
                     className={cn(
                       "text-sidebar-foreground",
-                      centreShape ? "line-clamp-2 text-sm leading-[1.3] font-bold" : "truncate text-[13px] leading-tight font-semibold",
+                      modernLook ? "line-clamp-2 text-sm leading-[1.3] font-bold" : "truncate text-[13px] leading-tight font-semibold",
                     )}
                   >
                     {academyName}
                   </div>
                   {/* A centre shows the role once, beside the profile picture in the header. */}
-                  {!centreShape && (
+                  {!modernLook && (
                     <div className="text-sidebar-foreground/35 truncate text-[10px] leading-tight tracking-wide">
                       {roleLabel(tRoles, session.role, session.roleName)}
                     </div>
@@ -1934,7 +1976,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {/* ── Footer ─────────────────────────────────────────────────── */}
           <div className="border-sidebar-border relative border-t p-3">
             {/* On a phone a centre's header keeps only what a thumb needs; these two move here. */}
-            {centreShape && (
+            {modernLook && (
               <div className="centre-drawer-tools mb-2 flex items-center justify-center gap-2 md:hidden">
                 <ThemeToggle />
                 <LocaleSwitcher onSwitch={changeLocale} compact />
@@ -1987,10 +2029,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 aria-pressed={collapsed}
                 className={cn(
                   "focus-visible:ring-ring/50 hidden w-full items-center font-medium transition-colors outline-none focus-visible:ring-2 md:flex",
-                  centreShape
+                  modernLook
                     ? "text-sidebar-foreground border-sidebar-border bg-sidebar/50 hover:bg-sidebar-accent rounded-xl border px-3 py-2.5 text-sm backdrop-blur-sm"
                     : "text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground rounded-lg px-2 py-2 text-[12px]",
-                  collapsed ? "justify-center" : centreShape ? "justify-center gap-2.5" : "gap-2.5",
+                  collapsed ? "justify-center" : modernLook ? "justify-center gap-2.5" : "gap-2.5",
                 )}
               >
                 {collapsed ? (
@@ -2018,7 +2060,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <header
             className={cn(
               "border-border relative flex shrink-0 items-center gap-2 border-b sm:gap-3",
-              centreShape ? "bg-card h-16 px-3 md:h-[4.5rem] md:px-6" : "bg-background h-14 px-3 sm:px-4 md:px-5",
+              modernLook ? "bg-card h-16 px-3 md:h-[4.5rem] md:px-6" : "bg-background h-14 px-3 sm:px-4 md:px-5",
             )}
           >
             <span
@@ -2037,7 +2079,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
 
             {/* A centre's phone header names the academy; its desktop header opens on the search. */}
-            {centreShape && (
+            {modernLook && (
               <>
                 <Link href="/dashboard" className="order-1 flex min-w-0 flex-1 items-center justify-center gap-2 md:hidden">
                   {academyLogo && (
@@ -2057,13 +2099,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Breadcrumb. The group is context, the page is the anchor, and on a detail route the
                 page name becomes a link back to its list — which is the one thing the old header
                 (an icon, a slash, and a page name that never changed) could not do. */}
-            {activeItem && (!centreShape || pathname !== activeItem.href) && (
+            {activeItem && (!modernLook || pathname !== activeItem.href) && (
               <nav
                 aria-label={t("header.breadcrumb")}
                 data-testid="breadcrumb"
                 className={cn(
                   "hidden min-w-0 items-center gap-1.5 text-sm",
-                  centreShape ? "order-1 xl:flex" : "md:flex",
+                  modernLook ? "order-1 xl:flex" : "md:flex",
                 )}
               >
                 <span className="text-muted-foreground/70 select-none">
@@ -2094,10 +2136,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
 
             {/* Right-side actions */}
-            <div className={cn("flex items-center", centreShape ? "order-3 ms-auto gap-1 md:gap-2" : "ms-auto gap-0.5 sm:gap-1.5")}>
+            <div className={cn("flex items-center", modernLook ? "order-3 ms-auto gap-1 md:gap-2" : "ms-auto gap-0.5 sm:gap-1.5")}>
               {/* A desk on receipts collects from anywhere (docs/groups/01-ACCOUNTING.md). */}
               <CollectQuickAction />
-              {!centreShape && <CommandPalette items={commandItems} />}
+              {!modernLook && <CommandPalette items={commandItems} />}
 
               {can("notification.read") && (
                 <Tooltip content={t("nav.notifications")} side="bottom">
@@ -2107,10 +2149,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     aria-label={t("nav.notifications")}
                     className={cn(
                       "text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:ring-ring/50 relative transition-colors outline-none focus-visible:ring-2",
-                      centreShape ? "flex size-10 items-center justify-center rounded-xl" : "rounded-lg p-2",
+                      modernLook ? "flex size-10 items-center justify-center rounded-xl" : "rounded-lg p-2",
                     )}
                   >
-                    <BellRing className={centreShape ? "size-5" : "size-4"} aria-hidden />
+                    <BellRing className={modernLook ? "size-5" : "size-4"} aria-hidden />
                     {notifCount > 0 && (
                       <span className="bg-destructive text-white absolute -end-0.5 -top-0.5 inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold tabular-nums">
                         {notifCount > 9 ? "9+" : notifCount}
@@ -2121,7 +2163,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               )}
 
               {/* A centre's phone keeps these two in the drawer (the sidebar's footer). */}
-              <div className={centreShape ? "hidden md:contents" : "contents"}>
+              <div className={modernLook ? "hidden md:contents" : "contents"}>
                 <ThemeToggle />
 
                 {/* The two-segment pill is a third of a phone's header on its own — which pushed the
@@ -2145,20 +2187,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     data-testid="header-user"
                     className={cn(
                       "hover:bg-muted focus-visible:ring-ring/50 flex items-center transition-colors outline-none focus-visible:ring-2",
-                      centreShape ? "gap-2.5 rounded-xl p-1 md:px-2" : "gap-2 rounded-lg px-1.5 py-1.5",
+                      modernLook ? "gap-2.5 rounded-xl p-1 md:px-2" : "gap-2 rounded-lg px-1.5 py-1.5",
                     )}
                   >
                     <span
                       className={cn(
                         "flex shrink-0 items-center justify-center font-bold",
-                        centreShape
+                        modernLook
                           ? "centre-button-primary size-10 rounded-full text-[0.8125rem]"
                           : "from-primary/20 to-primary/[0.08] ring-primary/20 text-primary size-7 rounded-lg bg-gradient-to-br text-[11px] ring-1",
                       )}
                     >
                       {initials}
                     </span>
-                    {centreShape ? (
+                    {modernLook ? (
                       <span className="hidden min-w-0 text-start leading-tight md:block">
                         <span className="text-foreground block max-w-40 truncate text-sm font-bold">{session.user.fullName}</span>
                         <span className="text-muted-foreground block max-w-40 truncate text-xs">
@@ -2272,12 +2314,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           {/* In the column's flow, not fixed: <main> shrinks to make room, so it can never cover the
               end of a page. */}
-          {centreShape && !videoOnly && !lmsOnly && (
+          {modernLook && !videoOnly && !lmsOnly && (
             <nav
               data-testid="bottom-nav"
               className="bg-card border-border flex shrink-0 items-stretch gap-1 border-t px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] md:hidden"
             >
-              {CENTRE_BOTTOM_NAV.map((key) => items.find((item) => item.key === key))
+              {(centreShape ? CENTRE_BOTTOM_NAV : MODERN_BOTTOM_NAV).map((key) => items.find((item) => item.key === key))
                 .filter((item) => item !== undefined)
                 .slice(0, 4)
                 .map((item) => {

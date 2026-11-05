@@ -8,7 +8,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { getGroupMoney, type GroupDetail, type GroupMoney } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { useCapability, useCentreLook } from "@/lib/capabilities";
+import { useCapability, useModernLook } from "@/lib/capabilities";
 
 const PAID_TONE: Record<string, string> = {
   PAID: "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
@@ -27,7 +27,7 @@ export function GroupMoneyPanel({ group }: { group: GroupDetail }) {
   const t = useTranslations("groups");
   // A centre reads a month sold by time in lessons.
   const centre = useCapability("centre");
-  const look = useCentreLook();
+  const look = useModernLook();
   const locale = useLocale();
   const [month, setMonth] = useState(() => todayIn(group.timezone).slice(0, 7));
   const [money, setMoney] = useState<GroupMoney | null>(null);
@@ -131,7 +131,7 @@ export function GroupMoneyPanel({ group }: { group: GroupDetail }) {
 }
 
 function Tile({ label, value, tone }: { label: string; value: string; tone?: string }) {
-  const look = useCentreLook();
+  const look = useModernLook();
   return (
     <div className={cn("rounded-xl border p-3", look && "centre-surface bg-card rounded-2xl p-4")}>
       <p className="text-muted-foreground text-xs">{label}</p>

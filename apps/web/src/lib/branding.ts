@@ -50,47 +50,66 @@ export function applyBranding(branding: Branding): void {
 }
 
 /**
- * Put the workspace's colours on <html> for the academy's profile. A Quran academy gets exactly what
- * it always got (`applyBranding`). A learning centre takes its palette from globals.css
- * (`html[data-profile="centre"]`), so the inline colours `applyBranding` writes have to come off first:
- * an inline custom property beats any selector, and it is written even with nothing saved.
+ * Which workspace design <html> wears. CLASSIC is what every Quran academy always had; MODERN is the
+ * new design in the Quran academy's own green and gold (`modern_look`, switched on per client); CENTRE
+ * is the learning centre's violet version of the same design.
  */
-export function applyWorkspaceTheme(centre: boolean): void {
+export type WorkspaceLook = "classic" | "modern" | "centre";
+
+/**
+ * Put the workspace's look on <html>. A classic academy gets exactly what it always got
+ * (`applyBranding`, no attribute). The modern design hangs off `data-look="modern"` (centre-look.css)
+ * and a centre's palette off `data-profile="centre"` on top of it. Both take their colours from the
+ * stylesheet, so the inline colours `applyBranding` writes come off first: an inline custom property
+ * beats any selector, and it is written even with nothing saved.
+ */
+export function applyWorkspaceTheme(look: WorkspaceLook): void {
   if (typeof document === "undefined") return;
   const root = document.documentElement;
-  if (centre) {
-    root.dataset.profile = "centre";
-    root.style.removeProperty("--primary");
-    root.style.removeProperty("--ring");
-    root.style.removeProperty("--gold");
-  } else {
+  if (look === "classic") {
     delete root.dataset.profile;
+    delete root.dataset.look;
     applyBranding(loadBranding());
+    return;
   }
+  root.dataset.look = "modern";
+  if (look === "centre") root.dataset.profile = "centre";
+  else delete root.dataset.profile;
+  root.style.removeProperty("--primary");
+  root.style.removeProperty("--ring");
+  root.style.removeProperty("--gold");
 }
 
-/** The last workspace this browser opened, so a reload paints in its colours before /auth/me answers. */
+/** Off the (app) area altogether: back to the default page. */
+export function clearWorkspaceTheme(): void {
+  if (typeof document === "undefined") return;
+  delete document.documentElement.dataset.profile;
+  delete document.documentElement.dataset.look;
+}
+
+/** The last workspace this browser opened, so a reload paints in its look before /auth/me answers. */
 const WORKSPACE_KEY = "acq.workspace";
 
-export function rememberWorkspace(centre: boolean): void {
+export function rememberWorkspace(look: WorkspaceLook): void {
   try {
-    if (centre) localStorage.setItem(WORKSPACE_KEY, "centre");
-    else localStorage.removeItem(WORKSPACE_KEY);
+    if (look === "classic") localStorage.removeItem(WORKSPACE_KEY);
+    else localStorage.setItem(WORKSPACE_KEY, look);
   } catch {
-    // Private mode or blocked storage: the first frame falls back to the default colours.
+    // Private mode or blocked storage: the first frame falls back to the default look.
   }
 }
 
-export function rememberedCentre(): boolean {
+export function rememberedLook(): WorkspaceLook {
   try {
-    return localStorage.getItem(WORKSPACE_KEY) === "centre";
+    const saved = localStorage.getItem(WORKSPACE_KEY);
+    return saved === "centre" || saved === "modern" ? saved : "classic";
   } catch {
-    return false;
+    return "classic";
   }
 }
 
 /**
- * Runs in <body> ahead of the shell's HTML on a hard load, so a centre's loading screen is violet
- * from the first frame instead of flashing the default green while the session is fetched.
+ * Runs in <body> ahead of the shell's HTML on a hard load, so the loading screen wears the workspace's
+ * look from the first frame instead of flashing the classic one while the session is fetched.
  */
-export const WORKSPACE_INIT_SCRIPT = `try{if(localStorage.getItem("${WORKSPACE_KEY}")==="centre")document.documentElement.dataset.profile="centre"}catch(e){}`;
+export const WORKSPACE_INIT_SCRIPT = `try{var w=localStorage.getItem("${WORKSPACE_KEY}"),d=document.documentElement.dataset;if(w==="centre"||w==="modern"){d.look="modern";if(w==="centre")d.profile="centre"}}catch(e){}`;

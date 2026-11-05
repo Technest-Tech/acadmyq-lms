@@ -73,6 +73,48 @@
         "empty": "No activity yet."
       }
     },
+    "modern": {
+      "hero": {
+        "greeting": "{greeting}, {name}",
+        "subtitle": "Here is what needs your attention today.",
+        "addNew": "Add new",
+        "addStudent": "New student",
+        "addTrial": "Trial lesson",
+        "addGroup": "New group",
+        "collect": "Collect",
+        "calendar": "Calendar"
+      },
+      "kpi": {
+        "students": "Total students",
+        "teachers": "Total teachers",
+        "today": "Today's lessons",
+        "todayDone": "{done} of {total} done",
+        "unmarked": "{count} not marked",
+        "due": "Owed by students",
+        "openBills": "{count, plural, one {# open bill} other {# open bills}}",
+        "earnings": "My earnings this month"
+      },
+      "week": {
+        "title": "This week's lessons",
+        "unit": "lessons",
+        "attended": "Attended",
+        "absent": "Absent",
+        "scheduled": "Not started yet",
+        "cancelled": "Cancelled",
+        "empty": "No lessons this week."
+      },
+      "revenue": {
+        "title": "Revenue",
+        "period": "Last 6 months",
+        "thisMonth": "this month",
+        "empty": "No revenue in the last 6 months yet."
+      },
+      "trials": {
+        "attended": "Attended",
+        "upcoming": "Upcoming",
+        "missed": "Missed"
+      }
+    },
     "kpi": {
       "students": "Total Students",
       "activeStudents": "Active enrolments",
@@ -289,7 +331,8 @@
     "trialsCentre": "Placement lessons",
     "scheduleCentre": "Timetable",
     "calendarCentre": "Calendar",
-    "groupsReportsCentre": "Group statistics"
+    "groupsReportsCentre": "Group statistics",
+    "whatsapp": "WhatsApp"
   },
   "navGroup": {
     "general": "General",
@@ -1741,7 +1784,7 @@
       "cardDescStudent": "This student's lesson reminders go to this group.",
       "cardDescTeacher": "This teacher's lesson reminders go to this group.",
       "notConnectedTitle": "Reminders are on hold: your WhatsApp number is not connected",
-      "notConnectedBody": "Reconnect it from the WhatsApp tab. Reminders that come due in the meantime are dropped rather than sent late.",
+      "notConnectedBody": "Link it again in step 1 at the top of this page. Reminders that come due in the meantime are dropped rather than sent late.",
       "stats": {
         "sent": "Sent",
         "waiting": "On the way",
@@ -1752,7 +1795,7 @@
       "assignedStudents": "{assigned} of {total} students have a group",
       "assignedTeachers": "{assigned} of {total} teachers have a group",
       "sentToday": "{sent} of {cap} messages sent today",
-      "capacityWarn": "About {expected} reminders are due in the next 24 hours, and this number sends up to {cap} messages a day. Reminders stop at 90% so bills and reports still go out. To stay under it, use one group for a student and their teacher, or turn off one of the two reminders.",
+      "capacityWarn": "About {expected} reminders are due in the next 24 hours, and this number sends up to {cap} messages a day. Reminders stop at 90% so bills and reports still go out. To stay under it, send to groups rather than privately, use one group for a student and their teacher, or turn off one of the two reminders.",
       "timingTitle": "When to send",
       "timingDesc": "Applies to every student and teacher who has a group.",
       "lead": "Reminder before the lesson",
@@ -1797,9 +1840,9 @@
       "previous": "Previous",
       "next": "Next",
       "logTitle": "Latest reminders",
-      "logDesc": "What went out, to which group, and whether it arrived.",
+      "logDesc": "What went out, where to, and whether it arrived.",
       "logProblems": "Only the ones that did not arrive",
-      "logEmpty": "No reminders yet. They appear here once a lesson with a group comes up.",
+      "logEmpty": "No reminders yet. They appear here once reminders are launched and a lesson comes up.",
       "logNoProblems": "Nothing failed or was missed.",
       "stage": {
         "LESSON_REMINDER": "Before the lesson",
@@ -1816,10 +1859,75 @@
         "SKIPPED": "Not needed"
       },
       "errors": {
-        "not_connected": "Your WhatsApp number is not connected. Connect it from the WhatsApp tab first.",
+        "not_connected": "Your WhatsApp number is not connected. Link it in step 1 at the top of this page first.",
         "gateway_unavailable": "Could not reach the WhatsApp service. Please try again in a minute.",
         "not_a_member": "Your connected number is not in that group. Add it to the group, then press Refresh groups.",
-        "admins_only": "Only admins can post in that group. Make your number an admin, then try again."
+        "admins_only": "Only admins can post in that group. Make your number an admin, then try again.",
+        "nobody_to_remind": "Nobody can be reached with these choices yet: assign a group, or add WhatsApp numbers.",
+        "no_timing": "Choose when reminders go out first."
+      },
+      "assignedClasses": "{assigned} of {total} classes have a group",
+      "setupTitle": "How, to whom and when",
+      "setupDesc": "Applies to every lesson reminder — in groups and in private messages.",
+      "sharedHint": "One group for a student and their teacher? Assign it to both — it gets one message per lesson, not two.",
+      "liveSaveHint": "Reminders are running: saved choices apply from the next lesson.",
+      "channel": {
+        "title": "Send reminders to",
+        "GROUPS": {
+          "title": "WhatsApp groups",
+          "desc": "The group you assign to each student, teacher or class."
+        },
+        "PRIVATE": {
+          "title": "Private messages",
+          "desc": "The family's (or student's) number and the teacher's own number."
+        },
+        "BOTH": {
+          "title": "Both",
+          "desc": "In the group and as a private message."
+        }
+      },
+      "audience": {
+        "title": "Who gets them",
+        "BOTH": "Students and teachers",
+        "STUDENTS": "Students only",
+        "TEACHERS": "Teachers only"
+      },
+      "launch": {
+        "offTitle": "Reminders are not running",
+        "offDesc": "Choose your settings below, then launch. Nothing is sent before that.",
+        "liveTitle": "Reminders are running",
+        "liveDesc": "Every lesson is announced with the choices below.",
+        "liveSince": "Running since {date}.",
+        "button": "Launch reminders",
+        "stop": "Stop reminders",
+        "launched": "Reminders launched.",
+        "stopped": "Reminders stopped. Nothing more is sent until you launch them again.",
+        "checkConnected": "WhatsApp number linked",
+        "checkNotConnected": "Link your WhatsApp number first (step 1)",
+        "checkTiming": "Reminder timing chosen",
+        "checkNoTiming": "Choose when reminders go out",
+        "checkReach": "There are people to remind",
+        "checkNoGroups": "Assign a group to a student, a teacher or a class",
+        "checkNoReach": "Nobody you chose has a WhatsApp number or a group yet",
+        "viewOnly": "Only the academy's owner can launch or stop reminders and change how they are sent."
+      },
+      "private": {
+        "title": "Private messages",
+        "desc": "Sent to the numbers on file — a student's family number first, otherwise the student's own.",
+        "studentsLabel": "Students",
+        "teachersLabel": "Teachers",
+        "students": "{with} of {total} students can be messaged",
+        "teachers": "{with} of {total} teachers can be messaged",
+        "hint": "A number needs its country code (e.g. +20…). Add missing numbers on the student, parent or teacher profile. Each person is one message, so private reminders use the daily limit faster than groups."
+      },
+      "classes": "Classes",
+      "classesHint": "A class's group gets every lesson of that class — one message for all its students.",
+      "logGroup": "Group",
+      "logPrivate": "Private message",
+      "recipient": {
+        "STUDENT": "student",
+        "GUARDIAN": "family",
+        "TEACHER": "teacher"
       }
     },
     "whatsapp": {
@@ -2585,6 +2693,7 @@
       "RESCHEDULED": "Rescheduled"
     },
     "actions": {
+      "deleteLesson": "Delete lesson",
       "title": "Session · {name}",
       "acknowledge": "Done",
       "reason": "Reason (optional)",
@@ -4037,7 +4146,7 @@
       "whatsapp": {
         "auto": "Automated WhatsApp",
         "automation": "WhatsApp automation & notifications",
-        "group_reminders": "Lesson reminders in WhatsApp groups — a group per student and teacher"
+        "group_reminders": "WhatsApp page — the academy links its number and launches lesson reminders (groups, private or both)"
       },
       "payments": {
         "gateway": "Payment gateway"
@@ -4056,7 +4165,8 @@
         "conferencing": "Video classroom — rooms & recordings"
       },
       "groups": "Group classes — groups, members, timetable & attendance",
-      "accounting": "Accounting — numbered receipts, partial payments & collection sheets"
+      "accounting": "Accounting — numbered receipts, partial payments & collection sheets",
+      "modern_look": "Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy's own colours"
     }
   },
   "adminDashboard": {
@@ -5387,7 +5497,7 @@
       "billing": "Billing reminders (private)",
       "billingDesc": "Sends each student/parent their monthly invoice and unpaid reminders.",
       "reminders": "Lesson reminders (private)",
-      "remindersDesc": "Reminds people privately before each lesson or trial.",
+      "remindersDesc": "Reminds people privately before each lesson or trial. A client with the WhatsApp page sets its own private reminders there, and this switch does nothing for it.",
       "toLabel": "Recipient number",
       "toPlaceholder": "e.g. +201234567890",
       "messageLabel": "Message",
@@ -10844,6 +10954,14 @@
         "privateReceived": "In from private",
         "groupsReceived": "In from groups"
       }
+    },
+    "amend": {
+      "action": "Edit",
+      "save": "Save changes",
+      "saved": "Receipt updated.",
+      "failed": "Could not update the receipt.",
+      "hint": "The amount and what it paid stay. To change the amount, void it and record a new one. A new method moves the money to that method's account.",
+      "historyHint": "A card or carried-over receipt: only the note and reference change."
     }
   },
   "doneBy": {
@@ -11635,5 +11753,14 @@
     "errors": {
       "monthLessons": "Lessons a month is a whole number from 1 to 500."
     }
+  },
+  "whatsappPage": {
+    "title": "WhatsApp",
+    "subtitle": "Link the academy's number, choose where lesson reminders go and to whom, then launch them.",
+    "subtitleNumberOnly": "The number the academy's messages and alerts go out from.",
+    "stepNumber": "Link your number",
+    "stepReminders": "Lesson reminders",
+    "stepAbsence": "Absence alert",
+    "noAccess": "You don't have access to this page."
   }
 }

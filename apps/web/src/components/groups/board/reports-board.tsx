@@ -9,7 +9,7 @@ import { fieldClass, percent, todayIn } from "@/components/groups/group-format";
 import { EmptyCard, PersonAvatar, SectionCard, SoftBadge, StatCard, pastelFor, rateTone } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { PageHero } from "@/components/ui/page-hero";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { getGroupReports, type GroupReports } from "@/lib/groups-api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -33,7 +33,7 @@ const BAR: Record<string, string> = { emerald: "bg-emerald-500", amber: "bg-ambe
 export function ReportsBoard() {
   const t = useTranslations("groups");
   const locale = useLocale();
-  const look = useCentreLook();
+  const look = useModernLook();
   const [month, setMonth] = useState(() => todayIn(Intl.DateTimeFormat().resolvedOptions().timeZone).slice(0, 7));
   const [data, setData] = useState<GroupReports | null>(null);
   const [error, setError] = useState<string | null>(null);

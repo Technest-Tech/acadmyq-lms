@@ -27,7 +27,7 @@ import { listTeachers } from "@/lib/api";
 import { fetchRoster } from "@/lib/roster";
 import { listGroups, type GroupRow, type GroupState } from "@/lib/groups-api";
 import { LevelSelect } from "@/components/levels/level-select";
-import { useCapability, useProfile } from "@/lib/capabilities";
+import { useCapability, useModernLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 import { useLevelWord } from "@/lib/levels";
 
@@ -66,7 +66,7 @@ export function GroupsManager() {
   const [teachers, setTeachers] = useState<{ value: string; label: string }[]>([]);
   // A centre narrows the list to one of its levels (docs/centre-profile, Phase 2.1).
   const centre = useCapability("centre");
-  const look = useProfile() === "CENTRE";
+  const look = useModernLook();
   const [levelId, setLevelId] = useState("");
   // "Courses ending soon" (docs/centre-profile, Phase 2 §2): a chip, pre-set by the dashboard's link.
   const [endingSoon, setEndingSoon] = useState(() => search.get("ending_soon") === "1");

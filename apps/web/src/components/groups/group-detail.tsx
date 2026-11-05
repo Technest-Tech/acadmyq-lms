@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
-import { useCapability, useCentreLook } from "@/lib/capabilities";
+import { useCapability, useModernLook } from "@/lib/capabilities";
 import { archiveGroup, deleteGroup, getGroup, restoreGroup, type GroupDetail } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -80,7 +80,7 @@ const TAB_ICONS: Record<Tab, LucideIcon> = {
  */
 export function GroupDetailScreen({ groupId }: { groupId: string }) {
   const t = useTranslations("groups");
-  const look = useCentreLook();
+  const look = useModernLook();
   const tTerm = useTranslations("courseTerm");
   const word = useLevelWord();
   const tg = useTranslations("grades");
@@ -554,7 +554,7 @@ function GroupOverview({ group }: { group: GroupDetail }) {
   // A centre reads a month sold by time in lessons.
   const centre = useCapability("centre");
   // A centre's page already opens on these four numbers.
-  const look = useCentreLook();
+  const look = useModernLook();
 
   return (
     <div className="space-y-4" data-testid="group-overview">

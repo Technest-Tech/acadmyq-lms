@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { RoomSelect } from "@/components/rooms/room-select";
-import { useCapability, useCentreLook } from "@/lib/capabilities";
+import { useCapability, useModernLook } from "@/lib/capabilities";
 import { exportRowsToExcel } from "@/lib/export-excel";
 import {
   addGroupLesson,
@@ -151,7 +151,7 @@ export function TimetableBoard() {
   const today = todayIn(browserTz);
   // The centre's look (group-look): the day strip and the filters on white cards, each hour block a
   // card of its own. The markup is otherwise the same for everyone.
-  const look = useCentreLook();
+  const look = useModernLook();
   // The centre's rooms list (Settings): the room filter and "set the room" pick from it.
   const centre = useCapability("centre");
   const [rooms, setRooms] = useState<Room[]>([]);

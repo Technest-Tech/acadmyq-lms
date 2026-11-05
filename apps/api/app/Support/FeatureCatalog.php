@@ -27,7 +27,7 @@ final class FeatureCatalog
         'payroll' => 'Teacher payout calculation',
         'certificates' => 'Student certificates',
         'whatsapp.automation' => 'WhatsApp automation & notifications',
-        'whatsapp.group_reminders' => 'Lesson reminders in WhatsApp groups — a group per student and teacher',
+        'whatsapp.group_reminders' => 'WhatsApp page — the academy links its number and launches lesson reminders (groups, private or both)',
         'staff' => 'Non-teaching staff management',
         'custom_roles' => 'Custom roles & permissions builder',
         'trials' => 'Free trials pipeline & availability matcher',
@@ -44,6 +44,7 @@ final class FeatureCatalog
         'groups' => 'Group classes — groups, members, timetable & attendance',
         'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
         'centre' => 'Centre mode — lesson subscriptions of its own (centre_subscriptions), groups first, any student on a manual lesson, salary blocks',
+        'modern_look' => 'Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy\'s own colours',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
         'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
         'lms' => 'LMS — online courses (course builder & learner site)',
@@ -184,6 +185,7 @@ final class FeatureCatalog
             'groups',
             'accounting',
             'centre',
+            'modern_look',
         ],
         'VIDEO' => ['video.conferencing'],
         'WHATSAPP' => ['whatsapp.automation', 'whatsapp.group_reminders'],
@@ -209,6 +211,9 @@ final class FeatureCatalog
         'lesson_report',
         // Starts posting into the WhatsApp groups of a client's families: never a surprise.
         'whatsapp.group_reminders',
+        // The new workspace design for an academy that is not a centre (a centre always has it): the
+        // whole panel changes in front of the client's staff, so only for the clients we pick.
+        'modern_look',
     ];
 
     /**

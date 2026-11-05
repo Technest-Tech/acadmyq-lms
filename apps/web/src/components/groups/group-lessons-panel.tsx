@@ -46,7 +46,7 @@ import {
   type GroupDetail,
   type GroupLesson,
 } from "@/lib/groups-api";
-import { useCentreLook } from "@/lib/capabilities";
+import { useModernLook } from "@/lib/capabilities";
 import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { numeralLocale } from "@/lib/numerals";
 import { cn } from "@/lib/utils";
@@ -76,7 +76,7 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
   const canMark = can("session.mark_attendance");
   const canManage = can("group.manage");
   const canRevert = can("session.revert_attendance");
-  const look = useCentreLook();
+  const look = useModernLook();
   const [showAllPast, setShowAllPast] = useState(false);
 
   const [lessons, setLessons] = useState<GroupLesson[]>([]);
