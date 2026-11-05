@@ -197,6 +197,8 @@ export function ParentPage({
   // report). A centre's family has neither — its term reports sit in their own section above — so
   // the tab exists only when there is something to read in it, counted over every child.
   const anyReports =
+    // `level_label` travels for a centre only: every other academy's page keeps its three tabs.
+    data.level_label === undefined ||
     data.progress_reports.length > 0 ||
     data.recent.some((l) => (l.report?.length ?? 0) > 0 || l.topic || l.homework);
 

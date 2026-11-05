@@ -214,7 +214,10 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const hasSupervision = useCapability("supervision");
   // A centre whose lessons are all in rooms has no Enter button (Settings → Academy).
   const onlineLessons = useOnlineLessons();
-  const canFollow = can("session.follow") && hasSupervision;
+  // Only a centre loses it: every other academy's button stays as it was, whatever its switches.
+  const isCentreDesk = useCapability("centre");
+  const followOffered = hasSupervision || !isCentreDesk;
+  const canFollow = can("session.follow") && followOffered;
   // The Enter button's clock: re-read every half minute so a lesson's button lights up on time.
   const now = useNow();
 
@@ -1295,7 +1298,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                         earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
                                       />
                                     )}
-                                    {hasSupervision && displayStatus === "SCHEDULED" && (
+                                    {followOffered && displayStatus === "SCHEDULED" && (
                                       <FollowControl
                                         sessionId={s.id}
                                         followed={followInfo(s)}
@@ -1464,7 +1467,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                   earlyHorizonMinutes={ENTER_EARLY_HORIZON_MINUTES}
                                 />
                               )}
-                              {hasSupervision && displayStatus === "SCHEDULED" && (
+                              {followOffered && displayStatus === "SCHEDULED" && (
                                 <FollowControl
                                   sessionId={s.id}
                                   followed={followInfo(s)}

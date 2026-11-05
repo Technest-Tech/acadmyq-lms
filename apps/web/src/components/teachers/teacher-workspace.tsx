@@ -64,8 +64,10 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
   const t = useTranslations("teachers");
   const router = useRouter();
   const { can } = useAuth();
-  // The groups a teacher teaches (docs/groups) get a tab of their own for a client holding the feature.
-  const hasGroups = useCapability("groups");
+  // The groups a teacher teaches (docs/groups) get a tab of their own at a centre; nothing changes elsewhere.
+  const holdsGroups = useCapability("groups");
+  const atCentre = useCapability("centre");
+  const hasGroups = holdsGroups && atCentre;
 
   const [teacher, setTeacher] = useState<TeacherRow | null>(null);
   const [students, setStudents] = useState<TeacherStudent[]>([]);

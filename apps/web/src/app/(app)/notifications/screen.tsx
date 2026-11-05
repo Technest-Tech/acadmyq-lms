@@ -60,16 +60,16 @@ export function NotificationsScreen() {
   const tSubs = useTranslations("subscriptions");
   const locale = useLocale();
   const { can } = useAuth();
-  // The Reports tab is the overdue-LESSON-REPORT feed. An academy that asks its teachers for none
-  // — the learning centre: progress reports switched off, the structured report never opted into
-  // — has nothing to list there, and the job that fills it skips such an academy for the same
-  // reason (FlagOverdueReportsJob::wantsLessonReports). Keyed on the two switches, not the profile.
-  const hasStructuredReport = useCapability("lesson_report");
-  const hasProgressReports = useCapability("student_reports");
-  const hasLessonReports = hasStructuredReport || hasProgressReports;
   // A centre's money alerts are its subscriptions' (docs/centre-profile/01): the packages tab gives
   // way to a subscriptions one, read from its own category so the two feeds never mix.
   const centre = useCapability("centre");
+  // The Reports tab is the overdue-LESSON-REPORT feed. An academy that asks its teachers for none
+  // — the learning centre: progress reports switched off, the structured report never opted into
+  // — has nothing to list there, and the job that fills it skips such an academy for the same
+  // reason (FlagOverdueReportsJob::wantsLessonReports). Only a centre can be without it.
+  const hasStructuredReport = useCapability("lesson_report");
+  const hasProgressReports = useCapability("student_reports");
+  const hasLessonReports = hasStructuredReport || hasProgressReports || !centre;
 
   const [tab, setTab] = useState<TabKey>("classes");
   const [requests, setRequests] = useState<CancellationRequestRow[]>([]);

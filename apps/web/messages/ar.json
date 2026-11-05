@@ -11316,7 +11316,18 @@
       "untied": "أي حصة"
     },
     "family": {
-      "owes": "المستحق على الأسرة"
+      "owes": "المستحق على الأسرة",
+      "sendOne": "إرسال رابط الدفع",
+      "sendFamilyLink": "رابط دفع واحد للعائلة ({count})",
+      "copyLink": "نسخ الرابط",
+      "copied": "تم النسخ",
+      "linkFailed": "تعذّر تجهيز الرابط، حاول مرة أخرى.",
+      "messageGreeting": "السلام عليكم {name}،",
+      "messageIntro": "هذه المبالغ المستحقة على أبنائكم:",
+      "messageLine": "• {child}، {label}: {amount}",
+      "messageTotal": "الإجمالي: {total}",
+      "messagePayAll": "ادفعوا المبلغ كله من رابط واحد:",
+      "messagePayOne": "رابط الدفع:"
     },
     "actions": {
       "detail": "التفاصيل",

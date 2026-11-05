@@ -145,11 +145,16 @@ describe("ParentPage for a centre", () => {
     expect(screen.getAllByTestId("parent-group-lesson")[1]).toHaveTextContent("غاب");
   });
 
-  it("has no Reports tab when neither Quran feed has anything — the term reports keep their own section", () => {
-    render(<ParentPage data={CENTRE} initialLang="en" renderedAt={NOW} />);
+  it("has no Reports tab at a centre when neither Quran feed has anything — the term reports keep their own section", () => {
+    render(<ParentPage data={{ ...CENTRE, level_label: "LEVEL" }} initialLang="en" renderedAt={NOW} />);
     expect(screen.queryByTestId("parent-tab-reports")).not.toBeInTheDocument();
     expect(screen.getByTestId("parent-tab-lessons")).toBeInTheDocument();
     expect(screen.getByTestId("parent-tab-invoices")).toBeInTheDocument();
+  });
+
+  it("keeps the Reports tab for any other academy, even with nothing in it yet", () => {
+    render(<ParentPage data={BASE} initialLang="en" renderedAt={NOW} />);
+    expect(screen.getByTestId("parent-tab-reports")).toBeInTheDocument();
   });
 
   it("draws nothing new for a Quran family", async () => {

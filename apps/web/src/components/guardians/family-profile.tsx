@@ -193,6 +193,7 @@ function ChildRow({
   onSaved: () => void;
   onError: (msg: string) => void;
 }) {
+  const centre = useCapability("centre");
   const t = useTranslations("guardians");
   const ts = useTranslations("students");
   const locale = useLocale();
@@ -376,7 +377,7 @@ function ChildRow({
                 muted={!child.teacher_name}
                 value={child.teacher_name ?? t("detail.noTeacher")}
               />
-              {canPrice && (
+              {canPrice && !centre && (
                 <ChildFact
                   icon={BookOpen}
                   label={t("detail.childRate")}

@@ -18,6 +18,7 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/subscriptions",
   useSearchParams: () => nav.params,
 }));
+const payLink = vi.fn();
 const api = { listSubscriptions: vi.fn(), getSubscription: vi.fn(), remindSubscription: vi.fn(), cancelSubscription: vi.fn(), listSubscriptionStudents: vi.fn(), getSubscriptionSettlement: vi.fn(), closeSubscription: vi.fn(), updateSubscription: vi.fn() };
 vi.mock("@/lib/subscriptions-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/subscriptions-api")>()),
@@ -29,6 +30,7 @@ vi.mock("@/lib/subscriptions-api", async (importOriginal) => ({
   getSubscriptionSettlement: (...a: unknown[]) => api.getSubscriptionSettlement(...a),
   closeSubscription: (...a: unknown[]) => api.closeSubscription(...a),
   updateSubscription: (...a: unknown[]) => api.updateSubscription(...a),
+  createSubscriptionFamilyPayLink: (...a: unknown[]) => payLink(...a),
 }));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
@@ -64,6 +66,39 @@ describe("SubscriptionsManager", () => {
     expect(within(row).getByTestId("subscription-lessons-bar")).toHaveTextContent("3 / 8");
     expect(within(row).getByTestId("subscription-bill")).toHaveTextContent(ar.row.paid);
     expect(within(row).getByRole("link", { name: "Adam" })).toHaveAttribute("href", "/students/s1");
+  });
+
+  it("gives a family with several bills one pay link, through the centre's own door, and a single bill its own", async () => {
+    nav.params = new URLSearchParams("view=due");
+    payLink.mockReset().mockResolvedValue({ url: "https://lingo.test/f/tok" });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    api.listSubscriptions.mockResolvedValue({
+      rows: [
+        subRow({ id: "a", outstanding_minor: 72000, invoice_token: "t-a" }),
+        subRow({ id: "b", student: { id: "s2", full_name: "Sara", guardian_id: "gd1", guardian_name: "Umm Adam", is_self_guardian: false }, outstanding_minor: 30000, invoice_token: "t-b" }),
+        subRow({ id: "c", student: { id: "s3", full_name: "Omar", guardian_id: null, guardian_name: null, is_self_guardian: true }, outstanding_minor: 10000, invoice_token: "t-c" }),
+        subRow({ id: "d", student: { id: "s4", full_name: "Lina", guardian_id: "gd2", guardian_name: "Umm Lina", is_self_guardian: false }, outstanding_minor: 5000, invoice_token: null }),
+      ],
+      summary: subSummary(),
+      meta: { current_page: 1, last_page: 1, per_page: 50, total: 4 },
+    });
+    render(withAuth(owner(), <SubscriptionsManager />));
+    await screen.findByTestId("subscriptions-families");
+
+    const family = screen.getByTestId("family-gd1");
+    await userEvent.click(within(family).getByTestId("family-pay-copy"));
+    expect(payLink).toHaveBeenCalledWith("gd1");
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("https://lingo.test/f/tok"));
+
+    // One bill: its own page, no family link asked for.
+    payLink.mockClear();
+    await userEvent.click(within(screen.getByTestId("family-student:s3")).getByTestId("family-pay-copy"));
+    expect(payLink).not.toHaveBeenCalled();
+    await waitFor(() => expect(writeText.mock.calls.at(-1)?.[0]).toContain("t-c"));
+
+    // Nothing payable yet (no bill page): no bar.
+    expect(within(screen.getByTestId("family-gd2")).queryByTestId("family-pay-bar")).toBeNull();
   });
 
   it("switches views from the tabs and the URL, and groups the due view by family with what each owes", async () => {

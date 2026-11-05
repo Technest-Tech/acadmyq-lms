@@ -260,23 +260,26 @@ export function StudentProfile({ studentId }: { studentId: string }) {
                 : undefined
           }
         />
-        <FactCard
-          icon={BookOpen}
-          label={t("colRate")}
-          tone="violet"
-          muted={!sub}
-          value={
-            !sub
-              ? t("list.noSubscription")
-              : sub.price_basis === "FREE"
-                ? t("basis.FREE")
-                : formatMoney(
-                    { amount: sub.price_minor, currency: sub.currency },
-                    locale,
-                  )
-          }
-          sub={sub && sub.price_basis !== "FREE" ? t(`basis.${sub.price_basis}`) : undefined}
-        />
+        {/* A centre sells lessons and groups: the student has no hourly rate to read. */}
+        {!centre && (
+          <FactCard
+            icon={BookOpen}
+            label={t("colRate")}
+            tone="violet"
+            muted={!sub}
+            value={
+              !sub
+                ? t("list.noSubscription")
+                : sub.price_basis === "FREE"
+                  ? t("basis.FREE")
+                  : formatMoney(
+                      { amount: sub.price_minor, currency: sub.currency },
+                      locale,
+                    )
+            }
+            sub={sub && sub.price_basis !== "FREE" ? t(`basis.${sub.price_basis}`) : undefined}
+          />
+        )}
         <FactCard
           icon={Users}
           label={t("colGuardian")}

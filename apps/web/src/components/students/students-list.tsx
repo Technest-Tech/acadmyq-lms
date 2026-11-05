@@ -362,7 +362,8 @@ export function StudentsList({
       // The rate column belongs to whoever may set it. A role denied pricing (SUPERVISOR) has the
       // figure blanked by the API anyway, so showing the column would print a row of dashes and
       // offer a sort the server refuses.
-      if (!isTeacher && canPrice) {
+      // A centre sells lessons and groups: a student there has no hourly rate to read.
+      if (!isTeacher && canPrice && !centre) {
         cols.push({
           key: "price",
           header: t("colRate"),

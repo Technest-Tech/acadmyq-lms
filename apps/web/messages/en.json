@@ -11316,7 +11316,18 @@
       "untied": "Any lesson"
     },
     "family": {
-      "owes": "Family owes"
+      "owes": "Family owes",
+      "sendOne": "Send the pay link",
+      "sendFamilyLink": "One pay link for the family ({count})",
+      "copyLink": "Copy link",
+      "copied": "Copied",
+      "linkFailed": "Could not prepare the link. Try again.",
+      "messageGreeting": "Hello {name},",
+      "messageIntro": "These amounts are due for your children:",
+      "messageLine": "• {child}, {label}: {amount}",
+      "messageTotal": "Total: {total}",
+      "messagePayAll": "Pay it all from one link:",
+      "messagePayOne": "Pay here:"
     },
     "actions": {
       "detail": "Details",

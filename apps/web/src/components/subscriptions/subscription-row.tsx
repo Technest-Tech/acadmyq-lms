@@ -1,14 +1,16 @@
 "use client";
 
-import { AlertTriangle, BellRing, CalendarClock, Eye, Pencil, RefreshCw, Square, Trash2 } from "lucide-react";
+import { AlertTriangle, BellRing, CalendarClock, Check, Copy, Eye, Link2, Loader2, MessageSquare, Pencil, RefreshCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
+import { useState } from "react";
 import { dayLabel } from "@/components/accounting/accounting-ui";
 import { PersonAvatar, SoftBadge } from "@/components/groups/group-look";
+import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { STATUS_TONE } from "@/components/subscriptions/subscription-detail";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/money";
-import { subscriptionSubjectText, type SubscriptionRow } from "@/lib/subscriptions-api";
+import { createSubscriptionFamilyPayLink, subscriptionSubjectText, type SubscriptionRow } from "@/lib/subscriptions-api";
 import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -243,6 +245,104 @@ export function FamilySubscriptionGroup({ family, canManage, canRemind, actions 
           <SubscriptionRowCard key={row.id} row={row} canManage={canManage} canRemind={canRemind} actions={actions} compact />
         ))}
       </ul>
+      {canRemind && <FamilyPayBar family={family} />}
     </section>
+  );
+}
+
+/**
+ * The link the parent gets, ready for WhatsApp or the clipboard: two bills or more under a real family
+ * go through its one payment page; a single bill through that bill's own.
+ */
+function FamilyPayBar({ family }: { family: DueFamily }) {
+  const t = useTranslations("subscriptions");
+  const locale = useLocale();
+  const invoiceUrl = useInvoiceUrl();
+  const payable = family.rows.filter((r) => r.invoice_token !== null && r.outstanding_minor > 0);
+  const familyLink = family.guardianId !== null && payable.length > 1;
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [error, setError] = useState(false);
+  if (payable.length === 0) return null;
+
+  async function link(): Promise<string> {
+    if (familyLink && family.guardianId !== null) return (await createSubscriptionFamilyPayLink(family.guardianId)).url;
+    return invoiceUrl(payable[0]!.invoice_token as string);
+  }
+
+  function message(url: string): string {
+    const money = (minor: number, currency: string) => formatMoney({ amount: minor, currency }, locale);
+    return [
+      t("family.messageGreeting", { name: family.name }),
+      t("family.messageIntro"),
+      "",
+      ...payable.map((r) => t("family.messageLine", { child: r.student.full_name, label: r.label, amount: money(r.outstanding_minor, r.currency) })),
+      "",
+      t("family.messageTotal", { total: owed(payable).map((o) => money(o.minor, o.currency)).join(" + ") }),
+      t(familyLink ? "family.messagePayAll" : "family.messagePayOne"),
+      url,
+    ].join("\n");
+  }
+
+  async function send() {
+    // Opened on the click itself: a tab opened after the request returns is a blocked popup.
+    const tab = window.open("", "_blank");
+    setBusy(true);
+    setError(false);
+    try {
+      const text = encodeURIComponent(message(await link()));
+      const digits = (payable[0]!.student.guardian_phone ?? "").replace(/\D+/g, "");
+      const target = digits ? `https://wa.me/${digits}?text=${text}` : `https://wa.me/?text=${text}`;
+      if (tab !== null) {
+        tab.opener = null;
+        tab.location.href = target;
+      } else {
+        window.open(target, "_blank", "noopener,noreferrer");
+      }
+    } catch {
+      tab?.close();
+      setError(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function copy() {
+    setError(false);
+    try {
+      await navigator.clipboard.writeText(await link());
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setError(true);
+    }
+  }
+
+  return (
+    <div className="border-t" data-testid="family-pay-bar">
+      <div className="flex items-stretch">
+        <button
+          type="button"
+          onClick={() => void send()}
+          disabled={busy}
+          className="text-primary hover:bg-primary/5 flex flex-1 items-center justify-center gap-1.5 px-3 py-2 text-xs font-bold disabled:opacity-50"
+          data-testid="family-pay-send"
+        >
+          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : familyLink ? <Link2 className="size-3.5" aria-hidden /> : <MessageSquare className="size-3.5" aria-hidden />}
+          {familyLink ? t("family.sendFamilyLink", { count: payable.length }) : t("family.sendOne")}
+        </button>
+        <button
+          type="button"
+          onClick={() => void copy()}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground flex w-10 shrink-0 items-center justify-center border-s"
+          aria-label={copied ? t("family.copied") : t("family.copyLink")}
+          title={copied ? t("family.copied") : t("family.copyLink")}
+          data-testid="family-pay-copy"
+        >
+          {copied ? <Check className="size-3.5 text-emerald-600" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+        </button>
+      </div>
+      {error && <p className="text-destructive border-t px-3 py-1.5 text-center text-[11px]">{t("family.linkFailed")}</p>}
+    </div>
   );
 }

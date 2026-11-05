@@ -510,6 +510,19 @@ describe("AppShell — the learning centre's shape (`academy.profile === CENTRE`
     ],
   };
 
+  it("keeps Discounts & Awards for a centre without the rubric's switch; any other academy without it does not", async () => {
+    const adjust = [...centreSession.permissions, "payout.adjust"];
+    const { unmount } = renderShell("ACADEMY_OWNER", { ...centreSession, permissions: adjust });
+    await ready();
+    expect(navKeys()).toContain("discountsAwards");
+    expect(navKeys()).not.toContain("teacherQuality");
+    unmount();
+
+    renderShell("ACADEMY_OWNER", { academy: { ...centreAcademy, profile: "QURAN" as const }, permissions: adjust, capabilities: ["invoicing", "payroll", "groups"] });
+    await ready();
+    expect(navKeys()).not.toContain("discountsAwards");
+  });
+
   it("opens on Teaching — groups, timetable, attendance, subscriptions — before the people", async () => {
     renderShell("ACADEMY_OWNER", centreSession);
     await ready();

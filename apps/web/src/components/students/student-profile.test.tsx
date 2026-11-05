@@ -90,6 +90,16 @@ describe("StudentProfile — the level card", () => {
     expect(screen.queryByText("Level history")).toBeNull();
   });
 
+  it("shows no hourly rate at a centre, and keeps it everywhere else", async () => {
+    const { unmount } = renderProfile(["invoicing", "groups", "accounting", "centre"]);
+    await screen.findByTestId("student-level-badge");
+    expect(screen.queryByText(enMessages.students.colRate)).toBeNull();
+    unmount();
+
+    renderProfile(["invoicing", "groups"]);
+    expect(await screen.findByText(enMessages.students.colRate)).toBeTruthy();
+  });
+
   it("renders neither for an academy without the centre switch, and never fetches the history", async () => {
     renderProfile(["invoicing", "groups"]);
 

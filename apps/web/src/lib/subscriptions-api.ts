@@ -19,7 +19,7 @@ export type SubscriptionReminderKind = "PAYMENT" | "FINISHED";
 export interface SubscriptionRow {
   id: string;
   sequence_no: number;
-  student: { id: string; full_name: string; guardian_id: string | null; guardian_name: string | null; is_self_guardian: boolean };
+  student: { id: string; full_name: string; guardian_id: string | null; guardian_name: string | null; guardian_phone?: string | null; is_self_guardian: boolean };
   /** Null = untied: any lesson of a student with one teacher. */
   teacher: { id: string; full_name: string } | null;
   course: string | null;
@@ -40,6 +40,8 @@ export interface SubscriptionRow {
   closed_by_name: string | null;
   invoice_id: string | null;
   invoice_line_id: string | null;
+  /** The bill's own public pay page, once it has one. */
+  invoice_token: string | null;
   invoice_paid_minor: number;
   outstanding_minor: number;
   settlement: SubscriptionSettlement;
@@ -257,4 +259,9 @@ export function subscriptionScope(row: Pick<SubscriptionRow, "teacher" | "course
 /** The subject as the desk says it: "English · Mr Ali", or the teacher alone, or nothing for an untied block. */
 export function subscriptionSubjectText(row: Pick<SubscriptionRow, "teacher" | "course">): string {
   return [row.course, row.teacher?.full_name].filter(Boolean).join(" · ");
+}
+
+/** The family's one payment page (`/f/{token}`): every bill they owe, one card payment. */
+export function createSubscriptionFamilyPayLink(guardianId: string): Promise<{ url: string }> {
+  return apiFetch(`/api/subscriptions/family/${guardianId}/pay-link`, { method: "POST" });
 }

@@ -24,6 +24,7 @@ export function subRow(over: Partial<SubscriptionRow> = {}): SubscriptionRow {
     closed_by_name: null,
     invoice_id: "i1",
     invoice_line_id: "l1",
+    invoice_token: "tok1",
     invoice_paid_minor: 72000,
     outstanding_minor: 0,
     settlement: null,

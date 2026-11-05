@@ -309,6 +309,13 @@ const CENTRE_ONLY_KEYS = new Set<NavKey>(["subsDue", "subsOpen", "subsFinished",
 const CENTRE_HREF_OF: Partial<Record<NavKey, string>> = { schedule: "/groups/lessons" };
 
 /**
+ * Items whose switch reads differently for a centre. Discounts & Awards shares `teacher_quality` with
+ * the rubric a centre has no use for, but the deductions on its teachers' statements are read and
+ * waived there: for a centre the page follows payroll (the server: entitled:teacher_quality,centre).
+ */
+const CENTRE_CAPABILITY_OF: Partial<Record<NavKey, string>> = { discountsAwards: "payroll" };
+
+/**
  * The two dropdowns only a centre's sidebar has, gathering pages that were each a row of their own.
  * Links to nothing by themselves: they exist for the children below, and are dropped without any.
  */
@@ -1104,7 +1111,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Deliberately not "unread": the count is derived from package state, so it clears when the
   // money arrives rather than when it is seen.
   useEffect(() => {
-    if (session === null || !can("package.read")) {
+    // Switched off (a centre on its own subscriptions), the route answers 402: nothing to ask.
+    if (session === null || !can("package.read") || (session.capabilities != null && !session.capabilities.includes("packages"))) {
       setPkgCount(0);
       return;
     }
@@ -1350,7 +1358,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const hasLms = capabilities === null || capabilities.includes("lms");
   /** Switched off for this client (or not part of its modules) ⇒ the item does not exist for them. */
   const isLocked = (key: NavKey) => {
-    const requiredCap = NAV_CAPABILITY[key];
+    const requiredCap = (centre ? CENTRE_CAPABILITY_OF[key] : undefined) ?? NAV_CAPABILITY[key];
     if (requiredCap === undefined || capabilities === null) return false;
     const required: readonly string[] = typeof requiredCap === "string" ? [requiredCap] : requiredCap;
     return required.some((cap) => !capabilities.includes(cap));

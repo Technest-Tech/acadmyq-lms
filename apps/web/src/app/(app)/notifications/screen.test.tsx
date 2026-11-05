@@ -175,6 +175,12 @@ it("keeps the Reports tab for a centre that opted into the structured lesson rep
   expect(await screen.findByTestId("tab-reports")).toBeInTheDocument();
 });
 
+it("keeps the Reports tab for an academy that is not a centre, whatever its report switches", async () => {
+  renderScreen({ capabilities: ["invoicing", "groups"] });
+
+  expect(await screen.findByTestId("tab-reports")).toBeInTheDocument();
+});
+
 it("keeps the Reports tab for a Quran academy, which holds progress reports by default", async () => {
   renderScreen();
 
