@@ -342,6 +342,102 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     );
   });
 
+  const finishedPackageImpact = (over: {
+    consumed_after: number;
+    reopens: boolean;
+  }) => ({
+    session_id: "se1",
+    duration_before: 30,
+    duration_after: 30,
+    can_change: true,
+    blockers: [] as [],
+    invoice: null,
+    payout: null,
+    package: {
+      package_id: "pk1",
+      label: "6 hours",
+      status: "COMPLETED",
+      currency: "EGP",
+      consumed_before: 360,
+      consumed_after: over.consumed_after,
+      remaining_before: 0,
+      remaining_after: 360 - over.consumed_after,
+      overdrawn_after: 0,
+      credit_overdrawn_after: 0,
+      will_complete: false,
+      reopens: over.reopens,
+      renewal_undone: over.reopens
+        ? { sequence_no: 2, amount_minor: 36000, currency: "EGP" }
+        : null,
+      own_bill_voided: null,
+      stays_closed: null,
+    },
+  });
+
+  async function openDurationAt(minutes: number) {
+    const user = userEvent.setup();
+    const d = detail();
+    d.session.status = "ATTENDED";
+    d.session.billed = true;
+    d.session.duration_minutes = minutes;
+    d.session.classification = {
+      billableToStudent: true,
+      countsForTeacher: true,
+    };
+    vi.mocked(api.getSession).mockResolvedValue(d);
+    renderPanel(
+      makeSession("ACADEMY_OWNER", {
+        permissions: [
+          "session.read",
+          "session.mark_attendance",
+          "session.write_report",
+          "student.set_price",
+        ],
+      }),
+    );
+    await user.click(await screen.findByTestId("edit-session-duration"));
+    return user;
+  }
+
+  it("corrects a finished package still holding the old length, and says what comes back", async () => {
+    vi.mocked(api.previewSessionDuration).mockResolvedValue(
+      finishedPackageImpact({ consumed_after: 330, reopens: true }),
+    );
+    vi.mocked(api.updateSessionDuration).mockResolvedValue({
+      ok: true,
+      impact: finishedPackageImpact({ consumed_after: 330, reopens: true }),
+    });
+
+    // Already 30 on the lesson (corrected on the payroll page), so the number does not change.
+    const user = await openDurationAt(30);
+    await user.click(screen.getByTestId("review-duration-change"));
+
+    const impact = await screen.findByTestId("duration-impact");
+    expect(impact).toHaveTextContent("goes back to open with 30 min left");
+    expect(impact).toHaveTextContent("automatic renewal (package #2)");
+
+    const confirm = screen.getByTestId("confirm-duration-change");
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    await waitFor(() =>
+      expect(api.updateSessionDuration).toHaveBeenCalledWith("se1", 30),
+    );
+  });
+
+  it("offers nothing to confirm when the length is already right everywhere", async () => {
+    vi.mocked(api.previewSessionDuration).mockResolvedValue(
+      finishedPackageImpact({ consumed_after: 360, reopens: false }),
+    );
+
+    const user = await openDurationAt(30);
+    await user.click(screen.getByTestId("review-duration-change"));
+
+    expect(await screen.findByTestId("duration-impact")).toHaveTextContent(
+      "already right everywhere",
+    );
+    expect(screen.getByTestId("confirm-duration-change")).toBeDisabled();
+  });
+
   it("hides attendance controls when the user lacks the capability (AC-6.8)", async () => {
     renderPanel(makeSession("TEACHER", { permissions: ["session.read"] }));
 

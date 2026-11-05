@@ -42,6 +42,53 @@ export function DurationCorrectionModal({
 
   const minutes = Number(duration);
   const valid = Number.isInteger(minutes) && minutes >= 1 && minutes <= 600;
+  // A lesson already corrected on the payroll page can have the right length and a finished
+  // package still holding the old one, so reviewing the same number is allowed.
+  const pkg = impact?.package ?? null;
+  const changes =
+    minutes !== currentDuration ||
+    (pkg !== null &&
+      pkg.status !== "ACTIVE" &&
+      pkg.consumed_after !== pkg.consumed_before);
+
+  const money = (amount: number, currency: string) =>
+    formatMoney({ amount, currency }, locale);
+
+  /** What the correction does to the package beyond its numbers, in one or two sentences. */
+  function packageNotes(): string | undefined {
+    if (pkg === null) return undefined;
+    const notes: string[] = [];
+    if (pkg.will_complete) notes.push(t("packageCompletes"));
+    if (pkg.reopens) {
+      notes.push(t("packageReopens", { minutes: pkg.remaining_after }));
+    }
+    if (pkg.renewal_undone) {
+      const { sequence_no, amount_minor, currency } = pkg.renewal_undone;
+      notes.push(
+        amount_minor !== null && currency !== null
+          ? t("renewalUndone", {
+              number: sequence_no,
+              amount: money(amount_minor, currency),
+            })
+          : t("renewalUndoneNoBill", { number: sequence_no }),
+      );
+    }
+    if (pkg.own_bill_voided) {
+      notes.push(
+        t("ownBillVoided", {
+          amount: money(
+            pkg.own_bill_voided.amount_minor,
+            pkg.own_bill_voided.currency,
+          ),
+        }),
+      );
+    }
+    if (pkg.stays_closed) notes.push(t(`staysClosed.${pkg.stays_closed}`));
+    if (pkg.status !== "ACTIVE" && pkg.overdrawn_after > 0) {
+      notes.push(t("packageOverdraft", { minutes: pkg.overdrawn_after }));
+    }
+    return notes.length > 0 ? notes.join(" ") : undefined;
+  }
 
   async function review() {
     if (!valid) return;
@@ -92,7 +139,7 @@ export function DurationCorrectionModal({
             type="button"
             variant="outline"
             size="sm"
-            disabled={busy !== null || !valid || minutes === currentDuration}
+            disabled={busy !== null || !valid}
             onClick={() => void review()}
             data-testid="review-duration-change"
           >
@@ -109,7 +156,7 @@ export function DurationCorrectionModal({
                 busy !== null ||
                 !impact.can_change ||
                 impact.duration_after !== minutes ||
-                minutes === currentDuration
+                !changes
               }
               onClick={() => void confirm()}
               data-testid="confirm-duration-change"
@@ -203,11 +250,7 @@ export function DurationCorrectionModal({
                   remainingBefore: impact.package.remaining_before,
                   remainingAfter: impact.package.remaining_after,
                 })}
-                extra={
-                  impact.package.will_complete
-                    ? t("packageCompletes")
-                    : undefined
-                }
+                extra={packageNotes()}
               />
             )}
 
@@ -240,6 +283,12 @@ export function DurationCorrectionModal({
                 title={t("durationOnly")}
                 detail={t("durationOnlyHint")}
               />
+            )}
+
+            {impact.can_change && !changes && (
+              <p className="text-muted-foreground text-xs">
+                {t("nothingToChange")}
+              </p>
             )}
 
             {!impact.can_change && (

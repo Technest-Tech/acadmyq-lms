@@ -3697,13 +3697,25 @@
       "moneyChange": "{before} → {after}",
       "packageChange": "Consumed {consumedBefore} → {consumedAfter} min · Remaining {remainingBefore} → {remainingAfter} min",
       "packageCompletes": "This correction will complete the package.",
+      "packageReopens": "The package goes back to open with {minutes} min left.",
+      "renewalUndone": "The automatic renewal (package #{number}) is cancelled and its {amount} bill comes off what's due.",
+      "renewalUndoneNoBill": "The automatic renewal (package #{number}) is cancelled.",
+      "ownBillVoided": "This package's {amount} bill comes off what's due, and is raised again when it really finishes.",
+      "packageOverdraft": "{minutes} min over the package: taken from the next package, or left due until a new one opens.",
+      "staysClosed": {
+        "NEXT_BLOCK_RUNNING": "The next package has already started, so this one stays finished and the freed minutes go unused.",
+        "NEXT_BLOCK_PAID": "Money has been paid on the next package's bill, so this one stays finished and the freed minutes go unused.",
+        "OWN_BILL_PAID": "Money has been paid on this package's bill, so it stays finished and the freed minutes go unused."
+      },
+      "nothingToChange": "The length is already right everywhere, so nothing changes.",
       "durationOnly": "Lesson record only",
       "durationOnlyHint": "No invoice, package credit, or salary line is attached to this lesson.",
       "saved": "Lesson duration, billing, package balance, and teacher salary were updated.",
       "blockers": {
         "NOT_ATTENDED": "Only attended lessons can be corrected here.",
         "INVOICE_LOCKED": "The student's invoice is closed or paid.",
-        "PACKAGE_CLOSED": "The lesson's package is already completed.",
+        "PACKAGE_CLOSED": "This lesson's package was closed by hand, so it can't be changed here.",
+        "PACKAGE_OVERDRAFT_SETTLED": "This package's extra minutes are already on a bill or the next package.",
         "PAYOUT_FINALIZED": "The teacher's salary statement is finalized."
       }
     },

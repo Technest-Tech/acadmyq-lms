@@ -5,19 +5,20 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Support\Audit;
+use App\Support\MoneyPolicy;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
-use App\Support\MoneyPolicy;
 
 /**
  * Correct the recorded length of an attended lesson without letting its three financial ledgers
  * drift apart. The preview and write deliberately share one calculation: the confirmation shown
  * to the owner is therefore the operation that is applied, not an approximation made by the UI.
  *
- * Open records may move; issued invoices, completed packages and finalized payroll never do. With
- * `carrySealed` (the payroll page) those closed documents stop being a refusal: the lesson's length
- * is corrected, a closed bill or finished package stays as it is, and a finalized statement's
+ * Open records may move; issued invoices and finalized payroll never do. A block that ran out moves
+ * too: the correction may be what shows it never really ran out ({@see LessonPackages::finishedBlockPlan}).
+ * With `carrySealed` (the payroll page) those closed documents stop being a refusal: the lesson's
+ * length is corrected, a closed bill or finished package stays as it is, and a finalized statement's
  * difference goes on the teacher's first open one ({@see Payroll::carryLessonDifference}).
  */
 final class SessionDurationCorrection
@@ -28,6 +29,8 @@ final class SessionDurationCorrection
     public function preview(object $session, int $newDuration, bool $carrySealed = false): array
     {
         $currentDuration = max(1, (int) $session->duration_minutes);
+        // Equal when the payroll page already corrected the lesson and only its finished block is left.
+        $lengthMoves = $newDuration !== $currentDuration;
         $blockers = [];
 
         if ((string) $session->status !== 'ATTENDED') {
@@ -54,9 +57,15 @@ final class SessionDurationCorrection
             $newConsumed = max(0, (int) $credit->minutes_consumed - (int) $credit->credit_minutes + $newDuration);
             $newOverdrawn = max(0, $newConsumed - $capacity);
             $newCreditOverdrawn = max(0, $newOverdrawn - max(0, (int) $credit->minutes_overdrawn - (int) $credit->credit_overdrawn));
+            $active = (string) $credit->package_status === 'ACTIVE';
 
-            if (! $carrySealed && (string) $credit->package_status !== 'ACTIVE') {
-                $blockers[] = 'PACKAGE_CLOSED';
+            $plan = null;
+            if (! $active && ! $carrySealed) {
+                $block = DB::table('lesson_packages')->where('id', $credit->package_id)->first();
+                $plan = $this->packages->finishedBlockPlan($block, $newConsumed, $newOverdrawn);
+                if ($plan['blocker'] !== null) {
+                    $blockers[] = $plan['blocker'];
+                }
             }
 
             $package = [
@@ -70,7 +79,14 @@ final class SessionDurationCorrection
                 'remaining_after' => max(0, $capacity - $newConsumed),
                 'overdrawn_after' => $newOverdrawn,
                 'credit_overdrawn_after' => $newCreditOverdrawn,
-                'will_complete' => $newConsumed >= $capacity,
+                'will_complete' => $active && $newConsumed >= $capacity,
+                'reopens' => (bool) ($plan['reopens'] ?? false),
+                'renewal_undone' => $this->renewalUndone($plan['renewal'] ?? null),
+                'own_bill_voided' => ($plan['own_bill'] ?? null) !== null ? [
+                    'amount_minor' => (int) $plan['own_bill']->total_minor,
+                    'currency' => (string) $plan['own_bill']->currency,
+                ] : null,
+                'stays_closed' => $plan['stays_closed'] ?? null,
             ];
         }
 
@@ -102,7 +118,7 @@ final class SessionDurationCorrection
                 $amountAfter = (int) round((int) $invoiceLine->amount_minor * $newDuration / $currentDuration);
             }
 
-            if (! $carrySealed && (string) $invoiceLine->invoice_status !== 'OPEN') {
+            if ($lengthMoves && ! $carrySealed && (string) $invoiceLine->invoice_status !== 'OPEN') {
                 $blockers[] = 'INVOICE_LOCKED';
             }
 
@@ -126,7 +142,7 @@ final class SessionDurationCorrection
 
         $payout = null;
         if ($payoutLine !== null) {
-            if (! $carrySealed && $payoutLine->finalized_at !== null) {
+            if ($lengthMoves && ! $carrySealed && $payoutLine->finalized_at !== null) {
                 $blockers[] = 'PAYOUT_FINALIZED';
             }
 
@@ -191,7 +207,12 @@ final class SessionDurationCorrection
             }
 
             $before = (int) $session->duration_minutes;
-            if ($before === $newDuration) {
+            $lengthMoves = $before !== $newDuration;
+            $effect = $preview['package'];
+            $finishedBlockMoves = ! $carrySealed && $effect !== null && $effect['status'] !== 'ACTIVE'
+                && $effect['consumed_after'] !== $effect['consumed_before'];
+
+            if (! $lengthMoves && ! $finishedBlockMoves) {
                 return $preview;
             }
 
@@ -201,13 +222,20 @@ final class SessionDurationCorrection
             ]);
 
             // Without carrySealed the blockers above have already refused anything closed.
-            if ($preview['invoice'] !== null && $preview['invoice']['status'] === 'OPEN') {
+            if ($lengthMoves && $preview['invoice'] !== null && $preview['invoice']['status'] === 'OPEN') {
                 $this->updateInvoice($session, $preview['invoice'], $actorUserId, $actorRole);
             }
-            if ($preview['package'] !== null && $preview['package']['status'] === 'ACTIVE') {
-                $this->updatePackage($session, $preview['package'], $newDuration, $actorUserId, $actorRole);
+            if ($lengthMoves && $effect !== null && $effect['status'] === 'ACTIVE') {
+                $this->updatePackage($session, $effect, $newDuration, $actorUserId, $actorRole);
             }
-            if ($preview['payout'] !== null) {
+            if ($finishedBlockMoves) {
+                // Asked before the minutes move: the block's own numbers are what it reads.
+                $block = DB::table('lesson_packages')->where('id', $effect['package_id'])->first();
+                $plan = $this->packages->finishedBlockPlan($block, $effect['consumed_after'], $effect['overdrawn_after']);
+                $this->updatePackage($session, $effect, $newDuration, $actorUserId, $actorRole);
+                $this->packages->applyFinishedBlockPlan($block, $plan, $effect['overdrawn_after'], $actorUserId, $actorRole);
+            }
+            if ($lengthMoves && $preview['payout'] !== null) {
                 if ($preview['payout']['finalized']) {
                     $reason = "Lesson length corrected ({$before} → {$newDuration} min) / تصحيح مدة حصة ({$before} ← {$newDuration} د)";
                     app(Payroll::class)->carryLessonDifference(
@@ -251,7 +279,14 @@ final class SessionDurationCorrection
 
         $packageId = DB::table('lesson_package_credits')->where('session_id', $sessionId)->value('package_id');
         if ($packageId !== null) {
-            DB::table('lesson_packages')->where('id', $packageId)->lockForUpdate()->first();
+            $package = DB::table('lesson_packages')->where('id', $packageId)->lockForUpdate()->first();
+            // A renewal about to be undone must not take a lesson while that happens.
+            DB::table('lesson_packages')
+                ->where('student_id', $package->student_id)
+                ->where('status', 'ACTIVE')
+                ->orderBy('id')
+                ->lockForUpdate()
+                ->get(['id']);
         }
 
         $payoutId = DB::table('payout_line_items')->where('session_id', $sessionId)->value('payout_id');
@@ -364,8 +399,33 @@ final class SessionDurationCorrection
         if (in_array('PAYOUT_FINALIZED', $blockers, true)) {
             return 'The teacher payout is finalized, so this lesson duration is locked. / تم اعتماد راتب المدرس، لذلك مدة الحصة مقفلة.';
         }
+        if (in_array('PACKAGE_OVERDRAFT_SETTLED', $blockers, true)) {
+            return 'This package\'s extra minutes are already on a bill or the next package, so this lesson duration is locked. / الدقائق الزائدة في هذه الباقة أُضيفت إلى فاتورة أو باقة تالية، لذلك مدة الحصة مقفلة.';
+        }
 
-        return 'The package is completed, so this lesson duration is locked. / اكتملت الباقة، لذلك مدة الحصة مقفلة.';
+        return 'This package was closed by hand, so this lesson duration is locked. / أُغلقت هذه الباقة يدويًا، لذلك مدة الحصة مقفلة.';
+    }
+
+    /**
+     * The renewal a correction undoes, as the owner reads it: which block, and the bill going with it.
+     *
+     * @return array{sequence_no:int, amount_minor:?int, currency:?string}|null
+     */
+    private function renewalUndone(?object $renewal): ?array
+    {
+        if ($renewal === null) {
+            return null;
+        }
+
+        $bill = $renewal->invoice_id !== null
+            ? DB::table('invoices')->where('id', $renewal->invoice_id)->where('status', '!=', 'VOID')->first(['total_minor', 'currency'])
+            : null;
+
+        return [
+            'sequence_no' => (int) $renewal->sequence_no,
+            'amount_minor' => $bill !== null ? (int) $bill->total_minor : null,
+            'currency' => $bill !== null ? (string) $bill->currency : null,
+        ];
     }
 
     private function isFreeTrial(string $sessionId): bool

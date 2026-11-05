@@ -4003,7 +4003,11 @@ export interface SessionDurationImpact {
   duration_after: number;
   can_change: boolean;
   blockers: Array<
-    "NOT_ATTENDED" | "INVOICE_LOCKED" | "PACKAGE_CLOSED" | "PAYOUT_FINALIZED"
+    | "NOT_ATTENDED"
+    | "INVOICE_LOCKED"
+    | "PACKAGE_CLOSED"
+    | "PACKAGE_OVERDRAFT_SETTLED"
+    | "PAYOUT_FINALIZED"
   >;
   invoice: {
     invoice_id: string;
@@ -4025,6 +4029,18 @@ export interface SessionDurationImpact {
     overdrawn_after: number;
     credit_overdrawn_after: number;
     will_complete: boolean;
+    /** The block ran out only because of this lesson's length, and opens again. */
+    reopens: boolean;
+    /** The unused automatic renewal the false ending opened, undone with its bill. */
+    renewal_undone: {
+      sequence_no: number;
+      amount_minor: number | null;
+      currency: string | null;
+    } | null;
+    /** The bill raised because the block ended, voided; its real ending raises it again. */
+    own_bill_voided: { amount_minor: number; currency: string } | null;
+    /** Why it stays finished although minutes came free. */
+    stays_closed: "NEXT_BLOCK_RUNNING" | "NEXT_BLOCK_PAID" | "OWN_BILL_PAID" | null;
   } | null;
   payout: {
     payout_id: string;

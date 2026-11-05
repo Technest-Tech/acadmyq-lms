@@ -588,6 +588,166 @@ final class LessonPackages
         return true;
     }
 
+    /**
+     * What correcting a lesson's length does to the finished block it sits on. Asked for the preview
+     * and asked again under lock for the write, so the owner confirms exactly what runs.
+     *
+     * A block that "ran out" because a lesson was recorded too long never really ran out (رند,
+     * Alrayan, 2026-11-05: a family shown as owing a renewal over a 30-minute lesson entered as 60).
+     * So a correction that leaves room re-opens it, and takes back what the false ending set off: an
+     * automatic renewal nobody has used or paid, and a bill raised only because the block ended. Once
+     * the next block is being taught from or paid for, this one stays finished and keeps the freed
+     * minutes as history ({@see release()} has always done the same).
+     *
+     * Refused only where the money has already gone somewhere this cannot follow: a block closed by
+     * hand (its bill and any settlement were worked out from what it had used then), and extra
+     * minutes that are on a bill or that the next block cannot hold.
+     *
+     * @return array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object}
+     */
+    public function finishedBlockPlan(object $package, int $consumedAfter, int $overdrawnAfter): array
+    {
+        $plan = ['blocker' => null, 'reopens' => false, 'renewal' => null, 'own_bill' => null, 'stays_closed' => null, 'absorbs_into' => null];
+
+        if ($package->status !== 'COMPLETED' || $package->closed_reason !== 'EXHAUSTED') {
+            return ['blocker' => 'PACKAGE_CLOSED'] + $plan;
+        }
+
+        $growth = $overdrawnAfter - (int) $package->minutes_overdrawn;
+        if ($growth !== 0 && $package->overdraft_invoice_id !== null) {
+            return ['blocker' => 'PACKAGE_OVERDRAFT_SETTLED'] + $plan;
+        }
+
+        // Only the block right behind this one can take its minutes or be undone for it.
+        $teacherId = $package->teacher_id !== null ? (string) $package->teacher_id : null;
+        $later = self::inSubject(DB::table('lesson_packages'), $teacherId, $package->course)
+            ->where('student_id', $package->student_id)
+            ->where('status', '!=', 'CANCELLED')
+            ->where('sequence_no', '>', $package->sequence_no)
+            ->orderBy('sequence_no')
+            ->get();
+        $next = $later->count() === 1 && $later->first()->status === 'ACTIVE' ? $later->first() : null;
+
+        if ($growth > 0) {
+            if ($package->overdraft_absorbed_by !== null) {
+                $holder = DB::table('lesson_packages')->where('id', $package->overdraft_absorbed_by)->first();
+                if ($holder === null || $holder->status !== 'ACTIVE' || $this->remainingMinutes($holder) <= $growth) {
+                    return ['blocker' => 'PACKAGE_OVERDRAFT_SETTLED'] + $plan;
+                }
+            } elseif ($next !== null && $this->remainingMinutes($next) > $overdrawnAfter) {
+                $plan['absorbs_into'] = $next;
+            }
+        }
+
+        // Still full, so it stays finished: only its overdraft moved.
+        if ($consumedAfter >= (int) $package->minutes_total + (int) $package->carried_over_minutes) {
+            return $plan;
+        }
+
+        $renewal = null;
+        if ($later->isNotEmpty()) {
+            $untouched = $next !== null
+                && (bool) $next->opened_automatically
+                && (int) $next->minutes_consumed <= (int) $next->absorbed_overdraft_minutes;
+            if (! $untouched) {
+                return ['stays_closed' => 'NEXT_BLOCK_RUNNING'] + $plan;
+            }
+            $bill = $next->invoice_id !== null ? DB::table('invoices')->where('id', $next->invoice_id)->first() : null;
+            if ($bill !== null && $this->billHasMoney($bill)) {
+                return ['stays_closed' => 'NEXT_BLOCK_PAID'] + $plan;
+            }
+            $renewal = $next;
+        }
+
+        // Billed at the end: the ending just came undone, and the real one raises the bill again.
+        $ownBill = null;
+        if ($package->bill_timing === 'ON_COMPLETION' && $package->invoice_id !== null) {
+            $bill = DB::table('invoices')->where('id', $package->invoice_id)->first();
+            if ($bill !== null && $bill->status !== 'VOID') {
+                if ($this->billHasMoney($bill)) {
+                    return ['stays_closed' => 'OWN_BILL_PAID'] + $plan;
+                }
+                $ownBill = $bill;
+            }
+        }
+
+        return ['reopens' => true, 'renewal' => $renewal, 'own_bill' => $ownBill] + $plan;
+    }
+
+    /**
+     * Carry out {@see finishedBlockPlan()}, once the corrected lesson's minutes are on the block.
+     *
+     * @param  array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object}  $plan
+     */
+    public function applyFinishedBlockPlan(object $package, array $plan, int $overdrawnAfter, ?string $actorUserId, ?string $actorRole): void
+    {
+        $id = (string) $package->id;
+        $academyId = (string) $package->academy_id;
+
+        if ($plan['renewal'] !== null) {
+            $this->cancel((string) $plan['renewal']->id, 'RENEWAL_UNDONE', $actorUserId, $actorRole, voidClosedBill: true);
+        }
+
+        // cancel() has just let go of anything the renewal had absorbed from this block.
+        $holderId = DB::table('lesson_packages')->where('id', $id)->value('overdraft_absorbed_by');
+        if ($holderId !== null) {
+            $holder = DB::table('lesson_packages')->where('id', $holderId)->first();
+            if ($holder !== null) {
+                $this->moveAbsorbed($holder, max(-(int) $holder->absorbed_overdraft_minutes, $overdrawnAfter - (int) $package->minutes_overdrawn));
+            }
+        } elseif ($plan['absorbs_into'] !== null) {
+            $this->moveAbsorbed($plan['absorbs_into'], $overdrawnAfter);
+            $holderId = (string) $plan['absorbs_into']->id;
+        }
+
+        $changes = ['overdraft_absorbed_by' => $overdrawnAfter > 0 ? $holderId : null, 'updated_at' => now()];
+
+        if ($plan['own_bill'] !== null) {
+            $billId = (string) $plan['own_bill']->id;
+            DB::table('invoices')->where('id', $billId)->update(['status' => 'VOID', 'updated_at' => now()]);
+            DB::table('lesson_packages')->where('overdraft_invoice_id', $billId)->update(['overdraft_invoice_id' => null, 'updated_at' => now()]);
+            $changes['invoice_id'] = null;
+            Audit::log('invoice.voided', 'invoice', $billId, $academyId, $actorUserId, $actorRole,
+                after: ['status' => 'VOID', 'reason' => 'PACKAGE_REOPENED'],
+                before: ['status' => (string) $plan['own_bill']->status, 'total_minor' => (int) $plan['own_bill']->total_minor]);
+        }
+
+        if ($plan['reopens']) {
+            $changes += ['status' => 'ACTIVE', 'closed_at' => null, 'closed_reason' => null, 'renewal_held_at' => null];
+        }
+
+        DB::table('lesson_packages')->where('id', $id)->update($changes);
+
+        if ($plan['reopens']) {
+            // These are one per block for good: left behind, its real ending would tell nobody.
+            DB::table('notifications')->where('subject_id', $id)->whereIn('type', ['PACKAGE_COMPLETED', 'NO_ACTIVE_PACKAGE'])->delete();
+            Audit::log('lesson_package.reopened', 'lesson_package', $id, $academyId, $actorUserId, $actorRole,
+                after: [
+                    'status' => 'ACTIVE',
+                    'renewal_undone' => $plan['renewal'] !== null ? (string) $plan['renewal']->id : null,
+                    'bill_voided' => $plan['own_bill'] !== null ? (string) $plan['own_bill']->id : null,
+                ],
+                before: ['status' => (string) $package->status, 'closed_reason' => $package->closed_reason]);
+        } else {
+            // Staying closed with minutes free on a bill paid up front: same question as closing it early.
+            app(PackageSettlement::class)->markIfOwed($id);
+        }
+    }
+
+    /** Move the next block's share of a finished block's overdraft, by a signed number of minutes. */
+    private function moveAbsorbed(object $holder, int $minutes): void
+    {
+        if ($minutes === 0) {
+            return;
+        }
+
+        DB::table('lesson_packages')->where('id', $holder->id)->update([
+            'minutes_consumed' => max(0, (int) $holder->minutes_consumed + $minutes),
+            'absorbed_overdraft_minutes' => (int) $holder->absorbed_overdraft_minutes + $minutes,
+            'updated_at' => now(),
+        ]);
+    }
+
     // =========================================================================
     // Manual control — the owner moving lessons on and off a package by hand
     // =========================================================================
@@ -881,11 +1041,19 @@ final class LessonPackages
     {
         $id = (string) $bill->id;
 
-        return (int) $bill->amount_paid_minor === 0
-            && $bill->paid_at === null
-            && ! DB::table('receipt_allocations')->where('invoice_id', $id)->exists()
-            && ! DB::table('invoice_line_items')->where('invoice_id', $id)->whereNotNull('cancelled_at')->exists()
+        return ! $this->billHasMoney($bill)
             && ! DB::table('lesson_packages')->where(fn ($q) => $q->where('invoice_id', $id)->orWhere('overdraft_invoice_id', $id))->exists();
+    }
+
+    /** Anything paid, a receipt on it, or a line let go: past that point a bill is not simply voided. */
+    private function billHasMoney(object $bill): bool
+    {
+        $id = (string) $bill->id;
+
+        return (int) $bill->amount_paid_minor !== 0
+            || $bill->paid_at !== null
+            || DB::table('receipt_allocations')->where('invoice_id', $id)->exists()
+            || DB::table('invoice_line_items')->where('invoice_id', $id)->whereNotNull('cancelled_at')->exists();
     }
 
     /**
@@ -2107,7 +2275,7 @@ final class LessonPackages
      * they are an overdraft to bill again, and its own bill is voided if nobody has paid toward
      * it — a cancelled package must not leave a debt behind it.
      */
-    public function cancel(string $packageId, ?string $note, ?string $actorUserId, ?string $actorRole): void
+    public function cancel(string $packageId, ?string $note, ?string $actorUserId, ?string $actorRole, bool $voidClosedBill = false): void
     {
         $package = DB::table('lesson_packages')->where('id', $packageId)->first();
 
@@ -2138,8 +2306,9 @@ final class LessonPackages
         ]);
 
         // A curriculum centre's bill is voided even once its month closed: a subscription deleted
-        // must not leave its charge on the family (every other academy as it always was).
-        $voidable = Entitlement::hasCapability((string) $package->academy_id, 'centre') ? ['OPEN', 'CLOSED'] : ['OPEN'];
+        // must not leave its charge on the family (every other academy as it always was, unless the
+        // caller is undoing a renewal that should never have opened, month closed or not).
+        $voidable = $voidClosedBill || Entitlement::hasCapability((string) $package->academy_id, 'centre') ? ['OPEN', 'CLOSED'] : ['OPEN'];
         $voided = $package->invoice_id !== null && DB::table('invoices')
             ->where('id', $package->invoice_id)
             ->whereIn('status', $voidable)

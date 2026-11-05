@@ -47,6 +47,21 @@ beforeEach(function () {
 
         return $id;
     };
+
+    // One attended lesson on the given day of the month, leaving the tenant context set.
+    $this->blockLesson = function (int $day, int $minutes = 60): string {
+        $this->asAcademy($this->academy);
+        $id = $this->createSession($this->academy, $this->student, $this->teacher, [
+            'scheduled_at_utc' => sprintf('2026-06-%02d 10:00:00+00', $day),
+            'duration_minutes' => $minutes,
+            'status' => 'SCHEDULED',
+        ]);
+        Sanctum::actingAs($this->owner);
+        $this->postJson("/api/sessions/{$id}/attendance", ['status' => 'ATTENDED'])->assertOk();
+        $this->asAcademy($this->academy);
+
+        return $id;
+    };
 });
 
 afterEach(fn () => Carbon::setTestNow());
@@ -169,6 +184,339 @@ it('blocks the correction when the teacher payout is finalized', function () {
 
     $this->asAcademy($this->academy);
     expect((int) DB::table('sessions')->where('id', $session)->value('duration_minutes'))->toBe(30);
+});
+
+/**
+ * A six-hour block made to run out by a 60-minute lesson that was really 30: five 60s + the wrong one.
+ * Returns [block id, its bill, the wrong lesson].
+ *
+ * @return array{0:string,1:?string,2:string}
+ */
+function ranOutBlock(object $test, array $terms = []): array
+{
+    durationSubscription($test, 'PER_PACKAGE');
+    $opened = app(LessonPackages::class)->open($terms + [
+        'student_id' => $test->student,
+        'label' => '6 hours',
+        'minutes_total' => 360,
+        'price_minor' => 36000,
+        'currency' => 'EGP',
+        'bill_timing' => 'ON_START',
+        'starts_on' => '2026-06-01',
+    ], (string) $test->owner->id, 'ACADEMY_OWNER');
+
+    $wrong = '';
+    foreach (range(1, 6) as $day) {
+        $wrong = blockLesson($test, $day);
+    }
+
+    return [$opened['package_id'], $opened['invoice_id'], $wrong];
+}
+
+function blockLesson(object $test, int $day, int $minutes = 60): string
+{
+    return ($test->blockLesson)($day, $minutes);
+}
+
+function blockRow(string $id): object
+{
+    return DB::table('lesson_packages')->where('id', $id)->first();
+}
+
+function renewalOf(object $test, string $blockId): object
+{
+    return DB::table('lesson_packages')
+        ->where('student_id', $test->student)
+        ->where('sequence_no', '>', blockRow($blockId)->sequence_no)
+        ->orderBy('sequence_no')
+        ->first();
+}
+
+it('re-opens a block that ran out only because a lesson was too long, and undoes its renewal and bill', function () {
+    [$block, $bill, $lesson] = ranOutBlock($this);
+    $renewal = renewalOf($this, $block);
+    expect(blockRow($block)->status)->toBe('COMPLETED')
+        ->and($renewal->status)->toBe('ACTIVE');
+    Sanctum::actingAs($this->owner);
+
+    // The renewal's bill is what the family was wrongly shown as owing.
+    expect(collect($this->getJson('/api/packages?scope=due')->assertOk()->json('packages'))->pluck('id'))->toContain($renewal->id);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('can_change', true)
+        ->assertJsonPath('package.consumed_after', 330)
+        ->assertJsonPath('package.remaining_after', 30)
+        ->assertJsonPath('package.reopens', true)
+        ->assertJsonPath('package.renewal_undone.sequence_no', (int) $renewal->sequence_no)
+        ->assertJsonPath('package.renewal_undone.amount_minor', 36000)
+        ->assertJsonPath('payout.amount_before', 12000)
+        ->assertJsonPath('payout.amount_after', 6000);
+
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = blockRow($block);
+    expect($row->status)->toBe('ACTIVE')
+        ->and($row->closed_at)->toBeNull()
+        ->and($row->closed_reason)->toBeNull()
+        ->and((int) $row->minutes_consumed)->toBe(330)
+        ->and((int) DB::table('lesson_package_credits')->where('session_id', $lesson)->value('minutes'))->toBe(30)
+        ->and(blockRow($renewal->id)->status)->toBe('CANCELLED')
+        ->and(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('VOID')
+        // Its own bill is the block it really bought: untouched.
+        ->and(DB::table('invoices')->where('id', $bill)->value('status'))->not->toBe('VOID')
+        ->and((int) DB::table('sessions')->where('id', $lesson)->value('duration_minutes'))->toBe(30);
+
+    Sanctum::actingAs($this->owner);
+    expect(collect($this->getJson('/api/packages?scope=due')->assertOk()->json('packages'))->pluck('id'))->not->toContain($renewal->id);
+
+    // The freed half hour is really there: the next lesson draws on it and the block ends again,
+    // this time telling the owner, and renews.
+    $this->asAcademy($this->academy);
+    $endedAlerts = fn () => DB::table('notifications')->where('subject_id', $block)->where('type', 'PACKAGE_COMPLETED')->count();
+    expect($endedAlerts())->toBe(0);
+    blockLesson($this, 8, 30);
+    expect($endedAlerts())->toBe(1)
+        ->and(blockRow($block)->status)->toBe('COMPLETED')
+        ->and((int) blockRow($block)->minutes_consumed)->toBe(360)
+        ->and(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->count())->toBe(1);
+});
+
+it('voids the undone renewal\'s bill even after its month closed', function () {
+    [$block, , $lesson] = ranOutBlock($this);
+    $renewal = renewalOf($this, $block);
+    DB::table('invoices')->where('id', $renewal->invoice_id)->update(['status' => 'CLOSED', 'closed_at' => now()]);
+    Sanctum::actingAs($this->owner);
+
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(blockRow($block)->status)->toBe('ACTIVE')
+        ->and(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('VOID');
+});
+
+it('keeps a renewal already being taught from: the old block stays finished with its minutes corrected', function () {
+    [$block, , $lesson] = ranOutBlock($this);
+    $renewal = renewalOf($this, $block);
+    blockLesson($this, 8);
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('can_change', true)
+        ->assertJsonPath('package.reopens', false)
+        ->assertJsonPath('package.renewal_undone', null)
+        ->assertJsonPath('package.stays_closed', 'NEXT_BLOCK_RUNNING');
+
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(blockRow($block)->status)->toBe('COMPLETED')
+        ->and((int) blockRow($block)->minutes_consumed)->toBe(330)
+        ->and(blockRow($renewal->id)->status)->toBe('ACTIVE')
+        ->and(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('OPEN');
+});
+
+it('keeps a renewal the family has paid towards', function () {
+    [$block, , $lesson] = ranOutBlock($this);
+    $renewal = renewalOf($this, $block);
+    DB::table('invoices')->where('id', $renewal->invoice_id)->update(['amount_paid_minor' => 1000]);
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('can_change', true)
+        ->assertJsonPath('package.stays_closed', 'NEXT_BLOCK_PAID');
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(blockRow($block)->status)->toBe('COMPLETED')
+        ->and(blockRow($renewal->id)->status)->toBe('ACTIVE');
+});
+
+it('never re-opens an older block past a finished one', function () {
+    [$block, , $lesson] = ranOutBlock($this, ['minutes_total' => 360]);
+    $second = renewalOf($this, $block);
+    DB::table('lesson_packages')->where('id', $second->id)->update(['minutes_total' => 60]);
+    blockLesson($this, 8);
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('package.reopens', false)
+        ->assertJsonPath('package.stays_closed', 'NEXT_BLOCK_RUNNING');
+});
+
+it('takes back a bill raised at the end, and raises one again when the block really ends', function () {
+    [$block, , $lesson] = ranOutBlock($this, ['bill_timing' => 'ON_COMPLETION', 'auto_renew' => false]);
+    $bill = blockRow($block)->invoice_id;
+    expect($bill)->not->toBeNull();
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('package.reopens', true)
+        ->assertJsonPath('package.own_bill_voided.amount_minor', 36000);
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(blockRow($block)->status)->toBe('ACTIVE')
+        ->and(blockRow($block)->invoice_id)->toBeNull()
+        ->and(DB::table('invoices')->where('id', $bill)->value('status'))->toBe('VOID');
+
+    blockLesson($this, 8, 30);
+    $newBill = blockRow($block)->invoice_id;
+    expect(blockRow($block)->status)->toBe('COMPLETED')
+        ->and($newBill)->not->toBeNull()->not->toBe($bill)
+        ->and((int) DB::table('invoices')->where('id', $newBill)->value('total_minor'))->toBe(36000);
+});
+
+it('leaves a block whose end-of-block bill was paid finished, rather than bill it twice', function () {
+    [$block, , $lesson] = ranOutBlock($this, ['bill_timing' => 'ON_COMPLETION', 'auto_renew' => false]);
+    $bill = blockRow($block)->invoice_id;
+    DB::table('invoices')->where('id', $bill)->update(['amount_paid_minor' => 36000]);
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('can_change', true)
+        ->assertJsonPath('package.stays_closed', 'OWN_BILL_PAID');
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(blockRow($block)->status)->toBe('COMPLETED')
+        ->and((int) blockRow($block)->minutes_consumed)->toBe(330)
+        ->and((string) blockRow($block)->invoice_id)->toBe((string) $bill)
+        ->and(DB::table('invoices')->where('id', $bill)->value('status'))->not->toBe('VOID');
+});
+
+it('moves the overdraft the renewal absorbed when a lesson that ran over is corrected', function () {
+    [$block, , $lesson] = ranOutBlock($this, ['minutes_total' => 330]);
+    $renewal = renewalOf($this, $block);
+    expect((int) blockRow($block)->minutes_overdrawn)->toBe(30)
+        ->and((int) $renewal->absorbed_overdraft_minutes)->toBe(30)
+        ->and((int) $renewal->minutes_consumed)->toBe(30);
+    Sanctum::actingAs($this->owner);
+
+    // Exactly full now: still finished, nothing over, and the renewal gets its half hour back.
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = blockRow($block);
+    $after = blockRow($renewal->id);
+    expect($row->status)->toBe('COMPLETED')
+        ->and((int) $row->minutes_overdrawn)->toBe(0)
+        ->and($row->overdraft_absorbed_by)->toBeNull()
+        ->and((int) DB::table('lesson_package_credits')->where('session_id', $lesson)->value('minutes_overdrawn'))->toBe(0)
+        ->and($after->status)->toBe('ACTIVE')
+        ->and((int) $after->minutes_consumed)->toBe(0)
+        ->and((int) $after->absorbed_overdraft_minutes)->toBe(0);
+});
+
+it('undoes a renewal that held only the absorbed overdraft once the block has room', function () {
+    [$block, , $lesson] = ranOutBlock($this, ['minutes_total' => 330]);
+    $renewal = renewalOf($this, $block);
+    Sanctum::actingAs($this->owner);
+
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 15])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = blockRow($block);
+    expect($row->status)->toBe('ACTIVE')
+        ->and((int) $row->minutes_consumed)->toBe(315)
+        ->and((int) $row->minutes_overdrawn)->toBe(0)
+        ->and($row->overdraft_absorbed_by)->toBeNull()
+        ->and(blockRow($renewal->id)->status)->toBe('CANCELLED');
+});
+
+it('takes extra minutes on a finished block out of the renewal', function () {
+    [$block, , $lesson] = ranOutBlock($this);
+    $renewal = renewalOf($this, $block);
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=90")
+        ->assertOk()
+        ->assertJsonPath('can_change', true)
+        ->assertJsonPath('package.will_complete', false)
+        ->assertJsonPath('package.overdrawn_after', 30);
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 90])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $after = blockRow($renewal->id);
+    expect((int) blockRow($block)->minutes_overdrawn)->toBe(30)
+        ->and((string) blockRow($block)->overdraft_absorbed_by)->toBe((string) $renewal->id)
+        ->and((int) $after->minutes_consumed)->toBe(30)
+        ->and((int) $after->absorbed_overdraft_minutes)->toBe(30);
+});
+
+it('still refuses a block closed by hand, and extra minutes already on a bill', function () {
+    durationSubscription($this, 'PER_PACKAGE');
+    $opened = app(LessonPackages::class)->open([
+        'student_id' => $this->student, 'label' => 'Six', 'minutes_total' => 360, 'price_minor' => 36000,
+        'currency' => 'EGP', 'bill_timing' => 'ON_START', 'starts_on' => '2026-06-01',
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+    $lesson = blockLesson($this, 1);
+    app(LessonPackages::class)->complete($opened['package_id'], 'CLOSED_EARLY', (string) $this->owner->id, 'ACADEMY_OWNER');
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('can_change', false)
+        ->assertJsonFragment(['PACKAGE_CLOSED']);
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertStatus(422);
+
+    // Over the end, with those minutes billed: a bill this can't follow.
+    $this->asAcademy($this->academy);
+    DB::table('lesson_packages')->where('id', $opened['package_id'])->update([
+        'closed_reason' => 'EXHAUSTED', 'minutes_total' => 30, 'minutes_overdrawn' => 30, 'minutes_consumed' => 60,
+        'overdraft_invoice_id' => $opened['invoice_id'],
+    ]);
+    DB::table('lesson_package_credits')->where('session_id', $lesson)->update(['minutes_overdrawn' => 30]);
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('can_change', false)
+        ->assertJsonFragment(['PACKAGE_OVERDRAFT_SETTLED']);
+});
+
+it('heals a finished block when the payroll page already corrected the lesson', function () {
+    [$block, , $lesson] = ranOutBlock($this);
+    $renewal = renewalOf($this, $block);
+    $payout = DB::table('payout_line_items')->where('session_id', $lesson)->value('payout_id');
+    Sanctum::actingAs($this->owner);
+
+    // The salary door: the lesson and pay move, the finished block is left alone.
+    $this->patchJson("/api/payouts/lessons/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+    $this->asAcademy($this->academy);
+    expect((int) DB::table('sessions')->where('id', $lesson)->value('duration_minutes'))->toBe(30)
+        ->and(blockRow($block)->status)->toBe('COMPLETED')
+        ->and((int) blockRow($block)->minutes_consumed)->toBe(360);
+    $paid = (int) DB::table('payout_line_items')->where('session_id', $lesson)->value('amount_minor');
+
+    // A sealed statement must not get in the way: the pay is already right.
+    DB::table('payouts')->where('id', $payout)->update(['finalized_at' => now()]);
+    Sanctum::actingAs($this->owner);
+
+    $this->getJson("/api/sessions/{$lesson}/duration-preview?duration_minutes=30")
+        ->assertOk()
+        ->assertJsonPath('can_change', true)
+        ->assertJsonPath('package.consumed_after', 330)
+        ->assertJsonPath('package.reopens', true);
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(blockRow($block)->status)->toBe('ACTIVE')
+        ->and((int) blockRow($block)->minutes_consumed)->toBe(330)
+        ->and(blockRow($renewal->id)->status)->toBe('CANCELLED')
+        ->and((int) DB::table('payout_line_items')->where('session_id', $lesson)->value('amount_minor'))->toBe($paid);
+
+    // Nothing left to do: a second press changes nothing.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/sessions/{$lesson}/duration", ['duration_minutes' => 30])->assertOk();
+    $this->asAcademy($this->academy);
+    expect((int) blockRow($block)->minutes_consumed)->toBe(330);
 });
 
 it('does not let a teacher change an attended lesson duration', function () {
