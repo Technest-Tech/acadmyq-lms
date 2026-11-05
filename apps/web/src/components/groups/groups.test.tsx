@@ -599,6 +599,42 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
   });
 });
 
+describe("The classification's word on the group pages", () => {
+  const centre = (levelLabel?: "LEVEL" | "GRADE" | "YEAR") => {
+    const session = makeSession("ACADEMY_OWNER", { permissions: ["group.read", "group.manage"], capabilities: ["groups", "centre"] });
+    session.academy = { ...session.academy!, levelLabel };
+    return session;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listGroups.mockResolvedValue({ groups: [groupRow({ level: null, specialization_name: null })], counts: { RUNNING: 1, UPCOMING: 0, FINISHED: 0, ARCHIVED: 0 } });
+  });
+
+  it("keeps every word as it was for an academy that never chose", async () => {
+    const quran = makeSession("ACADEMY_OWNER", { permissions: ["group.read", "group.manage"] });
+    const { unmount } = render(withAuth(quran, <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+    expect(screen.getByText("المستوى")).toBeInTheDocument();
+    expect(screen.queryByText("الصف")).toBeNull();
+    unmount();
+
+    render(withAuth(quran, <GroupsManager />));
+    expect(await screen.findByPlaceholderText("ابحث بالمجموعة أو المستوى أو المدرس")).toBeInTheDocument();
+    expect(await screen.findByText("بدون مستوى")).toBeInTheDocument();
+  });
+
+  it("says grade on the form, the search and the card for a grade-keeping centre", async () => {
+    const { unmount } = render(withAuth(centre("GRADE"), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+    expect(screen.getByText("الصف")).toBeInTheDocument();
+    expect(screen.queryByText("المستوى")).toBeNull();
+    unmount();
+
+    render(withAuth(centre("GRADE"), <GroupsManager />));
+    expect(await screen.findByPlaceholderText("ابحث بالمجموعة أو الصف أو المدرس")).toBeInTheDocument();
+    expect(await screen.findByText("بدون صف")).toBeInTheDocument();
+  });
+});
+
 describe("GroupForm — a centre's room comes from its list", () => {
   const centre = () =>
     makeSession("ACADEMY_OWNER", { permissions: ["group.manage"], capabilities: ["groups", "centre"] });

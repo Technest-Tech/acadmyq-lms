@@ -30,6 +30,7 @@ import { RoomSelect } from "@/components/rooms/room-select";
 import { listRooms, type Room } from "@/lib/rooms-api";
 import { useCapability, useProfile } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 /** A typed major-unit amount ("450", "12.5") → integer minor units; "" → null. */
 export function toMinor(value: string): number | null {
@@ -169,6 +170,7 @@ export function GroupForm({
   const t = useTranslations("groups");
   const tTerm = useTranslations("courseTerm");
   const tRooms = useTranslations("rooms");
+  const word = useLevelWord();
   const tw = useTranslations("scheduling");
   const locale = useLocale();
   const { can } = useAuth();
@@ -452,7 +454,7 @@ export function GroupForm({
           </select>
         </Field>
 
-        <Field label={t("form.level")}>
+        <Field label={t("form.level", { word })}>
           {centre ? (
             <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="group-level" />
           ) : (

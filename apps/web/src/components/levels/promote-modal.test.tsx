@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
 import { makeSession, withAuth } from "@/test/auth";
+import { forWord } from "@/test/level-word";
 import type { GroupRow } from "@/lib/groups-api";
 import type { Level } from "@/lib/levels-api";
 import { PromoteModal } from "./promote-modal";
@@ -94,7 +95,7 @@ describe("PromoteModal", () => {
     );
 
     expect(await screen.findByText(ar.promote.title)).toBeInTheDocument();
-    expect(screen.getByText(ar.promote.current).nextElementSibling).toHaveTextContent("A1");
+    expect(screen.getByText(forWord(ar.promote.current)).nextElementSibling).toHaveTextContent("A1");
     // No level picked yet: no group picker, and nothing to submit.
     expect(screen.queryByTestId("promote-group")).not.toBeInTheDocument();
     expect(screen.getByTestId("promote-submit")).toBeDisabled();

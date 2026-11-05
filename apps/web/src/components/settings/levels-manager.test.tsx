@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
 import { makeSession, withAuth } from "@/test/auth";
+import { forWord } from "@/test/level-word";
 import type { Level } from "@/lib/levels-api";
 import { LevelsManager } from "./levels-manager";
 
@@ -22,6 +23,12 @@ vi.mock("@/lib/levels-api", async (importOriginal) => ({
   createLevel: (input: unknown) => createLevel(input),
   updateLevel: (id: string, patch: unknown) => updateLevel(id, patch),
   deleteLevel: (id: string) => deleteLevel(id),
+}));
+
+const updateAcademyLevelLabel = vi.fn();
+vi.mock("@/lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/api")>()),
+  updateAcademyLevelLabel: (label: unknown) => updateAcademyLevelLabel(label),
 }));
 
 const ar = arMessages.levels;
@@ -54,13 +61,14 @@ beforeEach(() => {
   createLevel.mockResolvedValue({ levelId: "l4" });
   updateLevel.mockResolvedValue({ ok: true });
   deleteLevel.mockResolvedValue({ ok: true });
+  updateAcademyLevelLabel.mockResolvedValue({ ok: true });
 });
 
 describe("LevelsManager", () => {
   it("lists the levels in order, with who stands at each and which are off", async () => {
     render(withAuth(centreSession(), <LevelsManager />));
 
-    expect(await screen.findByText(ar.cardTitle)).toBeInTheDocument();
+    expect(await screen.findByText(forWord(ar.cardTitle))).toBeInTheDocument();
     const items = within(screen.getByTestId("levels-list")).getAllByRole("listitem");
     expect(items.map((li) => li.getAttribute("data-level"))).toEqual(["l1", "l2", "l3"]);
     expect(within(items[0]!).getByText("3 طالب · 1 مجموعة")).toBeInTheDocument();
@@ -90,6 +98,45 @@ describe("LevelsManager", () => {
     await waitFor(() => expect(updateLevel).toHaveBeenCalledTimes(2));
     expect(updateLevel).toHaveBeenNthCalledWith(1, "l2", { sort_order: 1 });
     expect(updateLevel).toHaveBeenNthCalledWith(2, "l1", { sort_order: 2 });
+  });
+
+  it("names the classification in the academy's own word, and saving a new word re-reads the session", async () => {
+    const user = userEvent.setup();
+    const refresh = vi.fn(async () => {});
+    render(withAuth(centreSession(), <LevelsManager />, { refresh }));
+    await screen.findByTestId("levels-list");
+
+    expect(screen.getByTestId("level-word-LEVEL")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("heading", { name: forWord(ar.cardTitle, "LEVEL") })).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("level-word-GRADE"));
+
+    await waitFor(() => expect(updateAcademyLevelLabel).toHaveBeenCalledWith("GRADE"));
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("level-word-GRADE")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByRole("heading", { name: forWord(ar.cardTitle, "GRADE") })).toBeInTheDocument();
+  });
+
+  it("goes back to the word it had when the save fails, and says so", async () => {
+    const user = userEvent.setup();
+    updateAcademyLevelLabel.mockRejectedValueOnce(new Error("nope"));
+    render(withAuth(centreSession(), <LevelsManager />));
+    await screen.findByTestId("levels-list");
+
+    await user.click(screen.getByTestId("level-word-YEAR"));
+
+    expect(await screen.findByText(ar.word.failed)).toBeInTheDocument();
+    expect(screen.getByTestId("level-word-LEVEL")).toHaveAttribute("aria-checked", "true");
+  });
+
+  it("reads a grade-keeping academy's card in its word", async () => {
+    const session = centreSession();
+    session.academy = { ...session.academy!, levelLabel: "GRADE" };
+    render(withAuth(session, <LevelsManager />));
+    await screen.findByTestId("levels-list");
+
+    expect(screen.getByRole("heading", { name: "الصفوف الدراسية" })).toBeInTheDocument();
+    expect(screen.getByTestId("level-word-GRADE")).toHaveAttribute("aria-checked", "true");
   });
 
   it("shows the server's reason when a level in use cannot be deleted", async () => {

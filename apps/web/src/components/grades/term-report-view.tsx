@@ -20,6 +20,7 @@ import {
   type TermReportResponse,
 } from "@/lib/grades-api";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 const TONE: Record<ReturnType<typeof percentTone>, string> = {
   low: "text-rose-600",
@@ -55,6 +56,7 @@ export function certificateHref(name: string, course: string, date = localToday(
  */
 export function TermReportView({ groupId, studentId, onBack, onChanged }: { groupId: string; studentId: string; onBack: () => void; onChanged?: () => void }) {
   const t = useTranslations("grades");
+  const word = useLevelWord();
   const locale = useLocale();
   const { can } = useAuth();
   // The gallery is a switch of its own; without it the button has nowhere to go.
@@ -192,7 +194,7 @@ export function TermReportView({ groupId, studentId, onBack, onChanged }: { grou
             <span className="text-base font-bold" data-testid="report-student">{report.student.full_name}</span>
           </Row>
           <Row label={t("view.group")}>{report.group.name}</Row>
-          {(report.group.level || report.student.level) && <Row label={t("view.level")}>{report.group.level ?? report.student.level}</Row>}
+          {(report.group.level || report.student.level) && <Row label={t("view.level", { word })}>{report.group.level ?? report.student.level}</Row>}
           {report.group.teacher_name && <Row label={t("view.teacher")}>{report.group.teacher_name}</Row>}
           <Row label={t("view.period")}>
             <span className="tabular-nums">{t("view.periodRange", { from: longDate(report.period.from, locale), to: longDate(report.period.to, locale) })}</span>

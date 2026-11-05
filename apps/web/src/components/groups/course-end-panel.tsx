@@ -15,6 +15,7 @@ import { useCentreLook } from "@/lib/capabilities";
 import { closeGroup, promoteGroup, renewGroup, type GroupDetail } from "@/lib/groups-api";
 import { type Level, listLevels } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 type Action = "renew" | "promote" | "close";
 
@@ -44,6 +45,7 @@ function addDays(date: string, days: number): string {
  */
 export function CourseEndPanel({ group, onClosed }: { group: GroupDetail; onClosed: (g: GroupDetail) => void }) {
   const t = useTranslations("courseTerm");
+  const word = useLevelWord();
   const [action, setAction] = useState<Action | null>(null);
   const endingSoon = group.ending_soon === true;
   const look = useCentreLook();
@@ -71,7 +73,7 @@ export function CourseEndPanel({ group, onClosed }: { group: GroupDetail; onClos
             </p>
             <p className={cn("text-muted-foreground mt-0.5 text-sm", look && "text-xs")}>
               {endingSoon && <span className="text-amber-700 dark:text-amber-300">{t("panel.endingSoon")} </span>}
-              {group.state === "FINISHED" ? t("panel.subtitleFinished") : t("panel.subtitleRunning")}
+              {group.state === "FINISHED" ? t("panel.subtitleFinished", { word }) : t("panel.subtitleRunning", { word })}
             </p>
           </div>
         </div>
@@ -94,7 +96,7 @@ export function CourseEndPanel({ group, onClosed }: { group: GroupDetail; onClos
       <Modal open={action === "renew"} onClose={() => setAction(null)} title={t("renew.title")} description={t("renew.subtitle")} size="lg">
         {action === "renew" && <RenewForm group={group} onCancel={() => setAction(null)} />}
       </Modal>
-      <Modal open={action === "promote"} onClose={() => setAction(null)} title={t("promote.title")} description={t("promote.subtitle")} size="lg">
+      <Modal open={action === "promote"} onClose={() => setAction(null)} title={t("promote.title")} description={t("promote.subtitle", { word })} size="lg">
         {action === "promote" && <PromoteForm group={group} onCancel={() => setAction(null)} />}
       </Modal>
       <Modal open={action === "close"} onClose={() => setAction(null)} title={t("close.title")} description={t("close.subtitle")}>
@@ -299,6 +301,7 @@ function nextLevel(levels: Level[], levelId: string | null | undefined): Level |
 
 function PromoteForm({ group, onCancel }: { group: GroupDetail; onCancel: () => void }) {
   const t = useTranslations("courseTerm");
+  const word = useLevelWord();
   const tGroups = useTranslations("groups");
   const router = useRouter();
   const defaults = defaultDates(group);
@@ -331,7 +334,7 @@ function PromoteForm({ group, onCancel }: { group: GroupDetail; onCancel: () => 
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!toLevelId) return setError(t("promote.errors.level"));
+    if (!toLevelId) return setError(t("promote.errors.level", { word }));
     if (picked.size === 0) return setError(t("promote.errors.members"));
     if (!startDate) return setError(t("renew.errors.startDate"));
     if (endDate && endDate < startDate) return setError(t("renew.errors.endBeforeStart"));
@@ -381,15 +384,15 @@ function PromoteForm({ group, onCancel }: { group: GroupDetail; onCancel: () => 
 
       <div className="space-y-1.5">
         <label className="text-sm font-medium">
-          {t("promote.toLevel")} <span className="text-destructive">*</span>
+          {t("promote.toLevel", { word })} <span className="text-destructive">*</span>
         </label>
-        <LevelSelect value={toLevelId} onChange={setToLevelId} levels={levels} noneLabel={t("promote.toLevelPlaceholder")} testId="promote-to-level" />
-        {levels && !hasNext && <p className="text-muted-foreground text-xs">{t("promote.noNext")}</p>}
+        <LevelSelect value={toLevelId} onChange={setToLevelId} levels={levels} noneLabel={t("promote.toLevelPlaceholder", { word })} testId="promote-to-level" />
+        {levels && !hasNext && <p className="text-muted-foreground text-xs">{t("promote.noNext", { word })}</p>}
       </div>
 
       <TermDates startDate={startDate} endDate={endDate} lessons={lessons} onStart={setStartDate} onEnd={setEndDate} onLessons={setLessons} />
 
-      <MemberChecklist group={group} picked={picked} onChange={setPicked} label={t("promote.members")} hint={t("promote.membersHint")} testId="promote-members" />
+      <MemberChecklist group={group} picked={picked} onChange={setPicked} label={t("promote.members", { word })} hint={t("promote.membersHint")} testId="promote-members" />
 
       <div className="flex items-center justify-end gap-2 pt-1">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>

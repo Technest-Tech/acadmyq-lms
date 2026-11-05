@@ -56,6 +56,7 @@ import { useCapability, useCentreLook } from "@/lib/capabilities";
 import { archiveGroup, deleteGroup, getGroup, restoreGroup, type GroupDetail } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 type Tab = "lessons" | "members" | "grades" | "reports" | "money" | "accounts" | "overview";
 const TABS: Tab[] = ["lessons", "members", "grades", "reports", "money", "accounts", "overview"];
@@ -81,6 +82,7 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
   const t = useTranslations("groups");
   const look = useCentreLook();
   const tTerm = useTranslations("courseTerm");
+  const word = useLevelWord();
   const tg = useTranslations("grades");
   const { can } = useAuth();
   const router = useRouter();
@@ -363,7 +365,7 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
       {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
       {group.status === "ARCHIVED" && (
-        <AlertBanner variant="info" message={centre && group.closed_reason ? tTerm(`archivedAs.${group.closed_reason}`) : t("detail.archivedBanner")} />
+        <AlertBanner variant="info" message={centre && group.closed_reason ? tTerm(`archivedAs.${group.closed_reason}`, { word }) : t("detail.archivedBanner")} />
       )}
       {centre && group.continues_group_id && (
         <p className="text-muted-foreground text-sm">

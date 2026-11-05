@@ -5,6 +5,7 @@
  */
 import type { PortalAttendanceMark, PortalInvoice, PortalLessonStatus } from "@/lib/portal-api";
 import { formatMoney } from "@/lib/money";
+import type { LevelLabel } from "@/lib/levels";
 
 export type Lang = "ar" | "en";
 
@@ -184,7 +185,8 @@ type Copy = {
   groups: {
     title: string;
     childGroups: (name: string) => string;
-    level: (level: string) => string;
+    /** "Level: A1" — in the centre's own word for it (lib/levels.ts). */
+    level: (level: string, word: LevelLabel) => string;
     teacher: (name: string) => string;
     since: (date: string) => string;
     weekly: string;
@@ -290,7 +292,7 @@ export const COPY: Record<Lang, Copy> = {
     groups: {
       title: "المجموعات",
       childGroups: (name) => `مجموعات ${name}`,
-      level: (level) => `المستوى: ${level}`,
+      level: (level, word) => `${word === "GRADE" ? "الصف" : word === "YEAR" ? "السنة" : "المستوى"}: ${level}`,
       teacher: (name) => `مع ${name}`,
       since: (date) => `منذ ${date}`,
       weekly: "المواعيد الأسبوعية",
@@ -393,7 +395,7 @@ export const COPY: Record<Lang, Copy> = {
     groups: {
       title: "Groups",
       childGroups: (name) => `${name}’s groups`,
-      level: (level) => `Level: ${level}`,
+      level: (level, word) => `${word === "GRADE" ? "Grade" : word === "YEAR" ? "Year" : "Level"}: ${level}`,
       teacher: (name) => `with ${name}`,
       since: (date) => `since ${date}`,
       weekly: "Weekly timetable",

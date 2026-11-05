@@ -29,6 +29,7 @@ import { listGroups, type GroupRow, type GroupState } from "@/lib/groups-api";
 import { LevelSelect } from "@/components/levels/level-select";
 import { useCapability, useProfile } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 type Tab = "ACTIVE" | GroupState;
 const TABS: Tab[] = ["ACTIVE", "RUNNING", "UPCOMING", "FINISHED", "ARCHIVED"];
@@ -51,6 +52,7 @@ const TAB_TILES: Record<Tab, { icon: typeof Layers; tone: TileTone }> = {
 export function GroupsManager() {
   const t = useTranslations("groups");
   const tLevels = useTranslations("levels");
+  const word = useLevelWord();
   const tTerm = useTranslations("courseTerm");
   const { can, session } = useAuth();
   const router = useRouter();
@@ -132,8 +134,8 @@ export function GroupsManager() {
         className={cn(fieldClass, "ps-9")}
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder={t("search")}
-        aria-label={t("search")}
+        placeholder={t("search", { word })}
+        aria-label={t("search", { word })}
       />
     </label>
   );
@@ -146,7 +148,7 @@ export function GroupsManager() {
       searchPlaceholder={t("form.search")}
     />
   );
-  const levelField = centre && <LevelSelect value={levelId} onChange={setLevelId} noneLabel={tLevels("allLevels")} testId="groups-filter-level" />;
+  const levelField = centre && <LevelSelect value={levelId} onChange={setLevelId} noneLabel={tLevels("allLevels", { word })} testId="groups-filter-level" />;
 
   return (
     <div className={look ? "space-y-4" : "space-y-5"}>
@@ -298,6 +300,7 @@ function GroupCard({ group: g }: { group: GroupRow }) {
   const t = useTranslations("groups");
   const tTerm = useTranslations("courseTerm");
   const tw = useTranslations("scheduling");
+  const word = useLevelWord();
   const locale = useLocale();
   const centre = useCapability("centre");
   const full = g.capacity !== null && g.member_count >= g.capacity;
@@ -313,7 +316,7 @@ function GroupCard({ group: g }: { group: GroupRow }) {
         <div className="min-w-0">
           <p className="truncate font-semibold">{g.name}</p>
           <p className="text-muted-foreground truncate text-xs">
-            {[g.level, g.specialization_name].filter(Boolean).join(" · ") || t("noLevel")}
+            {[g.level, g.specialization_name].filter(Boolean).join(" · ") || t("noLevel", { word })}
           </p>
         </div>
         <span className={cn("shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium", STATE_TONE[g.state])}>

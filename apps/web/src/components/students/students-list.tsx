@@ -37,6 +37,7 @@ import { type ExcelColumn } from "@/lib/export-excel";
 import { type Level, listLevels } from "@/lib/levels-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 /** The four stages a student record moves through — the server's `students.status`. */
 const STUDENT_STAGES = [
@@ -219,6 +220,7 @@ export function StudentsList({
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
   // A centre's levels / grades: the badge on each row and the filter (docs/centre-profile, Phase 2.1).
   const tLevels = useTranslations("levels");
+  const word = useLevelWord();
   const [levels, setLevels] = useState<Level[]>([]);
   const actors = useTeamActors();
 
@@ -515,7 +517,7 @@ export function StudentsList({
       },
       // A centre's level / grade — only once the academy has written its list.
       ...(centre && levels.length > 0
-        ? [{ key: "level_id", label: tLevels("filter"), options: levels.map((l) => ({ value: l.id, label: l.name })) }]
+        ? [{ key: "level_id", label: tLevels("filter", { word }), options: levels.map((l) => ({ value: l.id, label: l.name })) }]
         : []),
       // Set only by the "Trials" tile above the table — TRIAL and TRIAL_BOOKED at once, which no
       // single `student_status` value can express. Declared so the chip row can name and clear it.
@@ -527,7 +529,7 @@ export function StudentsList({
       },
       ...addedByFilter(actors, tDone),
     ],
-    [t, tDone, tLevels, teachers, actors, centre, levels],
+    [t, tDone, tLevels, word, teachers, actors, centre, levels],
   );
 
   const exportColumns = useMemo<ExcelColumn<StudentRow>[]>(() => {
