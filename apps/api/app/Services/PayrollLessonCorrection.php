@@ -11,6 +11,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
+use App\Support\MoneyPolicy;
 
 /**
  * Correct the lessons behind a teacher's salary from the payroll page: take one off, add one that
@@ -283,7 +284,13 @@ final class PayrollLessonCorrection
             ->where('li.session_id', $sessionId)
             ->value('i.status');
 
-        return ($invoiceStatus !== null && $invoiceStatus !== 'OPEN') || $this->packages->releaseRefused($sessionId);
+        if ($invoiceStatus !== null && $invoiceStatus !== 'OPEN') {
+            return true;
+        }
+        // A centre's subscription takes a lesson back whatever its bill says; its old package row is history.
+        $academyId = (string) DB::table('sessions')->where('id', $sessionId)->value('academy_id');
+
+        return ! MoneyPolicy::usesSubscriptions($academyId) && $this->packages->releaseRefused($sessionId);
     }
 
     /** "12/06/2026 · Omar", for the reason shown on the statement that carries the difference. */

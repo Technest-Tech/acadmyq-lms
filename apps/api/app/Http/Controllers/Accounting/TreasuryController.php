@@ -657,6 +657,7 @@ final class TreasuryController extends Controller
             ->distinct()->get(['r.guardian_id', 'r.student_id', 'r.currency']);
         if ($refunded->isNotEmpty()) {
             DB::table('lesson_packages')->where('settle_expense_id', $id)->where('settlement', 'REFUND')->update(['settlement' => 'CREDIT', 'updated_at' => now()]);
+            DB::table('centre_subscriptions')->where('settle_expense_id', $id)->where('settlement', 'REFUND')->update(['settlement' => 'CREDIT', 'updated_at' => now()]);
             foreach ($refunded as $r) {
                 app(Ledger::class)->applyCredit($this->academyId(), ['guardian_id' => $r->guardian_id, 'student_id' => $r->student_id], (string) $r->currency);
             }

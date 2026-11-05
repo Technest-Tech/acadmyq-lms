@@ -135,7 +135,11 @@ final class ScheduleController extends Controller
             // With two subjects open under this teacher, each slot says which one it is.
             'subjects' => DB::table('lesson_packages')
                 ->where('student_id', $studentId)->where('teacher_id', $schedule->teacher_id)->where('status', 'ACTIVE')
-                ->orderBy('sequence_no')->pluck('course')->filter()->values(),
+                ->orderBy('sequence_no')->pluck('course')
+                ->merge(DB::table('centre_subscriptions')
+                    ->where('student_id', $studentId)->where('teacher_id', $schedule->teacher_id)->where('status', 'OPEN')
+                    ->orderBy('sequence_no')->pluck('course'))
+                ->filter()->unique()->values(),
         ]);
     }
 

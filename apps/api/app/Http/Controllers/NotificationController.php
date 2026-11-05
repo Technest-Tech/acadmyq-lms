@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Support\AuthContext;
+use App\Support\MoneyPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -110,7 +112,10 @@ final class NotificationController extends Controller
             ->whereNotIn('n.category', ['PACKAGES', self::SUBSCRIPTIONS, ...self::LOGS])
             ->count();
 
-        $packages = (int) $this->visibleQuery()
+        // A centre that moved onto its subscriptions has no packages tab: an old unread package
+        // alert would sit on the bell with nowhere to read it.
+        $academyId = app(AuthContext::class)->academyId;
+        $packages = $academyId !== null && MoneyPolicy::usesSubscriptions($academyId) ? 0 : (int) $this->visibleQuery()
             ->whereNull('n.read_at')
             ->where('n.category', 'PACKAGES')
             ->count();

@@ -822,6 +822,9 @@ final class ClassGroups
      */
     private function logSheetSaved(object $lesson, int $present, int $expected, string $actorUserId, string $actorRole): void
     {
+        if (! Entitlement::hasCapability((string) $lesson->academy_id, 'centre')) {
+            return; // A centre's log: every other academy's page reads as it did.
+        }
         $data = json_encode($this->logPayload($lesson, $actorUserId, $actorRole) + [
             'present' => $present,
             'expected' => $expected,
@@ -848,6 +851,9 @@ final class ClassGroups
     /** One row per cancelled group lesson in the Notifications "Classes" log — a record, never a request. */
     private function logCancelled(object $lesson, ?string $reason, string $actorUserId, string $actorRole): void
     {
+        if (! Entitlement::hasCapability((string) $lesson->academy_id, 'centre')) {
+            return;
+        }
         DB::table('notifications')->insertOrIgnore([
             'id' => (string) Str::uuid(),
             'academy_id' => (string) $lesson->academy_id,

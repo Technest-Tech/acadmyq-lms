@@ -1229,6 +1229,8 @@ final class StudentController extends Controller
     {
         // The package first, while the subscription that describes it is still ACTIVE.
         $package = $this->closeOpenPackage($studentId);
+        // A centre's blocks in lessons stop with them (docs/centre-profile/01-*).
+        app(CentreSubscriptions::class)->windDown($studentId, 'STUDENT_REMOVED', $this->ctx()->userId, $this->ctx()->role);
 
         $endedSubscription = DB::table('subscriptions')
             ->where('student_id', $studentId)->where('status', 'ACTIVE')->whereNull('deleted_at')

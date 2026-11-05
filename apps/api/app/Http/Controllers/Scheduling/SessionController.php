@@ -16,6 +16,7 @@ use App\Services\LessonPackages;
 use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
 use App\Support\DoneBy;
+use App\Support\Entitlement;
 use App\Support\ReportFields;
 use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
@@ -192,6 +193,18 @@ final class SessionController extends Controller
         $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
         $startUtc = $this->resolveInstant($data, $timezone);
         $duration = (int) $data['duration_minutes'];
+
+        // A centre's desk records by hand a lot: the same student at the same minute is a slip (the
+        // same lesson entered twice, or recorded instead of marking the timetable's), and each
+        // copy would count on the block and pay the teacher.
+        if (Entitlement::hasCapability($academyId, 'centre') && DB::table('sessions')
+            ->where('student_id', $data['student_id'])
+            ->where('scheduled_at_utc', $startUtc->format('Y-m-d H:i:sP'))
+            ->whereNull('hidden_at')
+            ->whereNotIn('status', [SessionStatus::CancelledByTeacher->value, SessionStatus::CancelledByStudent->value, SessionStatus::Rescheduled->value])
+            ->exists()) {
+            throw ValidationException::withMessages(['scheduled_at_utc' => ['This student already has a lesson at this time: mark that one. / لدى هذا الطالب حصة في هذا الموعد بالفعل: سجّلها هي.']]);
+        }
 
         $sessionId = (string) Str::uuid();
         DB::table('sessions')->insert([

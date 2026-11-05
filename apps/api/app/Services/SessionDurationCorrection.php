@@ -8,6 +8,7 @@ use App\Support\Audit;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use App\Support\MoneyPolicy;
 
 /**
  * Correct the recorded length of an attended lesson without letting its three financial ledgers
@@ -46,8 +47,9 @@ final class SessionDurationCorrection
             ]);
 
         // On a block counted in lessons the lesson's length moves the teacher's pay, not the block.
+        // After a centre's move the credit row is history, whatever the block it sat on was sold in.
         $package = null;
-        if ($credit !== null && ! LessonPackages::countsLessons($credit)) {
+        if ($credit !== null && ! LessonPackages::countsLessons($credit) && ! MoneyPolicy::usesSubscriptions((string) $credit->academy_id)) {
             $capacity = (int) $credit->minutes_total + (int) $credit->carried_over_minutes;
             $newConsumed = max(0, (int) $credit->minutes_consumed - (int) $credit->credit_minutes + $newDuration);
             $newOverdrawn = max(0, $newConsumed - $capacity);

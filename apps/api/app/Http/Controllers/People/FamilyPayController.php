@@ -48,6 +48,8 @@ final class FamilyPayController extends Controller
             ->join('students as s', 's.id', '=', 'p.student_id')
             ->join('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->where('s.guardian_id', $guardianId)
+            // A block moved onto a centre's subscriptions is read from there, or it would list twice.
+            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('centre_subscriptions as moved')->whereColumn('moved.legacy_package_id', 'p.id'))
             ->whereIn('i.status', self::UNPAID)
             ->whereRaw('i.total_minor > i.amount_paid_minor');
     }

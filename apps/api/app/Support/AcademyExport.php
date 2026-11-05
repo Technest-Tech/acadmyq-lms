@@ -133,6 +133,10 @@ final class AcademyExport
     {
         $out = [];
         foreach (self::DATASETS as $key) {
+            // A centre's own sheet: no other academy's picker gains an empty row.
+            if ($key === 'subscriptions' && ! Entitlement::hasCapability($this->academyId, 'centre')) {
+                continue;
+            }
             [, $query] = $this->definition($key);
             $out[] = [
                 'key' => $key,

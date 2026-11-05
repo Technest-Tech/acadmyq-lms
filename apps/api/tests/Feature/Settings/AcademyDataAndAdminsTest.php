@@ -53,7 +53,8 @@ it('lists every dataset with its row count for an admin', function () {
 
     $datasets = collect($this->getJson('/api/academy/export')->assertOk()->json('datasets'))->keyBy('key');
 
-    expect($datasets->keys()->all())->toBe(AcademyExport::DATASETS)
+    // `subscriptions` is a centre's sheet: no other academy's picker gains an empty row.
+    expect($datasets->keys()->all())->toBe(array_values(array_diff(AcademyExport::DATASETS, ['subscriptions'])))
         ->and($datasets['students']['count'])->toBe(1)
         ->and($datasets['lessons']['count'])->toBe(1)
         ->and($datasets['students']['title']['ar'])->toBe('الطلاب');

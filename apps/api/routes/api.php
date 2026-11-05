@@ -1084,6 +1084,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/subscriptions/{id}/close', [CentreSubscriptionController::class, 'close'])->whereUuid('id');
         Route::post('/subscriptions/{id}/settle', [CentreSubscriptionController::class, 'settle'])->whereUuid('id');
         Route::post('/subscriptions/{id}/cancel', [CentreSubscriptionController::class, 'cancel'])->whereUuid('id');
+        // The family's one payment page: the old door sits behind the package switch this replaces.
+        Route::post('/subscriptions/family/{guardianId}/pay-link', [FamilyPayController::class, 'issue'])->whereUuid('guardianId');
         Route::post('/subscriptions/{id}/remind', [CentreSubscriptionController::class, 'remind'])->whereUuid('id');
     });
 
@@ -1502,19 +1504,24 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::delete('/quality/reports/{id}', [QualityReportController::class, 'destroy']);
         Route::get('/quality/teachers/{id}/sessions', [QualityReportController::class, 'teacherSessions']);
 
-        Route::get('/quality/settings', [TeacherAdjustmentController::class, 'settings']);
         Route::put('/quality/settings', [TeacherAdjustmentController::class, 'updateSettings']);
-        Route::get('/quality/adjustments/summary', [TeacherAdjustmentController::class, 'summary']);
-        Route::get('/quality/adjustments', [TeacherAdjustmentController::class, 'index']);
-        Route::post('/quality/adjustments/{id}/waive', [TeacherAdjustmentController::class, 'waive']);
-        Route::delete('/quality/adjustments/{id}', [TeacherAdjustmentController::class, 'destroy']);
-        Route::post('/quality/teachers/{id}/adjustments', [TeacherAdjustmentController::class, 'store']);
 
         // The teacher's own window onto everything above. Self-scoped in the controllers (RLS pins
         // the academy, not the person) — a pay document has to be readable by whoever it pays.
         Route::get('/me/quality-reports', [QualityReportController::class, 'mine']);
         Route::get('/me/quality-reports/{id}', [QualityReportController::class, 'mineShow']);
-        Route::get('/me/adjustments', [TeacherAdjustmentController::class, 'mine']);
+        });
+
+        // Discounts & Awards: the deductions and rewards on a teacher's statements. A centre keeps
+        // the page without the rubric, or the rows on it would have nowhere to be read or waived.
+        Route::middleware('entitled:teacher_quality,centre')->group(function () {
+            Route::get('/quality/settings', [TeacherAdjustmentController::class, 'settings']);
+            Route::get('/quality/adjustments/summary', [TeacherAdjustmentController::class, 'summary']);
+            Route::get('/quality/adjustments', [TeacherAdjustmentController::class, 'index']);
+            Route::post('/quality/adjustments/{id}/waive', [TeacherAdjustmentController::class, 'waive']);
+            Route::delete('/quality/adjustments/{id}', [TeacherAdjustmentController::class, 'destroy']);
+            Route::post('/quality/teachers/{id}/adjustments', [TeacherAdjustmentController::class, 'store']);
+            Route::get('/me/adjustments', [TeacherAdjustmentController::class, 'mine']);
         });
     });
 

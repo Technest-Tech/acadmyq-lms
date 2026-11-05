@@ -175,6 +175,9 @@ it('reminds the group about a lesson nobody marked N minutes after it started', 
 });
 
 it('reminds the group about a group lesson whose sheet is still not saved N minutes after it ended', function () {
+    $this->enterAcademyAsSuperAdmin($this->academy);
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['centre']);
+    $this->clearTenantContext();
     // Monday 14 Sept, 13:00 UTC. The group meets Mondays 12:00–13:00 Cairo (09:00–10:00 UTC) from the 7th.
     linkTestGroup($this->academy, ['GROUP_LESSON_NOT_MARKED'], ['not_marked_after_minutes' => 10], since: '2026-09-14T08:00:00+00:00');
     $owner = $this->makeUser($this->academy, 'ACADEMY_OWNER', ['email' => 'owner-ga-groups@test.local']);
@@ -235,7 +238,7 @@ it('never tells a learning centre that a lesson report is late — it asks for n
     linkTestGroup($this->academy, ['REPORT_OVERDUE', 'SESSION_NOT_MARKED'], ['report_overdue_hours' => 2, 'not_marked_after_minutes' => 10], since: '2026-09-14T11:00:00+00:00');
     // The CENTRE preset: progress reports off, the structured lesson report never opted into.
     $this->enterAcademyAsSuperAdmin($this->academy);
-    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', ['student_reports'], []);
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', ['student_reports'], ['centre']);
     $this->clearTenantContext();
 
     // Ended 10:30 with no report — overdue for a Quran academy, nothing for a centre.

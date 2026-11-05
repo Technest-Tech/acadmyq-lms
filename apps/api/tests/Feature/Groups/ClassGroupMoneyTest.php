@@ -489,7 +489,8 @@ it('per student: the line follows how many came', function () {
     expect((int) $line->total_minor)->toBe(3000);
 });
 
-it('no pay mode on the group: a teacher paid per student earns their rate for each student who came', function () {
+it('no pay mode on the group, at a centre: a teacher paid per student earns their rate for each student who came', function () {
+    asTenant($this->academy, fn () => app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['centre']));
     asTenant($this->academy, fn () => DB::table('teachers')->where('id', $this->teacher)->update(['pay_type' => 'PER_STUDENT']));
     $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam'], $this->kids['Bassel'], $this->kids['Celine']]]);
 
@@ -499,6 +500,14 @@ it('no pay mode on the group: a teacher paid per student earns their rate for ea
 
     heldLesson($this, $groupId, '2026-06-15', [['student_id' => $this->kids['Adam'], 'status' => 'ABSENT']]);
     expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(12000);
+});
+
+it('no pay mode on the group, at any other academy: a teacher paid per student earns one rate for the lesson, as always', function () {
+    asTenant($this->academy, fn () => DB::table('teachers')->where('id', $this->teacher)->update(['pay_type' => 'PER_STUDENT']));
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam'], $this->kids['Bassel'], $this->kids['Celine']]]);
+
+    heldLesson($this, $groupId, '2026-06-15');
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(6000);
 });
 
 it('no pay mode on the group: an hourly teacher earns the hour whatever the class size', function () {

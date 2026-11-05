@@ -9,6 +9,7 @@ use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\LessonCount;
+use App\Support\MoneyPolicy;
 use App\Support\StudentStatus;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -62,6 +63,11 @@ final class CentreSubscriptions
             $student = DB::table('students')->where('id', $studentId)->whereNull('deleted_at')->first(['id', 'academy_id', 'full_name', 'guardian_id', 'status']);
             if ($student === null) {
                 throw ValidationException::withMessages(['student_id' => ['Student not found. / الطالب غير موجود.']]);
+            }
+            // A centre still on the hour packages counts its lessons there: a block sold here would
+            // never take one. The data move is what switches it over.
+            if (! MoneyPolicy::usesSubscriptions((string) $student->academy_id)) {
+                throw ValidationException::withMessages(['subscription' => ['This academy still runs on lesson packages. / هذه الأكاديمية ما زالت تعمل بالباقات.']]);
             }
             $academyId = (string) $student->academy_id;
             $academy = DB::table('academies')->where('id', $academyId)->first();
@@ -276,6 +282,27 @@ final class CentreSubscriptions
             Audit::log(self::ENTITY.'.cancelled', self::ENTITY, $id, (string) $sub->academy_id, $actorUserId, $actorRole,
                 before: ['status' => $sub->status], after: ['note' => $note, 'invoice_voided' => $voided]);
         });
+    }
+
+    /**
+     * A student leaving the academy: every open block stops. Untouched and unpaid, it is voided with
+     * its bill; otherwise it closes where it stands, and paid lessons never had wait on the family card.
+     *
+     * @return int blocks ended
+     */
+    public function windDown(string $studentId, string $reason, ?string $actorUserId, ?string $actorRole): int
+    {
+        $ended = 0;
+        foreach (DB::table('centre_subscriptions')->where('student_id', $studentId)->where('status', 'OPEN')->get() as $sub) {
+            if ($this->used((string) $sub->id) === 0 && $this->paidOn($sub) === 0) {
+                $this->cancel((string) $sub->id, $reason, $actorUserId, $actorRole);
+            } else {
+                $this->close((string) $sub->id, $reason, null, null, null, $actorUserId, $actorRole);
+            }
+            $ended++;
+        }
+
+        return $ended;
     }
 
     // ── The billing hook ────────────────────────────────────────────────────

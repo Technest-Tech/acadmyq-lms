@@ -24,7 +24,8 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class EnsureEntitled
 {
-    public function handle(Request $request, Closure $next, string $featureKey): Response
+    /** `entitled:a,b` passes on holding either. */
+    public function handle(Request $request, Closure $next, string ...$featureKeys): Response
     {
         // No context (unauthenticated / no role) → let the auth layers answer; we never
         // upsell an anonymous caller.
@@ -34,9 +35,12 @@ final class EnsureEntitled
 
         $ctx = app(AuthContext::class);
 
-        if (Entitlement::check($ctx, $featureKey)) {
-            return $next($request);
+        foreach ($featureKeys as $key) {
+            if (Entitlement::check($ctx, $key)) {
+                return $next($request);
+            }
         }
+        $featureKey = $featureKeys[0];
 
         $resolved = $ctx->academyId !== null ? Entitlement::resolve($ctx->academyId) : null;
 

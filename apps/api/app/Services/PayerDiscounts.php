@@ -220,6 +220,8 @@ final class PayerDiscounts
         }
 
         $packageOf = 'from lesson_packages p where p.invoice_id = li.invoice_id or p.overdraft_invoice_id = li.invoice_id';
+        // A centre's subscription knows its own line (docs/centre-profile/01-*).
+        $subscriptionOf = 'from centre_subscriptions cs where cs.invoice_line_id = li.id';
 
         return DB::table('invoice_line_items as li')
             ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
@@ -233,12 +235,12 @@ final class PayerDiscounts
             ->whereNotNull('li.session_date')
             ->when($fromDate !== null, fn ($q) => $q->where('li.session_date', '>=', $fromDate))
             ->whereRaw('coalesce(li.list_amount_minor, li.amount_minor) > 0')
-            ->where(function ($q) use ($d, $packageOf): void {
+            ->where(function ($q) use ($d, $packageOf, $subscriptionOf): void {
                 if ($d->scope !== self::SCOPE_PRIVATE) {
                     $q->orWhereNotNull('li.class_group_id');
                 }
                 if ($d->scope !== self::SCOPE_GROUP) {
-                    $q->orWhereNotNull('li.session_id')->orWhereRaw("exists (select 1 {$packageOf})");
+                    $q->orWhereNotNull('li.session_id')->orWhereRaw("exists (select 1 {$packageOf})")->orWhereRaw("exists (select 1 {$subscriptionOf})");
                 }
             })
             ->orderBy('li.session_date')
@@ -246,10 +248,11 @@ final class PayerDiscounts
                 'li.*',
                 DB::raw('coalesce(sc.teacher_id, s.teacher_id) as lesson_teacher_id'),
                 DB::raw("(select p.teacher_id {$packageOf} order by p.sequence_no desc limit 1) as package_teacher_id"),
+                DB::raw("(select cs.teacher_id {$subscriptionOf} limit 1) as subscription_teacher_id"),
             ])
             ->map(function ($line) {
                 $line->charge_scope = $line->class_group_id !== null ? self::SCOPE_GROUP : self::SCOPE_PRIVATE;
-                $teacher = $line->class_group_id !== null ? null : ($line->session_id !== null ? $line->lesson_teacher_id : $line->package_teacher_id);
+                $teacher = $line->class_group_id !== null ? null : ($line->session_id !== null ? $line->lesson_teacher_id : ($line->subscription_teacher_id ?? $line->package_teacher_id));
                 $line->subject_teacher_id = $teacher !== null ? (string) $teacher : null;
 
                 return $line;

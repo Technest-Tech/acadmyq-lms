@@ -239,7 +239,7 @@ final class CentreSubscriptionRows
             ->leftJoin('users as cu', 'cu.id', '=', 'cs.closed_by')
             ->leftJoin('users as ou', 'ou.id', '=', 'cs.opened_by')
             ->select(['cs.*', 's.full_name as student_name', 's.guardian_id', 's.is_self_guardian', 's.deleted_at as student_deleted_at',
-                'g.full_name as guardian_name', 't.full_name as teacher_name',
+                'g.full_name as guardian_name', 'g.whatsapp_phone as guardian_phone', 't.full_name as teacher_name',
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor', 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
                 'cu.full_name as closed_by_name', 'ou.full_name as opened_by_name'])
             ->selectRaw('('.$this->usedSql().') as lessons_used')
@@ -301,6 +301,7 @@ final class CentreSubscriptionRows
                 'sequence_no' => (int) $r->sequence_no,
                 'student' => ['id' => (string) $r->student_id, 'full_name' => (string) $r->student_name,
                     'guardian_id' => $r->guardian_id !== null ? (string) $r->guardian_id : null, 'guardian_name' => $r->guardian_name,
+                    'guardian_phone' => $r->guardian_phone,
                     'is_self_guardian' => (bool) $r->is_self_guardian, 'deleted' => $r->student_deleted_at !== null],
                 'teacher' => $r->teacher_id !== null ? ['id' => (string) $r->teacher_id, 'full_name' => $r->teacher_name] : null,
                 'course' => $r->course,

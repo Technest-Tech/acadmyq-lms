@@ -152,6 +152,14 @@ final class FamilyAccountController extends Controller
             ->orderBy('p.course')
             ->get(['p.student_id', 'p.teacher_id', 'p.course', 'p.label', 't.full_name as teacher_name'])
             ->groupBy(fn ($r) => (string) $r->student_id);
+        // A centre's open blocks are the same choice, read from its own table.
+        $centreBlocks = DB::table('centre_subscriptions as cs')
+            ->leftJoin('teachers as t', 't.id', '=', 'cs.teacher_id')
+            ->whereIn('cs.student_id', $childIds ?: ['00000000-0000-0000-0000-000000000000'])
+            ->where('cs.status', 'OPEN')
+            ->orderBy('cs.course')
+            ->get(['cs.student_id', 'cs.teacher_id', 'cs.course', 'cs.label', 't.full_name as teacher_name'])
+            ->groupBy(fn ($r) => (string) $r->student_id);
 
         $childRows = $children->map(fn ($c) => [
             'id' => (string) $c->id,
@@ -174,10 +182,10 @@ final class FamilyAccountController extends Controller
                 'teachers' => ($teachers[(string) $c->id] ?? collect())->pluck('full_name')->values()->all(),
             ] : null,
             // teacher_id null = every private charge of the child; set = that subject's block.
-            'private_subscriptions' => isset($subscriptions[(string) $c->id]) || isset($packages[(string) $c->id])
+            'private_subscriptions' => isset($subscriptions[(string) $c->id]) || isset($packages[(string) $c->id]) || isset($centreBlocks[(string) $c->id])
                 ? array_merge(
                     [['teacher_id' => null, 'teacher_name' => null, 'course' => null]],
-                    ($packages[(string) $c->id] ?? collect())->whereNotNull('teacher_id')->map(fn ($p) => [
+                    ($packages[(string) $c->id] ?? collect())->concat($centreBlocks[(string) $c->id] ?? collect())->whereNotNull('teacher_id')->map(fn ($p) => [
                         'teacher_id' => (string) $p->teacher_id,
                         'teacher_name' => $p->teacher_name,
                         'course' => $p->course ?? $p->label,

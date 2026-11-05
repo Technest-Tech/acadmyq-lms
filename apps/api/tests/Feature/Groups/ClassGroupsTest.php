@@ -51,6 +51,19 @@ beforeEach(function () {
 afterEach(fn () => Carbon::setTestNow());
 
 /** Mondays and Wednesdays at 17:00 Cairo, an hour each. */
+/** The logs below are a learning centre's (docs/centre-profile/02-COHERENCE-AUDIT.md). */
+function cgCentreOn(string $academyId): void
+{
+    DB::statement("select set_config('app.current_academy_id', ?, true)", [$academyId]);
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    try {
+        app(ModuleBilling::class)->setDisabledFeatures($academyId, 'MANAGEMENT', [], ['centre']);
+    } finally {
+        DB::statement("select set_config('app.current_academy_id', '', true)");
+        DB::statement("select set_config('app.current_role', '', true)");
+    }
+}
+
 function groupPayload(array $over = []): array
 {
     return array_merge([
@@ -400,6 +413,7 @@ it('marks everyone present except the exceptions, and the lesson held', function
 });
 
 it('logs a saved sheet in the attended-classes feed, by the lesson, with the count; the revert takes it back', function () {
+    cgCentreOn($this->academy);
     $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam'], $this->students['Bassel'], $this->students['Celine']]]);
     $lesson = lessonOn($this, $groupId, '2026-06-15');
 
@@ -430,6 +444,7 @@ it('logs a saved sheet in the attended-classes feed, by the lesson, with the cou
 });
 
 it('logs a lesson cancelled from the board in the classes feed — a record, not a request', function () {
+    cgCentreOn($this->academy);
     $groupId = makeGroup($this, ['student_ids' => [$this->students['Adam']]]);
     $lesson = lessonOn($this, $groupId, '2026-06-22');
 
@@ -632,4 +647,19 @@ it('warns about a private lesson booked over the teacher’s group lesson', func
     ])->assertCreated()->json('warnings');
 
     expect(collect($warnings)->pluck('type')->all())->toContain('conflict');
+});
+
+it('writes no group row into the notification logs of an academy that is not a centre', function () {
+    $groupId = makeGroup($this, ['student_ids' => [$this->students['Bassel']]]);
+    $lesson = lessonOn($this, $groupId, '2026-06-15');
+    $other = lessonOn($this, $groupId, '2026-06-22');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance", [
+        'entries' => [['student_id' => $this->students['Bassel'], 'status' => 'ABSENT']],
+    ])->assertOk();
+    $this->postJson("/api/group-lessons/{$other->id}/cancel", ['reason' => 'Public holiday'])->assertOk();
+
+    expect($this->getJson('/api/notifications?category=ATTENDED')->assertOk()->json('notifications'))->toBe([])
+        ->and($this->getJson('/api/notifications?category=CLASSES')->assertOk()->json('notifications'))->toBe([]);
 });

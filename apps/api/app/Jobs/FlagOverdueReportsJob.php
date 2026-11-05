@@ -62,7 +62,10 @@ final class FlagOverdueReportsJob implements ShouldQueue
      */
     public static function wantsLessonReports(array $capabilities): bool
     {
-        return in_array('lesson_report', $capabilities, true) || in_array('student_reports', $capabilities, true);
+        // Only a centre can ask for none: every other academy is flagged as it always was.
+        return ! in_array('centre', $capabilities, true)
+            || in_array('lesson_report', $capabilities, true)
+            || in_array('student_reports', $capabilities, true);
     }
 
     /**

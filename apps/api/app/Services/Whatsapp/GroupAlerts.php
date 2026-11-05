@@ -138,7 +138,8 @@ final class GroupAlerts
                 // An academy that asks for no lesson report (a learning centre) is never told one is late.
                 'reports' => FlagOverdueReportsJob::wantsLessonReports($capabilities),
                 // Group lessons exist only for an academy holding the feature (docs/groups §4).
-                'group_lessons' => in_array('groups', $capabilities, true),
+                // A centre's alert: nothing new starts firing for any other academy holding groups.
+                'group_lessons' => in_array('groups', $capabilities, true) && in_array('centre', $capabilities, true),
             ];
         });
 

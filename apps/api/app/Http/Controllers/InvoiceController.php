@@ -45,7 +45,8 @@ final class InvoiceController extends Controller
          and inv.total_minor > inv.amount_paid_minor
          and inv.created_at < cast(? as timestamptz)
          and not exists (select 1 from lesson_packages lp where lp.invoice_id = inv.id)
-         and not exists (select 1 from lesson_packages lp where lp.overdraft_invoice_id = inv.id))
+         and not exists (select 1 from lesson_packages lp where lp.overdraft_invoice_id = inv.id)
+         and not exists (select 1 from centre_subscriptions cs where cs.invoice_id = inv.id))
         SQL;
 
     /**

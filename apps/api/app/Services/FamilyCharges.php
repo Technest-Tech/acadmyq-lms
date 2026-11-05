@@ -229,6 +229,8 @@ final class FamilyCharges
         DB::table('lesson_packages')->where('overdraft_invoice_id', $from->id)
             ->whereIn('student_id', $lines->pluck('student_id')->filter()->unique()->values()->all())
             ->update(['overdraft_invoice_id' => $toInvoiceId, 'updated_at' => now()]);
+        // A centre's subscription follows its one line.
+        DB::table('centre_subscriptions')->whereIn('invoice_line_id', $ids)->update(['invoice_id' => $toInvoiceId, 'updated_at' => now()]);
     }
 
     /** @return Collection<int, object> every line of the bill, with what receipts cover of it */

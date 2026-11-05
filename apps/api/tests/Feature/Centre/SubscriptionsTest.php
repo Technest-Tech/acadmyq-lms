@@ -394,6 +394,11 @@ it('pays the unused part back out of the treasury, or keeps it, and a block clos
     $this->postJson("/api/subscriptions/{$next}/close", ['reason' => 'Changed mind'])->assertOk()->assertJsonPath('subscription.settlement', 'PENDING');
     $unpaid = ($this->sell)(['lessons_sold' => 2])->assertCreated()->assertJsonPath('due_minor', 20000)->json('subscription.id');
     $this->postJson("/api/subscriptions/{$unpaid}/close", ['reason' => 'Never paid'])->assertOk()->assertJsonPath('subscription.settlement', null);
+
+    // The refund taken back in the treasury: the money is the family's credit again, and the block says so.
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/expenses/'.($this->sub)($id)->settle_expense_id.'/void', ['reason' => 'Not handed over'])->assertOk();
+    expect(($this->sub)($id)->settlement)->toBe('CREDIT');
 });
 
 it('cancels a block sold by mistake — nothing counted, nothing paid — and voids its bill; otherwise refuses', function () {

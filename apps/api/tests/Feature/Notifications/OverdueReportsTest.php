@@ -156,13 +156,13 @@ function reportSwitches(string $academyId, array $disabled, array $enabled = [])
 
 it('raises nothing for an academy that asks for no lesson report (a learning centre), and still does for one that does', function () {
     // The CENTRE preset: progress reports off, the structured report never opted into.
-    reportSwitches($this->academy, ['student_reports']);
+    reportSwitches($this->academy, ['student_reports'], ['centre']);
     expect(sweep($this->academy))->toBe([$this->academy => 0]);
     $this->asAcademy($this->academy);
     expect(DB::table('notifications')->where('session_id', $this->overdue)->exists())->toBeFalse();
 
     // A centre that opts into the structured lesson report is asking for one again.
-    reportSwitches($this->academy, ['student_reports'], ['lesson_report']);
+    reportSwitches($this->academy, ['student_reports'], ['centre', 'lesson_report']);
     expect(sweep($this->academy))->toBe([$this->academy => 1]);
     $this->asAcademy($this->academy);
     expect(DB::table('notifications')->where('session_id', $this->overdue)->where('type', 'REPORT_OVERDUE')->exists())->toBeTrue();
@@ -171,6 +171,8 @@ it('raises nothing for an academy that asks for no lesson report (a learning cen
 it('keeps flagging a Quran academy, which holds progress reports by default', function () {
     expect(FlagOverdueReportsJob::wantsLessonReports(['student_reports']))->toBeTrue()
         ->and(FlagOverdueReportsJob::wantsLessonReports(['lesson_report']))->toBeTrue()
+        // Switching progress reports off never stopped the flag for a Quran academy; it still does not.
+        ->and(FlagOverdueReportsJob::wantsLessonReports(['groups']))->toBeTrue()
         ->and(FlagOverdueReportsJob::wantsLessonReports(['centre', 'groups', 'accounting']))->toBeFalse();
 
     expect(sweep($this->academy))->toBe([$this->academy => 1]);

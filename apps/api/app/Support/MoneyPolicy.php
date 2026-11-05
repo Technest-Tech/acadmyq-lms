@@ -24,10 +24,14 @@ final class MoneyPolicy
 {
     public static function for(string $academyId): LessonMoney
     {
+        return self::usesSubscriptions($academyId) ? app(SubscriptionMoney::class) : app(PackageMoney::class);
+    }
+
+    /** Has this academy moved onto the centre's subscriptions? Its package rows are then history only. */
+    public static function usesSubscriptions(string $academyId): bool
+    {
         $capabilities = Entitlement::resolve($academyId)['capabilities'];
 
-        return in_array('centre', $capabilities, true) && ! in_array('packages', $capabilities, true)
-            ? app(SubscriptionMoney::class)
-            : app(PackageMoney::class);
+        return in_array('centre', $capabilities, true) && ! in_array('packages', $capabilities, true);
     }
 }
