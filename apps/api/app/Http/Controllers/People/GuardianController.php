@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\People;
 
-use App\Services\SessionGenerator;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Services\ChargeCancellation;
 use App\Services\ClassGroups;
 use App\Services\FamilyCharges;
+use App\Services\SessionGenerator;
+use App\Support\AcademySettings;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\DoneBy;
@@ -54,6 +55,19 @@ final class GuardianController extends Controller
            from students c where c.guardian_id = guardians.id and c.deleted_at is null)
         SQL;
 
+    /**
+     * A guardian row that is only a student on their own: one active student, marked as their own
+     * guardian or sharing the parent's name. The row stays as the billing anchor; with
+     * `hide_solo_students_from_parents` it is just not a family to list.
+     */
+    private const SOLO_STUDENT = <<<'SQL'
+        exists (select 1 from students c
+                 where c.guardian_id = guardians.id and c.deleted_at is null
+                   and (c.is_self_guardian or lower(trim(c.full_name)) = lower(trim(guardians.full_name)))
+                   and not exists (select 1 from students o
+                                    where o.guardian_id = guardians.id and o.deleted_at is null and o.id <> c.id))
+        SQL;
+
     /** GET /api/guardians — server-driven DataTable (search/filter/sort/paginate). */
     public function index(Request $request): JsonResponse
     {
@@ -71,6 +85,9 @@ final class GuardianController extends Controller
 
         // Active-only by default; filter[status]=inactive|all reveals soft-deleted rows (TC-4.5).
         $this->applyActiveScope($query, $request);
+        if (AcademySettings::forAcademy($this->currentAcademyId())['hide_solo_students_from_parents']) {
+            $query->whereRaw('not '.self::SOLO_STUDENT);
+        }
         // Searching by a CHILD's name is the parents page's own search — a parent is most often
         // looked up as "Yusuf's dad". DataTable's column search cannot reach another table, so
         // this replaces it and `searchable` is left empty below.
