@@ -27,6 +27,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  *   GET  /receipts                the register: filter by day range, method, collector, payer, group
  *   POST /receipts                record money received (and allocate it)
  *   GET  /receipts/{id}           one receipt: what it paid, what is left as credit
+ *   POST /receipts/{id}/amend     correct method, day, reference, note (receipt.void)
  *   POST /receipts/{id}/void      void with a reason (receipt.void)
  *   POST /receipts/{id}/send      WhatsApp the payer their receipt link
  *   GET  /receipts/{id}/proof     the uploaded proof (transfer screenshot)
@@ -185,6 +186,34 @@ final class ReceiptController extends Controller
     public function show(string $id): JsonResponse
     {
         Gate::authorize('invoice.read');
+
+        return response()->json(['receipt' => $this->detail($id)]);
+    }
+
+    /**
+     * POST /receipts/{id}/amend — correct its method, day, reference or note (multipart when a new
+     * transfer picture comes with it). The amount stays: a wrong amount is a void and a new receipt.
+     * The same hand as a void, which could already undo it and record it again.
+     */
+    public function amend(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('receipt.void');
+        $academyId = $this->academyId();
+        $data = $request->validate([
+            'method' => ['sometimes', Rule::in(Ledger::METHODS)],
+            'received_on' => ['sometimes', 'date_format:Y-m-d', 'before_or_equal:'.Carbon::now($this->timezone($academyId))->format('Y-m-d')],
+            'reference' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'note' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'proof' => ['sometimes', 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
+        ]);
+        if ($request->hasFile('proof')) {
+            $proof = $request->file('proof');
+            $data['proof_path'] = $proof?->storeAs("receipt-proofs/{$academyId}", Str::uuid().'.'.strtolower((string) ($proof->extension() ?: 'jpg')), 'local');
+        }
+        unset($data['proof']);
+        $ctx = app(AuthContext::class);
+
+        $this->ledger->amend($id, $data, $ctx->userId, $ctx->role);
 
         return response()->json(['receipt' => $this->detail($id)]);
     }
@@ -376,6 +405,9 @@ final class ReceiptController extends Controller
             ])->all(),
             'balance_after' => $payer['guardian_id'] !== null || $payer['student_id'] !== null ? $this->ledger->balance($academyId, $payer) : [],
             'can_void' => Gate::allows('receipt.void') && $r->voided_at === null,
+            // Correct the method / day (a desk receipt) or the note and reference (any).
+            'can_amend' => Gate::allows('receipt.void') && $r->voided_at === null,
+            'source' => (string) $r->source,
         ];
     }
 

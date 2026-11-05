@@ -106,6 +106,8 @@ export interface ReceiptDetail extends ReceiptRow {
   allocations: ReceiptAllocation[];
   balance_after: PayerBalance[];
   can_void: boolean;
+  /** Correct its method / day (a desk receipt) or its reference and note — the same hand as a void. */
+  can_amend?: boolean;
 }
 
 export interface ReceiptTotals {
@@ -188,6 +190,25 @@ export function recordReceipt(input: RecordReceiptInput): Promise<{ receipt: Rec
   for (const id of input.line_ids ?? []) body.append("line_ids[]", id);
   if (input.apply_rest === false) body.set("apply_rest", "0");
   return apiFetch(`/api/receipts`, { method: "POST", body });
+}
+
+export interface AmendReceiptInput {
+  method: ReceiptMethod;
+  received_on: string;
+  reference: string;
+  note: string;
+  proof?: File | null;
+}
+
+/** Correct a receipt in place: the amount and what it paid never move. Empty reference/note clear them. */
+export function amendReceipt(id: string, input: AmendReceiptInput): Promise<{ receipt: ReceiptDetail }> {
+  const body = new FormData();
+  body.set("method", input.method);
+  body.set("received_on", input.received_on);
+  body.set("reference", input.reference.trim());
+  body.set("note", input.note.trim());
+  if (input.proof) body.set("proof", input.proof);
+  return apiFetch(`/api/receipts/${id}/amend`, { method: "POST", body });
 }
 
 export function voidReceipt(id: string, reason: string): Promise<{ receipt: ReceiptDetail }> {

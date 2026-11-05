@@ -1,9 +1,10 @@
 "use client";
 
-import { Ban, ExternalLink, FileImage, Link2, Loader2, MessageSquare } from "lucide-react";
+import { Ban, ExternalLink, FileImage, Link2, Loader2, MessageSquare, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
+import { AmendReceiptForm } from "@/components/accounting/amend-receipt-form";
 import { CopyLinkButton, MethodBadge, dayLabel, waLink } from "@/components/accounting/accounting-ui";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { AlertBanner } from "@/components/ui/alert";
@@ -33,6 +34,7 @@ export function ReceiptDetailModal({
   const [receipt, setReceipt] = useState<ReceiptDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [voiding, setVoiding] = useState(false);
+  const [amending, setAmending] = useState(false);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -43,6 +45,7 @@ export function ReceiptDetailModal({
     setReceipt(null);
     setError(null);
     setVoiding(false);
+    setAmending(false);
     setReason("");
     setNotice(null);
     getReceipt(receiptId)
@@ -191,7 +194,18 @@ export function ReceiptDetailModal({
 
           {notice && <AlertBanner variant="info" message={notice} onDismiss={() => setNotice(null)} />}
 
-          {voiding ? (
+          {amending ? (
+            <AmendReceiptForm
+              receipt={receipt}
+              onCancel={() => setAmending(false)}
+              onSaved={(next) => {
+                setReceipt(next);
+                setAmending(false);
+                setNotice(t("amend.saved"));
+                onChanged?.();
+              }}
+            />
+          ) : voiding ? (
             <div className="space-y-2 rounded-2xl border border-rose-500/30 bg-rose-500/5 p-3">
               <label htmlFor="void-reason" className="block text-sm font-medium">
                 {t("detail.voidReason")}
@@ -233,8 +247,14 @@ export function ReceiptDetailModal({
                   {t("detail.proof")}
                 </Button>
               )}
+              {receipt.can_amend && (
+                <Button type="button" variant="outline" onClick={() => setAmending(true)} className="ms-auto gap-1.5" data-testid="receipt-amend">
+                  <Pencil className="size-4" aria-hidden />
+                  {t("amend.action")}
+                </Button>
+              )}
               {receipt.can_void && (
-                <Button type="button" variant="destructive" onClick={() => setVoiding(true)} className="ms-auto gap-1.5" data-testid="receipt-void">
+                <Button type="button" variant="destructive" onClick={() => setVoiding(true)} className={cn("gap-1.5", !receipt.can_amend && "ms-auto")} data-testid="receipt-void">
                   <Ban className="size-4" aria-hidden />
                   {t("detail.void")}
                 </Button>

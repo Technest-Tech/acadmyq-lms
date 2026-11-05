@@ -275,6 +275,80 @@ final class Ledger
     }
 
     /**
+     * Correct a receipt the desk typed wrong: its method, day, reference or note. The amount and
+     * what it paid stay — a wrong amount is a void and a new receipt. A new method lands the money
+     * in that method's treasury account; neither the day it leaves nor the day it lands may be
+     * closed. A card payment or a carried-over one is history: only its note and reference change.
+     *
+     * @param  array{method?: string, received_on?: string, reference?: ?string, note?: ?string, proof_path?: ?string}  $changes
+     */
+    public function amend(string $receiptId, array $changes, ?string $actorUserId, ?string $actorRole): object
+    {
+        return DB::transaction(function () use ($receiptId, $changes, $actorUserId, $actorRole): object {
+            $r = DB::table('receipts')->where('id', $receiptId)->lockForUpdate()->first();
+            if ($r === null) {
+                abort(404, 'Receipt not found.');
+            }
+            if ($r->voided_at !== null) {
+                throw ValidationException::withMessages(['receipt' => ['A void receipt cannot be edited. / لا يمكن تعديل إيصال ملغى.']]);
+            }
+            $method = (string) ($changes['method'] ?? $r->method);
+            $on = (string) ($changes['received_on'] ?? Carbon::parse($r->received_on)->format('Y-m-d'));
+            $oldOn = Carbon::parse($r->received_on)->format('Y-m-d');
+            $moves = $method !== (string) $r->method || $on !== $oldOn;
+            if ($moves && (string) $r->source !== self::SOURCE_MANUAL) {
+                throw ValidationException::withMessages(['method' => [
+                    'This receipt came from a card payment or the old records: only its note and reference change. / هذا الإيصال من دفع إلكتروني أو من السجلات القديمة: يُعدّل الملاحظة والمرجع فقط.',
+                ]]);
+            }
+            if (! in_array($method, self::METHODS, true)) {
+                throw ValidationException::withMessages(['method' => ['Unknown payment method.']]);
+            }
+            $proof = $changes['proof_path'] ?? $r->proof_path;
+            if ($method !== 'CASH' && $method !== (string) $r->method && ($proof === null || $proof === '')) {
+                throw ValidationException::withMessages(['proof' => ['Attach the transfer picture for this method. / أرفق صورة التحويل لهذه الوسيلة.']]);
+            }
+
+            $treasury = app(Treasury::class);
+            $oldAccount = $r->cash_account_id !== null ? (string) $r->cash_account_id : null;
+            $account = $method !== (string) $r->method
+                ? $treasury->accountForReceipt((string) $r->academy_id, $method, (string) $r->currency)
+                : $oldAccount;
+            if ($moves) {
+                // The money leaves a day that must still be open, and lands on one that is.
+                if ($oldAccount !== null) {
+                    $treasury->assertOpenDay($oldAccount, $oldOn);
+                }
+                if ($account !== null) {
+                    $treasury->assertOpenDay($account, $on);
+                }
+            }
+
+            $after = [
+                'method' => $method, 'received_on' => $on, 'cash_account_id' => $account,
+                'reference' => array_key_exists('reference', $changes) ? $this->clean($changes['reference']) : $r->reference,
+                'note' => array_key_exists('note', $changes) ? $this->clean($changes['note']) : $r->note,
+                'proof_path' => $proof,
+            ];
+            $before = ['method' => $r->method, 'received_on' => $oldOn, 'cash_account_id' => $oldAccount, 'reference' => $r->reference, 'note' => $r->note, 'proof_path' => $r->proof_path];
+            if ($after === $before) {
+                return $r;
+            }
+            DB::table('receipts')->where('id', $receiptId)->update($after + ['updated_at' => now()]);
+            Audit::log('receipt.amended', 'receipt', $receiptId, (string) $r->academy_id, $actorUserId, $actorRole,
+                before: array_intersect_key($before, array_diff_assoc($after, $before)) + ['number' => $r->number],
+                after: array_diff_assoc($after, $before) + ['number' => $r->number]);
+
+            // A new day moves the money between months for a group teacher paid on what was collected.
+            if ($on !== $oldOn) {
+                app(GroupPayroll::class)->syncCollectedShares((string) $r->academy_id);
+            }
+
+            return DB::table('receipts')->where('id', $receiptId)->first();
+        });
+    }
+
+    /**
      * Spend the payer's unallocated receipt money on their unpaid lines, oldest receipt on oldest
      * line. Called when a charge is raised for them, and after a void.
      *

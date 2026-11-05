@@ -623,3 +623,46 @@ it('insists on a picture of the proof for anything but cash', function () {
     $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 10000, 'method' => 'INSTAPAY', 'proof' => UploadedFile::fake()->image('p.png')])
         ->assertCreated()->assertJsonPath('receipt.has_proof', true);
 });
+
+// Lingo 2026-11-05: a receipt typed as cash that came by InstaPay, or on the wrong day, is corrected
+// in place — the amount and what it paid never move; the money follows to the new method's account.
+it('corrects a receipt’s method, day, reference and note in place, and the treasury follows', function () {
+    acctSwitch($this, true);
+    acctGroup($this);
+    Sanctum::actingAs($this->owner);
+    $drawer = $this->postJson('/api/treasury/accounts', ['name' => 'Drawer', 'kind' => 'CASH', 'methods' => ['CASH'], 'opening_on' => '2026-06-01'])->assertCreated()->json('id');
+    $bank = $this->postJson('/api/treasury/accounts', ['name' => 'Bank', 'kind' => 'BANK', 'methods' => ['INSTAPAY'], 'opening_on' => '2026-06-01'])->assertCreated()->json('id');
+    $r = acctCollect($this, ['guardian_id' => $this->parent, 'amount_minor' => 60000]);
+    $paidBefore = (int) acctInvoice($this, $this->parent, null, 6)->amount_paid_minor;
+    $row = fn () => acctTenant($this->academy, fn () => DB::table('receipts')->where('id', $r['id'])->first());
+    expect((string) $row()->cash_account_id)->toBe($drawer);
+
+    // To InstaPay without the transfer picture: refused. With it: moved to the bank account.
+    $this->post("/api/receipts/{$r['id']}/amend", ['method' => 'INSTAPAY'])->assertStatus(422)->assertJsonValidationErrors(['proof']);
+    $this->post("/api/receipts/{$r['id']}/amend", ['method' => 'INSTAPAY', 'proof' => UploadedFile::fake()->image('p.jpg'), 'received_on' => '2026-06-15', 'reference' => 'IP-778', 'note' => 'from the father'])
+        ->assertOk()->assertJsonPath('receipt.method', 'INSTAPAY')->assertJsonPath('receipt.received_on', '2026-06-15')
+        ->assertJsonPath('receipt.has_proof', true)->assertJsonPath('receipt.note', 'from the father')
+        ->assertJsonPath('receipt.amount_minor', 60000)->assertJsonPath('receipt.can_amend', true);
+    expect((string) $row()->cash_account_id)->toBe($bank)
+        ->and($row()->reference)->toBe('IP-778')
+        ->and((int) acctInvoice($this, $this->parent, null, 6)->amount_paid_minor)->toBe($paidBefore)
+        ->and(acctTenant($this->academy, fn () => DB::table('audit_log')->where('action', 'receipt.amended')->where('entity_id', $r['id'])->count()))->toBe(1);
+
+    // No future day; and a closed day holds — whether the money would leave it or land on it.
+    $this->postJson("/api/receipts/{$r['id']}/amend", ['received_on' => '2026-06-18'])->assertStatus(422)->assertJsonValidationErrors(['received_on']);
+    $this->postJson('/api/treasury/closings', ['cash_account_id' => $drawer, 'day' => '2026-06-16', 'counted_minor' => 0])->assertCreated();
+    $this->postJson("/api/receipts/{$r['id']}/amend", ['method' => 'CASH'])->assertStatus(422);
+    $this->postJson('/api/treasury/closings', ['cash_account_id' => $bank, 'day' => '2026-06-15', 'counted_minor' => 60000])->assertCreated();
+    $this->postJson("/api/receipts/{$r['id']}/amend", ['received_on' => '2026-06-17'])->assertStatus(422);
+    // The words still change on a closed day: they move no money.
+    $this->postJson("/api/receipts/{$r['id']}/amend", ['note' => 'checked'])->assertOk()->assertJsonPath('receipt.note', 'checked');
+
+    // A void receipt is not edited; the supervisor (no receipt.void) cannot.
+    $other = acctCollect($this, ['guardian_id' => $this->parent, 'amount_minor' => 1000]);
+    Sanctum::actingAs($this->supervisor);
+    $this->postJson("/api/receipts/{$other['id']}/amend", ['note' => 'x'])->assertForbidden();
+    $this->getJson("/api/receipts/{$other['id']}")->assertOk()->assertJsonPath('receipt.can_amend', false);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/receipts/{$other['id']}/void", ['reason' => 'typed twice'])->assertOk();
+    $this->postJson("/api/receipts/{$other['id']}/amend", ['note' => 'x'])->assertStatus(422);
+});
