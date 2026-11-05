@@ -194,7 +194,7 @@ Inventory from the three sweeps of 2026-11-04 (API, web, group engine). Verdicts
 | Student profile → Schedule tab (`StudentTimetable`) | sessions | **keep**; after a subscription sale with no timetable for that teacher, link straight here |
 | Student profile → Teachers tab | assignments | **keep**; selling a subscription for a new subject creates the assignment, as today |
 | Level card / level badge on the live student profile | only in the legacy `student-detail.tsx`, which the route no longer uses | **adjust** (bug): move `LevelCard` + badge into `student-profile.tsx` |
-| Teacher profile: Rate fact (hourly), Reports tab (session reports) | Quran | **adjust**: rate reads the teacher's pay type, not an hourly rate; Reports tab hidden unless `lesson_report` |
+| Teacher profile: Rate fact (hourly) | Quran | **adjust**: rate reads the teacher's pay type, not an hourly rate. The Reports tab is notes written ABOUT the teacher, not lesson reports: it stays |
 | Trials ("حصص تحديد المستوى") → convert | wizard | **keep**, via the adjusted wizard |
 | Enrolment requests `/e/{token}` → place → convert | centre | **keep** |
 | Settings: Report card tab, lesson report, Controls | capability-gated | **keep** |
@@ -507,19 +507,55 @@ deductions since 11-03 (1,903 EGP; the reasons read are all "Lesson undone"): th
 statements, but `teacher_quality` off closes the Discounts & Awards page and its `/quality/adjustments`
 routes, which breaks this doc's own rule of never hiding a page that holds data.
 
-## Open before step 5 (found 2026-11-05, not fixed yet)
+## Fixed before step 5 (2026-11-05)
 
-Read from the code, not reproduced:
-1. The move leaves `lesson_packages` rows ACTIVE / PENDING, and old readers still act on them: the
-   held-renewal release on a receipt, `ChargeCancellation::cancel` (voids and returns before ending the
-   subscription), `PackageSettlement::pendingFor` (listed twice), `closeOpenPackage` on student removal,
-   the discount picker. Likely fix: the command closes the legacy row.
-2. `StudentController::endActiveBilling` never closes a `centre_subscriptions` row.
-3. No knowledge of the new table: discount picker + `PayerDiscounts` targets, `FamilyCharges`,
-   `InvoiceController` follow-up, `TreasuryController::voidExpense`, `ScheduleController::show`.
-4. The duplicate guard on the create-class modal was never built.
-5. Not gated on `centre`, so they reach Quran academies with groups: PER_STUDENT pay on group lessons
-   (`GroupPayroll::teacherOwnPay`, money), the parent portal Reports tab, group rows in the notification
-   logs; `FlagOverdueReportsJob` also stops for a Quran academy with `student_reports` off.
-6. The web reads `/subscriptions` as soon as `centre` is on, so deploy and move must happen together,
-   for every academy holding `centre`.
+Pinned by `tests/Feature/Centre/AfterTheMoveTest.php` unless said otherwise.
+
+1. **The move ends the old engine in one transaction.** `--apply` closes each moved row as history
+   (ACTIVE becomes COMPLETED with reason `MOVED_TO_SUBSCRIPTION`, no auto-renew, no held renewal, no
+   pending settlement; what it was goes in the audit row) and switches `packages` off for that academy, so
+   no lesson can be marked between the move and the switch. A dry run also says what will not carry:
+   a block with no bill, an unbilled overdraft, a counter that changes, an expiry, a block on its last
+   lesson that used to renew, lessons dated before their block.
+2. **Nothing reads a moved block twice.** The family pay page skips a package row that has a subscription;
+   the settlement list holds it once.
+3. **A leaving student's open blocks stop** (`CentreSubscriptions::windDown`): voided if untouched and
+   unpaid, else closed where they stand, with paid unused lessons waiting on the family card.
+4. **Readers that did not know the new table now do:** discount picker and discount reach, a child moving
+   family, the forgotten-bills follow-up, a refund voided in the treasury, the timetable's subject list.
+   A moved lesson's old credit row no longer blocks a length correction or an undo. Old unread package
+   alerts leave the bell of a centre that moved.
+5. **The family's one pay link** came back on the Due tab, through `/subscriptions/family/{id}/pay-link`
+   (the old door sits behind the `packages` switch).
+6. **A sale is refused while the centre still counts on packages,** so nothing can be sold into a table the
+   lessons do not read. The same student at the same minute is refused at a centre.
+7. **Discounts & Awards stays for a centre** without the rubric: `entitled:teacher_quality,centre` on the
+   adjustment routes (the middleware takes any of several switches); the rubric and `PUT /quality/settings`
+   stay behind `teacher_quality`.
+8. **Back behind `centre`, so no Quran academy changes:** per-student pay on group lessons, the parent portal
+   Reports tab, group rows in the notification logs, the group-sheet staff alert, the overdue-report flag and
+   the Following button for an academy with those switches off, the teacher Groups tab, the export's new sheet.
+9. **A migration that would have stopped the deploy.** `2026_11_05_000001_centre_parent_portal` rewrote the send
+   log's type list without `LMS` and `GROUP_ALERT`. Prod holds such rows, so adding the constraint would have
+   failed; had it passed, every later group-alert log line would have been refused silently. That is the
+   "pre-existing" `GroupAlertsTest` back-off failure, wrongly called unrelated. Fixed in place (undeployed),
+   pinned by `Rls/IntrospectionTest`. The same test's numeric check now excludes the grade tables: marks, not money.
+
+## Going live
+
+The web reads `/subscriptions` as soon as `centre` is on, so deploy and move happen together, at a quiet hour,
+for **every** academy holding `centre`. Read prod for that list first; only Lingo has been read.
+
+```
+# 1. pre-deploy dump, then deploy (docs: prod-deploy runbook)
+# 2. for each academy holding `centre`, right after the deploy:
+php artisan centre:migrate-packages "Lingo Academy" --dry-run    # read the warnings
+php artisan centre:migrate-packages "Lingo Academy" --apply      # moves, closes the old rows, packages off
+php artisan profile:set "Lingo Academy" CENTRE --dry-run
+php artisan profile:set "Lingo Academy" CENTRE                   # the type, the look, the rest of the preset
+```
+
+Way back: restore the dump. A rehearsal of all the branch's migrations on a restored prod dump has not been done
+and is worth doing first: tests start from an empty database, which is how item 9 stayed hidden.
+
+Step 6 (strip the centre branches out of `LessonPackages`) comes after this, once no academy runs them.
