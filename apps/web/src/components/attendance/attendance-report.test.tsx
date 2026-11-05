@@ -345,6 +345,7 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
   const finishedPackageImpact = (over: {
     consumed_after: number;
     reopens: boolean;
+    movedBack?: { sequence_no: number; lessons: number; remaining_after: number };
   }) => ({
     session_id: "se1",
     duration_before: 30,
@@ -371,6 +372,8 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
         : null,
       own_bill_voided: null,
       stays_closed: null,
+      lessons_moved_back: over.movedBack ?? null,
+      block_moves: over.reopens || over.movedBack !== undefined,
     },
   });
 
@@ -422,6 +425,24 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     await waitFor(() =>
       expect(api.updateSessionDuration).toHaveBeenCalledWith("se1", 30),
     );
+  });
+
+  it("says how many lessons come back from the next package, even on the same number", async () => {
+    vi.mocked(api.previewSessionDuration).mockResolvedValue(
+      finishedPackageImpact({
+        consumed_after: 360,
+        reopens: false,
+        movedBack: { sequence_no: 2, lessons: 1, remaining_after: 300 },
+      }),
+    );
+
+    const user = await openDurationAt(30);
+    await user.click(screen.getByTestId("review-duration-change"));
+
+    expect(await screen.findByTestId("duration-impact")).toHaveTextContent(
+      "1 lesson moves back from package #2",
+    );
+    expect(screen.getByTestId("confirm-duration-change")).toBeEnabled();
   });
 
   it("offers nothing to confirm when the length is already right everywhere", async () => {

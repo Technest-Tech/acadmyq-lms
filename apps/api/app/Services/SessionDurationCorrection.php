@@ -28,6 +28,16 @@ final class SessionDurationCorrection
     /** @return array<string,mixed> */
     public function preview(object $session, int $newDuration, bool $carrySealed = false): array
     {
+        return $this->calculate($session, $newDuration, $carrySealed)[0];
+    }
+
+    /**
+     * The one calculation: what the owner reads, and the plan for a finished block that the write runs.
+     *
+     * @return array{0: array<string,mixed>, 1: ?array<string,mixed>}
+     */
+    private function calculate(object $session, int $newDuration, bool $carrySealed): array
+    {
         $currentDuration = max(1, (int) $session->duration_minutes);
         // Equal when the payroll page already corrected the lesson and only its finished block is left.
         $lengthMoves = $newDuration !== $currentDuration;
@@ -52,6 +62,7 @@ final class SessionDurationCorrection
         // On a block counted in lessons the lesson's length moves the teacher's pay, not the block.
         // After a centre's move the credit row is history, whatever the block it sat on was sold in.
         $package = null;
+        $plan = null;
         if ($credit !== null && ! LessonPackages::countsLessons($credit) && ! MoneyPolicy::usesSubscriptions((string) $credit->academy_id)) {
             $capacity = (int) $credit->minutes_total + (int) $credit->carried_over_minutes;
             $newConsumed = max(0, (int) $credit->minutes_consumed - (int) $credit->credit_minutes + $newDuration);
@@ -59,7 +70,6 @@ final class SessionDurationCorrection
             $newCreditOverdrawn = max(0, $newOverdrawn - max(0, (int) $credit->minutes_overdrawn - (int) $credit->credit_overdrawn));
             $active = (string) $credit->package_status === 'ACTIVE';
 
-            $plan = null;
             if (! $active && ! $carrySealed) {
                 $block = DB::table('lesson_packages')->where('id', $credit->package_id)->first();
                 $plan = $this->packages->finishedBlockPlan($block, $newConsumed, $newOverdrawn);
@@ -68,16 +78,20 @@ final class SessionDurationCorrection
                 }
             }
 
+            $finalConsumed = (int) ($plan['consumed_after'] ?? $newConsumed);
+            $movedFrom = $plan['moved_from'] ?? null;
+            $movedMinutes = array_sum(array_column($plan['moves'] ?? [], 'minutes'));
+
             $package = [
                 'package_id' => (string) $credit->package_id,
                 'label' => (string) $credit->package_label,
                 'status' => (string) $credit->package_status,
                 'currency' => (string) $credit->currency,
                 'consumed_before' => (int) $credit->minutes_consumed,
-                'consumed_after' => $newConsumed,
+                'consumed_after' => $finalConsumed,
                 'remaining_before' => max(0, $capacity - (int) $credit->minutes_consumed),
-                'remaining_after' => max(0, $capacity - $newConsumed),
-                'overdrawn_after' => $newOverdrawn,
+                'remaining_after' => max(0, $capacity - $finalConsumed),
+                'overdrawn_after' => (int) ($plan['overdrawn_after'] ?? $newOverdrawn),
                 'credit_overdrawn_after' => $newCreditOverdrawn,
                 'will_complete' => $active && $newConsumed >= $capacity,
                 'reopens' => (bool) ($plan['reopens'] ?? false),
@@ -87,6 +101,15 @@ final class SessionDurationCorrection
                     'currency' => (string) $plan['own_bill']->currency,
                 ] : null,
                 'stays_closed' => $plan['stays_closed'] ?? null,
+                // Lessons on the next block that come back to this one until it is full.
+                'lessons_moved_back' => $movedFrom !== null ? [
+                    'sequence_no' => (int) $movedFrom->sequence_no,
+                    'lessons' => count($plan['moves']),
+                    'remaining_after' => $plan['renewal'] !== null ? 0 : max(0, (int) $movedFrom->minutes_total + (int) $movedFrom->carried_over_minutes - (int) $movedFrom->minutes_consumed + $movedMinutes),
+                ] : null,
+                // A finished block has something to do, even when the lesson's own number is unchanged.
+                'block_moves' => $plan !== null && $plan['blocker'] === null
+                    && ((int) $credit->credit_minutes !== $newDuration || $plan['moves'] !== [] || $plan['reopens']),
             ];
         }
 
@@ -162,7 +185,7 @@ final class SessionDurationCorrection
             ];
         }
 
-        return [
+        return [[
             'session_id' => (string) $session->id,
             'duration_before' => $currentDuration,
             'duration_after' => $newDuration,
@@ -171,7 +194,7 @@ final class SessionDurationCorrection
             'invoice' => $invoice,
             'package' => $package,
             'payout' => $payout,
-        ];
+        ], $plan];
     }
 
     /** @return array<string,mixed> */
@@ -199,7 +222,7 @@ final class SessionDurationCorrection
             // the race where an invoice/package/payout could be finalized between confirmation
             // and the write, leaving only part of the cycle corrected.
             $this->lockFinancialDocuments($sessionId);
-            $preview = $this->preview($session, $newDuration, $carrySealed);
+            [$preview, $plan] = $this->calculate($session, $newDuration, $carrySealed);
             if (! $preview['can_change']) {
                 throw ValidationException::withMessages([
                     'duration_minutes' => [$this->blockedMessage($preview['blockers'])],
@@ -209,8 +232,7 @@ final class SessionDurationCorrection
             $before = (int) $session->duration_minutes;
             $lengthMoves = $before !== $newDuration;
             $effect = $preview['package'];
-            $finishedBlockMoves = ! $carrySealed && $effect !== null && $effect['status'] !== 'ACTIVE'
-                && $effect['consumed_after'] !== $effect['consumed_before'];
+            $finishedBlockMoves = $effect !== null && $effect['block_moves'];
 
             if (! $lengthMoves && ! $finishedBlockMoves) {
                 return $preview;
@@ -229,11 +251,10 @@ final class SessionDurationCorrection
                 $this->updatePackage($session, $effect, $newDuration, $actorUserId, $actorRole);
             }
             if ($finishedBlockMoves) {
-                // Asked before the minutes move: the block's own numbers are what it reads.
+                // Read before the minutes move: the plan compares against the block as it stood.
                 $block = DB::table('lesson_packages')->where('id', $effect['package_id'])->first();
-                $plan = $this->packages->finishedBlockPlan($block, $effect['consumed_after'], $effect['overdrawn_after']);
                 $this->updatePackage($session, $effect, $newDuration, $actorUserId, $actorRole);
-                $this->packages->applyFinishedBlockPlan($block, $plan, $effect['overdrawn_after'], $actorUserId, $actorRole);
+                $this->packages->applyFinishedBlockPlan($block, $plan, $actorUserId, $actorRole);
             }
             if ($lengthMoves && $preview['payout'] !== null) {
                 if ($preview['payout']['finalized']) {

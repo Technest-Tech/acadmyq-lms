@@ -4040,7 +4040,20 @@ export interface SessionDurationImpact {
     /** The bill raised because the block ended, voided; its real ending raises it again. */
     own_bill_voided: { amount_minor: number; currency: string } | null;
     /** Why it stays finished although minutes came free. */
-    stays_closed: "NEXT_BLOCK_RUNNING" | "NEXT_BLOCK_PAID" | "OWN_BILL_PAID" | null;
+    stays_closed:
+      | "NEXT_BLOCK_RUNNING"
+      | "NEXT_BLOCK_BY_HAND"
+      | "NEXT_BLOCK_PAID"
+      | "OWN_BILL_PAID"
+      | null;
+    /** The next package's lessons that come back to this one until it is full. */
+    lessons_moved_back: {
+      sequence_no: number;
+      lessons: number;
+      remaining_after: number;
+    } | null;
+    /** A finished package has something to do, even when the lesson's own number is unchanged. */
+    block_moves: boolean;
   } | null;
   payout: {
     payout_id: string;

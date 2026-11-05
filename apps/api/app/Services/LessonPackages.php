@@ -589,25 +589,30 @@ final class LessonPackages
     }
 
     /**
-     * What correcting a lesson's length does to the finished block it sits on. Asked for the preview
-     * and asked again under lock for the write, so the owner confirms exactly what runs.
+     * What correcting a lesson's length does to the finished block it sits on. The preview and the
+     * write share this one answer, so the owner confirms exactly what runs.
      *
      * A block that "ran out" because a lesson was recorded too long never really ran out (رند,
-     * Alrayan, 2026-11-05: a family shown as owing a renewal over a 30-minute lesson entered as 60).
-     * So a correction that leaves room re-opens it, and takes back what the false ending set off: an
-     * automatic renewal nobody has used or paid, and a bill raised only because the block ended. Once
-     * the next block is being taught from or paid for, this one stays finished and keeps the freed
-     * minutes as history ({@see release()} has always done the same).
+     * Alrayan, 2026-11-05: a 30-minute lesson entered as 60 ended the block and lessons went on to the
+     * next one). So the books are put back as if the length had been right from the start: the next
+     * block's lessons come back in date order until this one is full, a lesson that does not fit runs
+     * over rather than splits, and if that empties the next block and this one still has room, it
+     * re-opens and takes back what the false ending set off: an automatic renewal nobody has paid
+     * towards, and a bill raised only because the block ended.
      *
      * Refused only where the money has already gone somewhere this cannot follow: a block closed by
      * hand (its bill and any settlement were worked out from what it had used then), and extra
-     * minutes that are on a bill or that the next block cannot hold.
+     * minutes that are on a bill or that the next block cannot hold. A chain is left alone: with a
+     * finished block in between, this one stays finished and the freed minutes go unused.
      *
-     * @return array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object}
+     * @return array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object, moves:list<array{credit_id:string, session_id:?string, minutes:int, overdrawn:int}>, moved_from:?object, consumed_after:int, overdrawn_after:int}
      */
     public function finishedBlockPlan(object $package, int $consumedAfter, int $overdrawnAfter): array
     {
-        $plan = ['blocker' => null, 'reopens' => false, 'renewal' => null, 'own_bill' => null, 'stays_closed' => null, 'absorbs_into' => null];
+        $plan = [
+            'blocker' => null, 'reopens' => false, 'renewal' => null, 'own_bill' => null, 'stays_closed' => null, 'absorbs_into' => null,
+            'moves' => [], 'moved_from' => null, 'consumed_after' => $consumedAfter, 'overdrawn_after' => $overdrawnAfter,
+        ];
 
         if ($package->status !== 'COMPLETED' || $package->closed_reason !== 'EXHAUSTED') {
             return ['blocker' => 'PACKAGE_CLOSED'] + $plan;
@@ -639,18 +644,45 @@ final class LessonPackages
             }
         }
 
+        $capacity = (int) $package->minutes_total + (int) $package->carried_over_minutes;
+
         // Still full, so it stays finished: only its overdraft moved.
-        if ($consumedAfter >= (int) $package->minutes_total + (int) $package->carried_over_minutes) {
+        if ($consumedAfter >= $capacity) {
             return $plan;
         }
 
+        if ($later->isNotEmpty() && ($next === null || self::countsLessons($next))) {
+            return ['stays_closed' => 'NEXT_BLOCK_RUNNING'] + $plan;
+        }
+
+        $nextOwn = 0;
+        if ($next !== null) {
+            $plan['moves'] = $this->lessonsToPullBack($next, $capacity - $consumedAfter);
+            $plan['moved_from'] = $plan['moves'] !== [] ? $next : null;
+            $moved = array_sum(array_column($plan['moves'], 'minutes'));
+            $plan['consumed_after'] = $consumedAfter + $moved;
+            $plan['overdrawn_after'] = max(0, $plan['consumed_after'] - $capacity);
+            $nextOwn = (int) $next->minutes_consumed - $moved - (int) $next->absorbed_overdraft_minutes;
+
+            // Full again: exactly where it would have ended. The next block carries the lesson that ran over.
+            if ($plan['consumed_after'] >= $capacity) {
+                $left = (int) $next->minutes_total + (int) $next->carried_over_minutes - (int) $next->minutes_consumed + $moved;
+                if ($plan['overdrawn_after'] > 0 && $package->overdraft_absorbed_by === null && $left > $plan['overdrawn_after']) {
+                    $plan['absorbs_into'] = $next;
+                }
+
+                return $plan;
+            }
+        }
+
+        // Room left and nothing more to bring back: the next block has to go for this one to run again.
         $renewal = null;
-        if ($later->isNotEmpty()) {
-            $untouched = $next !== null
-                && (bool) $next->opened_automatically
-                && (int) $next->minutes_consumed <= (int) $next->absorbed_overdraft_minutes;
-            if (! $untouched) {
+        if ($next !== null) {
+            if ($nextOwn > 0) {
                 return ['stays_closed' => 'NEXT_BLOCK_RUNNING'] + $plan;
+            }
+            if (! (bool) $next->opened_automatically) {
+                return ['stays_closed' => 'NEXT_BLOCK_BY_HAND'] + $plan;
             }
             $bill = $next->invoice_id !== null ? DB::table('invoices')->where('id', $next->invoice_id)->first() : null;
             if ($bill !== null && $this->billHasMoney($bill)) {
@@ -675,14 +707,53 @@ final class LessonPackages
     }
 
     /**
-     * Carry out {@see finishedBlockPlan()}, once the corrected lesson's minutes are on the block.
+     * The next block's lessons that belong on the block before it, oldest first, until `$room` is
+     * used. A whole lesson moves or none does, so the last may run over by `overdrawn`.
      *
-     * @param  array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object}  $plan
+     * @return list<array{credit_id:string, session_id:?string, minutes:int, overdrawn:int}>
      */
-    public function applyFinishedBlockPlan(object $package, array $plan, int $overdrawnAfter, ?string $actorUserId, ?string $actorRole): void
+    private function lessonsToPullBack(object $next, int $room): array
+    {
+        $credits = DB::table('lesson_package_credits as c')
+            ->leftJoin('sessions as s', 's.id', '=', 'c.session_id')
+            ->where('c.package_id', $next->id)
+            ->orderByRaw('s.scheduled_at_utc asc nulls last')
+            ->orderBy('c.consumed_at')
+            ->get(['c.id', 'c.session_id', 'c.minutes']);
+
+        $moves = [];
+        foreach ($credits as $credit) {
+            if ($room <= 0) {
+                break;
+            }
+            $minutes = (int) $credit->minutes;
+            $moves[] = [
+                'credit_id' => (string) $credit->id,
+                'session_id' => $credit->session_id !== null ? (string) $credit->session_id : null,
+                'minutes' => $minutes,
+                'overdrawn' => max(0, $minutes - $room),
+            ];
+            $room -= $minutes;
+        }
+
+        return $moves;
+    }
+
+    /**
+     * Carry out {@see finishedBlockPlan()}, once the corrected lesson's minutes are on the block and
+     * the block carries the plan's final numbers.
+     *
+     * @param  array<string,mixed>  $plan
+     */
+    public function applyFinishedBlockPlan(object $package, array $plan, ?string $actorUserId, ?string $actorRole): void
     {
         $id = (string) $package->id;
         $academyId = (string) $package->academy_id;
+        $overdrawnAfter = (int) $plan['overdrawn_after'];
+
+        if ($plan['moves'] !== []) {
+            $this->pullLessonsBack($package, $plan['moved_from'], $plan['moves'], $actorUserId, $actorRole);
+        }
 
         if ($plan['renewal'] !== null) {
             $this->cancel((string) $plan['renewal']->id, 'RENEWAL_UNDONE', $actorUserId, $actorRole, voidClosedBill: true);
@@ -691,13 +762,10 @@ final class LessonPackages
         // cancel() has just let go of anything the renewal had absorbed from this block.
         $holderId = DB::table('lesson_packages')->where('id', $id)->value('overdraft_absorbed_by');
         if ($holderId !== null) {
-            $holder = DB::table('lesson_packages')->where('id', $holderId)->first();
-            if ($holder !== null) {
-                $this->moveAbsorbed($holder, max(-(int) $holder->absorbed_overdraft_minutes, $overdrawnAfter - (int) $package->minutes_overdrawn));
-            }
+            $this->moveAbsorbed((string) $holderId, $overdrawnAfter - (int) $package->minutes_overdrawn);
         } elseif ($plan['absorbs_into'] !== null) {
-            $this->moveAbsorbed($plan['absorbs_into'], $overdrawnAfter);
             $holderId = (string) $plan['absorbs_into']->id;
+            $this->moveAbsorbed($holderId, $overdrawnAfter);
         }
 
         $changes = ['overdraft_absorbed_by' => $overdrawnAfter > 0 ? $holderId : null, 'updated_at' => now()];
@@ -734,14 +802,42 @@ final class LessonPackages
         }
     }
 
-    /** Move the next block's share of a finished block's overdraft, by a signed number of minutes. */
-    private function moveAbsorbed(object $holder, int $minutes): void
+    /** Put these lessons on the block before the one they sit on. The teacher's pay never moves: it follows the lesson. */
+    private function pullLessonsBack(object $package, object $from, array $moves, ?string $actorUserId, ?string $actorRole): void
     {
+        foreach ($moves as $move) {
+            $changes = ['package_id' => $package->id, 'minutes_overdrawn' => $move['overdrawn'], 'amount_minor' => $this->rateFor($package, $move['overdrawn'])];
+            $session = $move['overdrawn'] > 0 && $move['session_id'] !== null ? DB::table('sessions')->where('id', $move['session_id'])->first() : null;
+            if ($session !== null) {
+                $changes['description'] = $this->creditDescription($session, max(1, (int) $session->duration_minutes), $move['overdrawn']);
+            }
+            DB::table('lesson_package_credits')->where('id', $move['credit_id'])->update($changes);
+        }
+
+        $minutes = array_sum(array_column($moves, 'minutes'));
+        DB::table('lesson_packages')->where('id', $from->id)->update([
+            'minutes_consumed' => DB::raw("greatest(0, minutes_consumed - {$minutes})"),
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('lesson_package.lessons_moved_back', 'lesson_package', (string) $package->id, (string) $package->academy_id, $actorUserId, $actorRole,
+            after: ['from_package_id' => (string) $from->id, 'session_ids' => array_column($moves, 'session_id'), 'minutes' => $minutes]);
+    }
+
+    /** Move the next block's share of a finished block's overdraft, by a signed number of minutes. */
+    private function moveAbsorbed(string $holderId, int $minutes): void
+    {
+        $holder = DB::table('lesson_packages')->where('id', $holderId)->first();
+        if ($holder === null) {
+            return;
+        }
+
+        $minutes = max(-(int) $holder->absorbed_overdraft_minutes, $minutes);
         if ($minutes === 0) {
             return;
         }
 
-        DB::table('lesson_packages')->where('id', $holder->id)->update([
+        DB::table('lesson_packages')->where('id', $holderId)->update([
             'minutes_consumed' => max(0, (int) $holder->minutes_consumed + $minutes),
             'absorbed_overdraft_minutes' => (int) $holder->absorbed_overdraft_minutes + $minutes,
             'updated_at' => now(),

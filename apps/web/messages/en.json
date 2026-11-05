@@ -3697,13 +3697,15 @@
       "moneyChange": "{before} → {after}",
       "packageChange": "Consumed {consumedBefore} → {consumedAfter} min · Remaining {remainingBefore} → {remainingAfter} min",
       "packageCompletes": "This correction will complete the package.",
+      "lessonsMovedBack": "{count, plural, one {# lesson moves} other {# lessons move}} back from package #{number} to fill this one. Package #{number} will have {remaining} min left.",
       "packageReopens": "The package goes back to open with {minutes} min left.",
       "renewalUndone": "The automatic renewal (package #{number}) is cancelled and its {amount} bill comes off what's due.",
       "renewalUndoneNoBill": "The automatic renewal (package #{number}) is cancelled.",
       "ownBillVoided": "This package's {amount} bill comes off what's due, and is raised again when it really finishes.",
       "packageOverdraft": "{minutes} min over the package: taken from the next package, or left due until a new one opens.",
       "staysClosed": {
-        "NEXT_BLOCK_RUNNING": "The next package has already started, so this one stays finished and the freed minutes go unused.",
+        "NEXT_BLOCK_RUNNING": "A later package has already finished, so this one stays finished and the freed minutes go unused.",
+        "NEXT_BLOCK_BY_HAND": "The next package was opened by hand and stays as it is, so this one stays finished and the leftover minutes go unused.",
         "NEXT_BLOCK_PAID": "Money has been paid on the next package's bill, so this one stays finished and the freed minutes go unused.",
         "OWN_BILL_PAID": "Money has been paid on this package's bill, so it stays finished and the freed minutes go unused."
       },

@@ -42,14 +42,10 @@ export function DurationCorrectionModal({
 
   const minutes = Number(duration);
   const valid = Number.isInteger(minutes) && minutes >= 1 && minutes <= 600;
-  // A lesson already corrected on the payroll page can have the right length and a finished
-  // package still holding the old one, so reviewing the same number is allowed.
+  // A lesson already corrected can have the right length and a finished package still needing to
+  // catch up (the payroll page, or an earlier correction), so reviewing the same number is allowed.
   const pkg = impact?.package ?? null;
-  const changes =
-    minutes !== currentDuration ||
-    (pkg !== null &&
-      pkg.status !== "ACTIVE" &&
-      pkg.consumed_after !== pkg.consumed_before);
+  const changes = minutes !== currentDuration || pkg?.block_moves === true;
 
   const money = (amount: number, currency: string) =>
     formatMoney({ amount, currency }, locale);
@@ -59,6 +55,16 @@ export function DurationCorrectionModal({
     if (pkg === null) return undefined;
     const notes: string[] = [];
     if (pkg.will_complete) notes.push(t("packageCompletes"));
+    if (pkg.lessons_moved_back) {
+      const { sequence_no, lessons, remaining_after } = pkg.lessons_moved_back;
+      notes.push(
+        t("lessonsMovedBack", {
+          number: sequence_no,
+          count: lessons,
+          remaining: remaining_after,
+        }),
+      );
+    }
     if (pkg.reopens) {
       notes.push(t("packageReopens", { minutes: pkg.remaining_after }));
     }
