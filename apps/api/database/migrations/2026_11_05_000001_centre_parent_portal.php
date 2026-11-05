@@ -33,7 +33,7 @@ return new class extends Migration
               drop constraint if exists automation_send_log_automation_type_check;
             alter table automation_send_log
               add constraint automation_send_log_automation_type_check
-              check (automation_type in ('TYPE1_BILLING', 'TYPE2_LESSON', 'MANUAL', 'API', 'GROUP_ABSENCE'));
+              check (automation_type in ('TYPE1_BILLING', 'TYPE2_LESSON', 'MANUAL', 'API', 'LMS', 'GROUP_ALERT', 'GROUP_ABSENCE'));
         SQL);
 
         // The catalogue mutates for a Super Admin only (catalog_mutate); a migration has no role, so
@@ -70,7 +70,7 @@ return new class extends Migration
               drop constraint if exists automation_send_log_automation_type_check;
             alter table automation_send_log
               add constraint automation_send_log_automation_type_check
-              check (automation_type in ('TYPE1_BILLING', 'TYPE2_LESSON', 'MANUAL', 'API'));
+              check (automation_type in ('TYPE1_BILLING', 'TYPE2_LESSON', 'MANUAL', 'API', 'LMS', 'GROUP_ALERT'));
 
             alter table academy_automation_settings
               drop column if exists group_absence_alert_enabled,

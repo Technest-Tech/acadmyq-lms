@@ -155,9 +155,19 @@ it('stores no monetary column as float or numeric', function () {
         "select table_name, column_name, data_type
          from information_schema.columns
          where table_schema = 'public'
-           and data_type in ('real','double precision','numeric')"
+           and data_type in ('real','double precision','numeric')
+           and table_name not in ('group_assessments','group_assessment_scores')" // marks and weights, not money
     );
     expect($offenders)->toBe([]);
+});
+
+it('lets the send log record every sender', function () {
+    // Each sender has its own type, and a migration that lists fewer would refuse the rows already
+    // there (and every later send, silently: the log line never stops a message).
+    $def = DB::selectOne("select pg_get_constraintdef(oid) as def from pg_constraint where conname = 'automation_send_log_automation_type_check'")->def;
+    foreach (['TYPE1_BILLING', 'TYPE2_LESSON', 'MANUAL', 'API', 'LMS', 'GROUP_ALERT', 'GROUP_ABSENCE'] as $type) {
+        expect($def)->toContain("'{$type}'");
+    }
 });
 
 it('stores every *_minor column as bigint', function () {
