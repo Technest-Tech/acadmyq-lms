@@ -557,6 +557,26 @@ php artisan profile:set "Lingo Academy" CENTRE                   # the type, the
 
 Way back: restore the dump, which takes every academy back to that moment. There is no reverse command.
 
+**Run the migrations before `deploy.sh` on a release whose code reads new columns at once.** The script swaps the PHP
+first and migrates after the web build, about 10 minutes later, and PHP picks the new files up within 2 seconds
+(`opcache.validate_timestamps` on). This release's `/auth/me` reads `academies.level_label`, so every academy's sign-in
+would have failed for those 10 minutes. What was done instead: unpack the commit in a temporary folder on the server
+with a copy of `vendor` and `.env`, run `php8.2 artisan migrate --force` from there, delete the folder, then run
+`deploy.sh`, whose own migrate finds nothing left. The migrations here are additive, so the old code runs on them.
+
+## Live (2026-11-05, b2559f4)
+
+On prod from about 15:30 Cairo time, with Alrayan's length-correction fix (30ac727) in the same release. Backup:
+`/var/backups/acadmyq/academiq-predeploy-20261105-centre.dump`.
+
+- Lingo moved: 160/160 packages, 298/298 credits, line and allocation sums equal before and after, `profile:set` CENTRE.
+  85 open, 33 finished, 13 closed, 29 cancelled. Owner's main routes answer 200, `/packages*` 402.
+- LetsLearn **not** moved: it holds `centre`, still has `packages` on and stays QURAN. It is empty, so nothing shows,
+  but a private subscription sold there would be refused until `centre:migrate-packages` and `profile:set` run on it.
+- The rehearsal was not repeated on the final code. Prod's own dry-run matched it line for line before the move.
+- Not checked on prod: the screens in a browser as Lingo, and WhatsApp sending.
+- Left: tell Lingo, the hand-check list, step 6 (strip the centre branches out of `LessonPackages`).
+
 ## Rehearsal on a copy of prod (2026-11-05)
 
 A plain dump of prod (196 migrations, 28 academies, 142 tables) restored locally: PostgreSQL 15 on the Mac, 16 on
