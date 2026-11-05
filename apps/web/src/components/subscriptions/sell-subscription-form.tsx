@@ -189,7 +189,24 @@ export function SellSubscriptionForm({
       {alreadyOpen && (
         <p className="bg-destructive/8 text-destructive flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs font-medium" data-testid="sell-already-open">
           <TriangleAlert className="mt-px size-3.5 shrink-0" aria-hidden />
-          {t("alreadyOpen")}
+          <span>
+            {t("alreadyOpen")}{" "}
+            {/* Something else with the same teacher is its own subject: a new name, the same teacher. */}
+            {chosen?.teacherId && (
+              <button
+                type="button"
+                className="underline underline-offset-2"
+                onClick={() => {
+                  setNewTeacherId(chosen.teacherId);
+                  setNewCourse("");
+                  setSubjectKey(NEW_SUBJECT);
+                }}
+                data-testid="sell-same-teacher-other"
+              >
+                {t("sameTeacherOther")}
+              </button>
+            )}
+          </span>
         </p>
       )}
 

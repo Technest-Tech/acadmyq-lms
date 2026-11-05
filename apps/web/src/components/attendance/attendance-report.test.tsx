@@ -27,8 +27,14 @@ vi.mock("@/lib/api", async (importActual) => ({
   revertAttendance: vi.fn(),
 }));
 
+vi.mock("@/lib/subscriptions-api", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/subscriptions-api")>()),
+  moveLessonSubscription: vi.fn(),
+}));
+
 import * as api from "@/lib/api";
 import { ApiError } from "@/lib/api";
+import * as subsApi from "@/lib/subscriptions-api";
 
 function detail(
   overrides: Partial<api.SessionDetailResponse> = {},
@@ -720,6 +726,66 @@ describe("AttendanceReport — a learning centre without the lesson report", () 
     expect(screen.queryByTestId("edit-report")).not.toBeInTheDocument();
     expect(screen.queryByTestId("open-history")).not.toBeInTheDocument();
     expect(screen.queryByTestId("save-report")).not.toBeInTheDocument();
+  });
+
+  // Live at Lingo 2026-11-05: with the box gone the save went too, so "حضر" was picked and never
+  // saved — no private lesson could be marked. Picking an outcome has to bring the save back.
+  it("saves the outcome it picked, with no report box", async () => {
+    const user = userEvent.setup();
+    renderPanel(centreSession());
+
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    expect(screen.queryByTestId("report-text")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("save-report"));
+
+    await waitFor(() =>
+      expect(api.markAttendance).toHaveBeenCalledWith("se1", {
+        status: "ATTENDED",
+        override_timing: true,
+      }),
+    );
+  });
+
+  // Lingo 2026-11-05: the desk chooses which subscription a delivered lesson counts on.
+  it("shows the subscription an attended lesson counts on, and moves it to another", async () => {
+    const user = userEvent.setup();
+    const d = detail();
+    d.session.status = "ATTENDED";
+    d.subscription_choices = {
+      current: "b1",
+      options: [
+        { id: "b1", label: "8 lessons", course: "English", sequence_no: 1, teacher_name: "Ms Salma", lessons_sold: 8, lessons_used: 3, status: "OPEN", available: true },
+        { id: "b2", label: "4 lessons", course: "Talk", sequence_no: 2, teacher_name: "Ms Salma", lessons_sold: 4, lessons_used: 0, status: "OPEN", available: true },
+        { id: "b3", label: "2 lessons", course: null, sequence_no: 3, teacher_name: null, lessons_sold: 2, lessons_used: 2, status: "FINISHED", available: false },
+      ],
+    };
+    vi.mocked(api.getSession).mockResolvedValue(d);
+    vi.mocked(subsApi.moveLessonSubscription).mockResolvedValue({ subscription_choices: null });
+    const owner = makeSession("ACADEMY_OWNER", {
+      permissions: ["session.read", "session.mark_attendance", "session.write_report", "package.manage"],
+      capabilities: ["groups", "accounting", "centre"],
+    });
+    renderPanel(owner);
+
+    const select = (await screen.findByTestId("lesson-subscription-select")) as HTMLSelectElement;
+    expect(select.value).toBe("b1");
+    expect(select).toBeEnabled();
+    expect((within(select).getByRole("option", { name: /#3/ }) as HTMLOptionElement).disabled).toBe(true);
+    await user.selectOptions(select, "b2");
+    await waitFor(() => expect(subsApi.moveLessonSubscription).toHaveBeenCalledWith("se1", "b2"));
+    await user.selectOptions(select, "__outside__");
+    await waitFor(() => expect(subsApi.moveLessonSubscription).toHaveBeenCalledWith("se1", null));
+  });
+
+  it("shows where the lesson counts but locks the choice without package.manage", async () => {
+    const d = detail();
+    d.session.status = "ATTENDED";
+    d.subscription_choices = { current: null, options: [] };
+    vi.mocked(api.getSession).mockResolvedValue(d);
+    renderPanel(centreSession());
+    const select = (await screen.findByTestId("lesson-subscription-select")) as HTMLSelectElement;
+    expect(select.value).toBe("__outside__");
+    expect(select).toBeDisabled();
   });
 
   it("still offers the WhatsApp message once the lesson is attended and recorded", async () => {

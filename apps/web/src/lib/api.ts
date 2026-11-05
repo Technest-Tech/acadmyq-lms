@@ -3986,11 +3986,33 @@ export interface SessionReportData {
 }
 
 /** GET /api/sessions/{id} — session + its report + the active/inactive report-field defs. */
+/** A centre block a delivered lesson can count on (the desk's pick in the attendance window). */
+export interface LessonSubscriptionOption {
+  id: string;
+  label: string;
+  course: string | null;
+  sequence_no: number;
+  teacher_name: string | null;
+  lessons_sold: number;
+  lessons_used: number;
+  status: string;
+  /** The block it is on, or an open one with a free seat. */
+  available: boolean;
+}
+
+export interface LessonSubscriptionChoices {
+  /** null = counted outside any block. */
+  current: string | null;
+  options: LessonSubscriptionOption[];
+}
+
 export interface SessionDetailResponse {
   session: SessionDetail;
   report: SessionReportData | null;
   reportFields: ReportField[];
   inactiveReportFields: ReportField[];
+  /** A centre lesson the engine counted: where it counts and where else it could. null otherwise. */
+  subscription_choices?: LessonSubscriptionChoices | null;
 }
 
 export function getSession(sessionId: string): Promise<SessionDetailResponse> {

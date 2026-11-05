@@ -46,6 +46,7 @@ import { StructuredReportForm, displayValue, type ReportValues } from "./structu
 import { StatusBadge } from "./status-badge";
 import { DurationCorrectionModal } from "./duration-correction-modal";
 import { RevertOutcomeDialog } from "./revert-outcome-dialog";
+import { LessonSubscriptionPicker } from "./lesson-subscription-picker";
 
 // FREE is a real backend outcome (non-billable, non-paying) — see SessionClassifier.
 type LocalOutcome = AttendanceOutcome;
@@ -759,6 +760,20 @@ export function AttendanceReport({
           )}
       </section>
 
+      {/* A centre lesson already counted: the subscription it counts on, which the desk can change. */}
+      {data.subscription_choices && (
+        <LessonSubscriptionPicker
+          sessionId={sessionId}
+          choices={data.subscription_choices}
+          canMove={!readOnly && can("package.manage")}
+          onMoved={async () => {
+            await load();
+            flash("success", t("lessonSubscription.moved"));
+          }}
+          onError={(message) => flash("error", message)}
+        />
+      )}
+
       {/* ── Report text editor ────────────────────────────────────────── */}
       {canWrite && (
         <section>
@@ -918,7 +933,9 @@ export function AttendanceReport({
                   {report.whatsapp_sent_at ? t("sentBadge") : t("sendWhatsapp")}
                 </Button>
               )}
-              {editing && !readOnly && showReportEditor && (
+              {/* A centre without the report box still has to save the outcome it picked —
+                  hiding this with the box left the lesson unmarkable. */}
+              {editing && !readOnly && (showReportEditor || selectedStatus !== null) && (
                 <Button
                   type="button"
                   size="sm"

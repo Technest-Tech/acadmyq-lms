@@ -1084,6 +1084,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/subscriptions/{id}/close', [CentreSubscriptionController::class, 'close'])->whereUuid('id');
         Route::post('/subscriptions/{id}/settle', [CentreSubscriptionController::class, 'settle'])->whereUuid('id');
         Route::post('/subscriptions/{id}/cancel', [CentreSubscriptionController::class, 'cancel'])->whereUuid('id');
+        Route::post('/subscriptions/lessons/{sessionId}/move', [CentreSubscriptionController::class, 'moveLesson'])->whereUuid('sessionId');
         // The family's one payment page: the old door sits behind the package switch this replaces.
         Route::post('/subscriptions/family/{guardianId}/pay-link', [FamilyPayController::class, 'issue'])->whereUuid('guardianId');
         Route::post('/subscriptions/{id}/remind', [CentreSubscriptionController::class, 'remind'])->whereUuid('id');

@@ -378,6 +378,101 @@ final class CentreSubscriptions
         });
     }
 
+    /**
+     * The desk picks the block a delivered lesson counts on — any of the student's open blocks, or
+     * none (outside). The old block reopens when this frees a seat on it; the new one finishes when
+     * this fills it. No money moves: the bill is the block's, and the teacher is paid per lesson.
+     * A revert and re-mark goes back to the automatic pick (blockFor).
+     */
+    public function moveLesson(string $sessionId, ?string $subscriptionId, ?string $actorUserId, ?string $actorRole): void
+    {
+        DB::transaction(function () use ($sessionId, $subscriptionId, $actorUserId, $actorRole): void {
+            $row = DB::table('centre_subscription_lessons')->where('session_id', $sessionId)->lockForUpdate()->first();
+            if ($row === null) {
+                throw ValidationException::withMessages(['session' => ['Record the lesson as attended first. / سجّل حضور الحصة أولًا.']]);
+            }
+            $from = $row->subscription_id !== null ? (string) $row->subscription_id : null;
+            if ($from === $subscriptionId) {
+                return;
+            }
+            // Lock both blocks in one order, so two desks moving lessons the other way can't deadlock.
+            $locked = [];
+            foreach (collect([$from, $subscriptionId])->filter()->sort()->values() as $id) {
+                $locked[$id] = $this->lock((string) $id);
+            }
+            $to = $subscriptionId !== null ? $locked[$subscriptionId] : null;
+            if ($to !== null) {
+                if ((string) $to->student_id !== (string) $row->student_id) {
+                    throw ValidationException::withMessages(['subscription_id' => ['That subscription is another student\'s. / هذا الاشتراك لطالب آخر.']]);
+                }
+                if ($to->status !== 'OPEN' || $this->used((string) $to->id) >= (int) $to->lessons_sold) {
+                    throw ValidationException::withMessages(['subscription_id' => ['That subscription has no lessons left. / لا توجد حصص متبقية في هذا الاشتراك.']]);
+                }
+                if ((string) $to->starts_on > Carbon::parse($row->lesson_on)->toDateString()) {
+                    throw ValidationException::withMessages(['subscription_id' => ['That subscription starts after this lesson: move its start date first. / هذا الاشتراك يبدأ بعد هذه الحصة: عدّل تاريخ بدايته أولًا.']]);
+                }
+            }
+
+            DB::table('centre_subscription_lessons')->where('id', $row->id)->update([
+                'subscription_id' => $to?->id, 'counted_at' => $to !== null ? now()->toIso8601String() : null,
+            ]);
+
+            $reopened = false;
+            if ($from !== null) {
+                $old = $locked[$from];
+                if ($old->status === 'FINISHED' && $this->used($from) < (int) $old->lessons_sold) {
+                    DB::table('centre_subscriptions')->where('id', $from)->update(['status' => 'OPEN', 'finished_at' => null, 'updated_at' => now()]);
+                    $this->clearAlert('SUBSCRIPTION_FINISHED', $from);
+                    $reopened = true;
+                }
+            } elseif ($this->outsideCount((string) $row->student_id) === 0) {
+                $this->clearAlert('LESSON_OUTSIDE_SUBSCRIPTION', (string) $row->student_id);
+            }
+            if ($to !== null) {
+                $this->finishIfFull(DB::table('centre_subscriptions')->where('id', $to->id)->first());
+            }
+
+            Audit::log(self::ENTITY.'.lesson_moved', 'session', $sessionId, (string) $row->academy_id, $actorUserId, $actorRole,
+                before: ['subscription_id' => $from], after: ['subscription_id' => $to?->id, 'reopened_from' => $reopened]);
+        });
+    }
+
+    /**
+     * Where a delivered lesson counts and where else it could: the student's open blocks with room
+     * from the lesson's day. Null for a lesson the engine never counted (not delivered, or not a centre).
+     *
+     * @return array{current: ?string, options: list<array<string, mixed>>}|null
+     */
+    public function lessonChoices(object $session): ?array
+    {
+        $row = DB::table('centre_subscription_lessons')->where('session_id', $session->id)->first(['subscription_id', 'student_id', 'lesson_on']);
+        if ($row === null) {
+            return null;
+        }
+        $on = Carbon::parse($row->lesson_on)->toDateString();
+        $current = $row->subscription_id !== null ? (string) $row->subscription_id : null;
+        $options = DB::table('centre_subscriptions as cs')
+            ->leftJoin('teachers as t', 't.id', '=', 'cs.teacher_id')
+            ->where('cs.student_id', $row->student_id)
+            ->where(fn ($w) => $w->where(fn ($o) => $o->where('cs.status', 'OPEN')->where('cs.starts_on', '<=', $on))
+                ->when($current !== null, fn ($q) => $q->orWhere('cs.id', $current)))
+            ->orderBy('cs.sequence_no')
+            ->get(['cs.id', 'cs.label', 'cs.course', 'cs.sequence_no', 'cs.lessons_sold', 'cs.status', 't.full_name as teacher_name'])
+            ->map(function ($b) use ($current) {
+                $used = $this->used((string) $b->id);
+
+                return [
+                    'id' => (string) $b->id, 'label' => (string) $b->label, 'course' => $b->course, 'sequence_no' => (int) $b->sequence_no,
+                    'teacher_name' => $b->teacher_name, 'lessons_sold' => (int) $b->lessons_sold, 'lessons_used' => $used,
+                    'status' => (string) $b->status,
+                    // The block it is on always stays pickable; another needs a free seat.
+                    'available' => (string) $b->id === $current || ($b->status === 'OPEN' && $used < (int) $b->lessons_sold),
+                ];
+            })->values()->all();
+
+        return ['current' => $current, 'options' => $options];
+    }
+
     // ── Reads ───────────────────────────────────────────────────────────────
 
     /**

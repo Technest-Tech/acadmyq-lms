@@ -434,9 +434,12 @@ final class SessionController extends Controller
 
         // A centre's block in lessons (docs/centre-profile/01-*): the lesson's number on it, 1..sold.
         $subscription = app(CentreSubscriptions::class)->lessonNumber($session);
+        // Which block it counts on and which else could take it — the desk's pick (null off the centre engine).
+        $subscriptionChoices = app(CentreSubscriptions::class)->lessonChoices($session);
 
         return response()->json([
             'subscription' => $subscription,
+            'subscription_choices' => $subscriptionChoices,
             'session' => [
                 'id' => (string) $session->id,
                 'student_id' => (string) $session->student_id,

@@ -83,6 +83,27 @@ describe("SellSubscriptionForm", () => {
     expect(screen.getByTestId("sell-confirm")).toBeEnabled();
   });
 
+  // Lingo 2026-11-05: the student takes something else with the same teacher — from the refusal
+  // straight to a new subject with that teacher, sold without new_subject (the link exists).
+  it("goes from 'already open' to another subject with the same teacher", async () => {
+    render(withAuth(session(), <SellSubscriptionForm onSaved={() => {}} onCancel={() => {}} />));
+    await pickStudent("Adam");
+    await userEvent.selectOptions(screen.getByTestId("sell-subject"), "t2::maths");
+    await userEvent.click(screen.getByTestId("sell-same-teacher-other"));
+
+    expect(screen.queryByTestId("sell-already-open")).toBeNull();
+    expect(screen.getByTestId("sell-new-subject")).toBeTruthy();
+    await userEvent.type(screen.getByTestId("sell-new-course"), "Physics");
+    await userEvent.type(screen.getByTestId("sell-lessons"), "4");
+    await userEvent.type(screen.getByTestId("sell-unit-price"), "100");
+    await userEvent.click(screen.getByTestId("sell-confirm"));
+
+    await waitFor(() =>
+      expect(api.sellSubscription).toHaveBeenCalledWith(expect.objectContaining({ student_id: "s1", teacher_id: "t2", course: "Physics", lessons_sold: 4 })),
+    );
+    expect(api.sellSubscription.mock.calls[0]?.[0]).not.toHaveProperty("new_subject");
+  });
+
   it("sells a new subject — a teacher not yet theirs and a name — with new_subject on the payload", async () => {
     render(withAuth(session(), <SellSubscriptionForm onSaved={() => {}} onCancel={() => {}} />));
     await pickStudent("Sara");

@@ -7,7 +7,7 @@
  * an hour clock — and its money moves only when the desk sells, edits or closes it. None of these
  * types are shared with the Quran academy's lesson packages, which keep serving `/packages*`.
  */
-import { apiFetch } from "@/lib/api";
+import { apiFetch, type LessonSubscriptionChoices } from "@/lib/api";
 
 export type SubscriptionStatus = "OPEN" | "FINISHED" | "CLOSED" | "CANCELLED";
 export type SubscriptionSettlementMode = "CREDIT" | "REFUND" | "KEEP";
@@ -235,6 +235,14 @@ export function closeSubscription(id: string, input: CloseInput): Promise<CloseR
 /** Only while nothing was counted and nothing paid; voids the bill line. */
 export function cancelSubscription(id: string, note?: string): Promise<void> {
   return apiFetch(`/api/subscriptions/${id}/cancel`, { method: "POST", body: JSON.stringify({ note: note || undefined }) });
+}
+
+/** Count a delivered lesson on another of the student's open blocks, or outside (null). No money moves. */
+export function moveLessonSubscription(
+  sessionId: string,
+  subscriptionId: string | null,
+): Promise<{ subscription_choices: LessonSubscriptionChoices | null }> {
+  return apiFetch(`/api/subscriptions/lessons/${sessionId}/move`, { method: "POST", body: JSON.stringify({ subscription_id: subscriptionId }) });
 }
 
 export function remindSubscription(id: string, kind: SubscriptionReminderKind): Promise<{ sent: boolean; preview: string }> {

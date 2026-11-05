@@ -161,6 +161,22 @@ final class CentreSubscriptionController extends Controller
         return response()->json(['subscription' => $this->rows->one($id), 'settlement' => $settled]);
     }
 
+    /** POST /subscriptions/lessons/{sessionId}/move { subscription_id: uuid|null } — the block a delivered lesson counts on. */
+    public function moveLesson(Request $request, string $sessionId): JsonResponse
+    {
+        Gate::authorize('package.manage');
+        $data = $request->validate(['subscription_id' => ['present', 'nullable', 'uuid']]);
+        $ctx = app(AuthContext::class);
+
+        $this->subscriptions->moveLesson($sessionId, $data['subscription_id'], $ctx->userId, $ctx->role);
+        $session = DB::table('sessions')->where('id', $sessionId)->first();
+
+        return response()->json([
+            'subscription' => $this->subscriptions->lessonNumber($session),
+            'subscription_choices' => $this->subscriptions->lessonChoices($session),
+        ]);
+    }
+
     /** POST /subscriptions/{id}/cancel { note? } → 204 */
     public function cancel(Request $request, string $id): JsonResponse
     {

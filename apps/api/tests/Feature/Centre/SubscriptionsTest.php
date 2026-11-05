@@ -255,6 +255,62 @@ it('draws each subject\'s lessons from its own block, and an untied block takes 
     expect(($this->used)($untied))->toBe(1);
 });
 
+// Lingo 2026-11-05: two things with the same teacher, and the desk choosing which block a lesson counts on.
+it('sells a second subject with the same teacher, and the desk moves a lesson between the blocks — no money moves', function () {
+    $english = ($this->sell)(['lessons_sold' => 2])->assertCreated()->json('subscription.id');
+    $talk = ($this->sell)(['course' => 'Conversation', 'lessons_sold' => 1])->assertCreated()->json('subscription.id');
+    ($this->sell)(['course' => 'conversation '])->assertStatus(422)->assertJsonValidationErrors(['student_id']);
+    $priceEnglish = (int) ($this->line)($english)->amount_minor;
+
+    // An unnamed lesson goes to the oldest block of the teacher.
+    $lesson = ($this->attend)('2026-06-02 10:00:00+00');
+    expect(($this->used)($english))->toBe(1)->and(($this->used)($talk))->toBe(0);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/sessions/{$lesson}")->assertOk()
+        ->assertJsonPath('subscription_choices.current', $english)
+        ->assertJsonCount(2, 'subscription_choices.options')
+        ->assertJsonPath('subscription_choices.options.1.id', $talk)
+        ->assertJsonPath('subscription_choices.options.1.available', true);
+
+    // Moved to the other block: it fills (1 of 1) and finishes; English has its seat back.
+    $this->postJson("/api/subscriptions/lessons/{$lesson}/move", ['subscription_id' => $talk])->assertOk()
+        ->assertJsonPath('subscription.id', $talk)->assertJsonPath('subscription_choices.current', $talk);
+    expect(($this->used)($english))->toBe(0)->and(($this->used)($talk))->toBe(1)
+        ->and(($this->sub)($talk)->status)->toBe('FINISHED')
+        ->and((int) ($this->line)($english)->amount_minor)->toBe($priceEnglish);
+
+    // Back out of it: the finished block reopens. Outside, then into English.
+    $this->postJson("/api/subscriptions/lessons/{$lesson}/move", ['subscription_id' => null])->assertOk()->assertJsonPath('subscription', null);
+    expect(($this->sub)($talk)->status)->toBe('OPEN')->and(($this->outside)())->toBe(1);
+    $this->postJson("/api/subscriptions/lessons/{$lesson}/move", ['subscription_id' => $english])->assertOk();
+    expect(($this->used)($english))->toBe(1)->and(($this->outside)())->toBe(0);
+
+    // Refused: a full block, another student's, one starting after the lesson, a lesson not yet attended.
+    $other = ($this->attend)('2026-06-03 10:00:00+00');
+    $this->postJson("/api/subscriptions/lessons/{$other}/move", ['subscription_id' => $talk])->assertOk();
+    $this->postJson("/api/subscriptions/lessons/{$lesson}/move", ['subscription_id' => $talk])->assertStatus(422)->assertJsonValidationErrors(['subscription_id']);
+    $nada = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Nada', 'status' => 'REGULAR']);
+    $this->assignTeacher($this->academy, $nada, $this->teacher);
+    $nadas = ($this->sell)(['student_id' => $nada])->assertCreated()->json('subscription.id');
+    $this->postJson("/api/subscriptions/lessons/{$lesson}/move", ['subscription_id' => $nadas])->assertStatus(422)->assertJsonValidationErrors(['subscription_id']);
+    $late = ($this->sell)(['course' => 'Grammar', 'starts_on' => '2026-06-10'])->assertCreated()->json('subscription.id');
+    $this->postJson("/api/subscriptions/lessons/{$lesson}/move", ['subscription_id' => $late])->assertStatus(422)->assertJsonValidationErrors(['subscription_id']);
+    $unmarked = $this->createSession($this->academy, $this->hassan, $this->teacher, ['scheduled_at_utc' => '2026-06-04 10:00:00+00', 'duration_minutes' => 60, 'status' => 'SCHEDULED']);
+    $this->postJson("/api/subscriptions/lessons/{$unmarked}/move", ['subscription_id' => $english])->assertStatus(422)->assertJsonValidationErrors(['session']);
+
+    // A teacher reads where it counts but cannot move it.
+    $teacherUser = $this->makeUser($this->academy, 'TEACHER', ['email' => 'sama-move@test.local']);
+    Sanctum::actingAs($teacherUser);
+    $this->postJson("/api/subscriptions/lessons/{$lesson}/move", ['subscription_id' => null])->assertForbidden();
+});
+
+it('offers no choice on a lesson the centre engine never counted', function () {
+    $s = $this->createSession($this->academy, $this->hassan, $this->teacher, ['scheduled_at_utc' => '2026-06-04 10:00:00+00', 'duration_minutes' => 60, 'status' => 'SCHEDULED']);
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/sessions/{$s}")->assertOk()->assertJsonPath('subscription_choices', null);
+});
+
 // ── Edit ─────────────────────────────────────────────────────────────────────
 
 it('edits a block in place: dearer leaves the difference due, cheaper gives the excess back as credit, a rename moves no money', function () {

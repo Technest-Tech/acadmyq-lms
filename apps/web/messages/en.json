@@ -3796,6 +3796,14 @@
       "noSupervisor": "No supervisor",
       "listSubtitleDate": "Oldest first, under the date each lesson was on — record an outcome on each.",
       "listSubtitleTeacher": "Under each teacher, whoever owes the most first — record an outcome on each."
+    },
+    "lessonSubscription": {
+      "title": "Counts on subscription",
+      "used": "{used} of {sold}",
+      "full": "full",
+      "outside": "Outside any subscription",
+      "hint": "Change it if the lesson belongs to another of the student's subscriptions. No money moves.",
+      "moved": "Lesson moved."
     }
   },
   "payroll": {
@@ -11449,7 +11457,8 @@
       "cancel": "Cancel",
       "sold": "Subscription sold.",
       "soldDue": "Subscription sold. {amount} is due on the bill.",
-      "failed": "Couldn’t sell the subscription."
+      "failed": "Couldn’t sell the subscription.",
+      "sameTeacherOther": "Another subscription with the same teacher, for something else"
     },
     "edit": {
       "title": "Edit {name}’s subscription",
