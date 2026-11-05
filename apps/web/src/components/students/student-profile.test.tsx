@@ -49,11 +49,12 @@ function setup() {
   vi.mocked(levelsApi.getLevelHistory).mockResolvedValue({ level_id: "l2", level_name: "A2", history: [] });
 }
 
-function renderProfile(capabilities: string[]) {
+function renderProfile(capabilities: string[], levelLabel?: "LEVEL" | "GRADE" | "YEAR") {
   const session = makeSession("ACADEMY_OWNER", {
     permissions: ["student.read", "student.update", "group.manage"],
     capabilities,
   });
+  session.academy = { ...session.academy!, levelLabel };
   return render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <AuthContext.Provider value={authValue(session)}>
@@ -79,6 +80,14 @@ describe("StudentProfile — the level card", () => {
     expect(await screen.findByTestId("student-level-badge")).toHaveTextContent("A2");
     expect(await screen.findByTestId("level-card")).toBeInTheDocument();
     await waitFor(() => expect(levelsApi.getLevelHistory).toHaveBeenCalledWith("s1"));
+  });
+
+  it("titles the badge and names the card in the centre's own word", async () => {
+    renderProfile(["invoicing", "groups", "accounting", "centre"], "GRADE");
+
+    expect(await screen.findByTestId("student-level-badge")).toHaveAttribute("title", "Grade");
+    expect(await screen.findByText("Grade history")).toBeInTheDocument();
+    expect(screen.queryByText("Level history")).toBeNull();
   });
 
   it("renders neither for an academy without the centre switch, and never fetches the history", async () => {

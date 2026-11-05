@@ -33,6 +33,17 @@ export function useProfile(): AcademyKind {
 }
 
 /**
+ * Do the online surfaces — the Enter button, the teacher's meeting link, the Punctuality tab — exist
+ * here? Only a centre can be without them (`centre` + `academy.onlineLessons` false, the setting or
+ * its automatic answer); every other academy keeps them whatever it set, and an older session reads
+ * as yes. Safe outside an AuthProvider, so a shared component can ask.
+ */
+export function useOnlineLessons(): boolean {
+  const session = useContext(AuthContext)?.session;
+  return !(session?.capabilities?.includes("centre") && session.academy?.onlineLessons === false);
+}
+
+/**
  * Is this workspace in a learning centre's look (`centre-look.css`)? Safe outside an AuthProvider, so a
  * shared component can ask without every test around it having to supply a session.
  */

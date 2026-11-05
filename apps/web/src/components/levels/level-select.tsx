@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { fieldClass } from "@/components/groups/group-format";
 import { type Level, listLevels } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 /**
  * The academy's levels as a dropdown (docs/centre-profile, Phase 2.1) — the one picker the student
@@ -33,6 +34,7 @@ export function LevelSelect({
   testId?: string;
 }) {
   const t = useTranslations("levels");
+  const word = useLevelWord();
   const [loaded, setLoaded] = useState<Level[] | null>(levels ?? null);
 
   useEffect(() => {
@@ -57,11 +59,11 @@ export function LevelSelect({
         className={cn(fieldClass, className)}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        aria-label={t("select.label")}
+        aria-label={t("select.label", { word })}
         disabled={loaded === null}
         data-testid={testId}
       >
-        <option value="">{loaded === null ? t("select.loading") : (noneLabel ?? t("select.none"))}</option>
+        <option value="">{loaded === null ? t("select.loading") : (noneLabel ?? t("select.none", { word }))}</option>
         {options.map((l) => (
           <option key={l.id} value={l.id}>
             {l.name}
@@ -70,7 +72,7 @@ export function LevelSelect({
       </select>
       {withAddLink && loaded !== null && loaded.length === 0 && (
         <Link href="/settings" className="text-primary inline-block text-xs underline-offset-2 hover:underline">
-          {t("addLink")}
+          {t("addLink", { word })}
         </Link>
       )}
     </div>

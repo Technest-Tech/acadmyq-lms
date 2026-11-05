@@ -10,6 +10,7 @@ import { useCapability } from "@/lib/capabilities";
 import { fetchRoster } from "@/lib/roster";
 import { listGroups } from "@/lib/groups-api";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 export interface BoardFilterOptions {
   groups: { id: string; name: string }[];
@@ -63,6 +64,7 @@ export function BoardFilters({
 }) {
   const t = useTranslations("groups");
   const tLevels = useTranslations("levels");
+  const word = useLevelWord();
   const centre = useCapability("centre");
   const withLevel = centre && onLevel !== undefined;
 
@@ -86,7 +88,7 @@ export function BoardFilters({
           ))}
         </select>
       )}
-      {withLevel && <LevelSelect value={levelId ?? ""} onChange={onLevel} noneLabel={tLevels("allLevels")} testId="board-filter-level" />}
+      {withLevel && <LevelSelect value={levelId ?? ""} onChange={onLevel} noneLabel={tLevels("allLevels", { word })} testId="board-filter-level" />}
     </div>
   );
 }

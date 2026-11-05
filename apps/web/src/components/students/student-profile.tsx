@@ -45,6 +45,7 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
+import { useLevelWord } from "@/lib/levels";
 import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -64,6 +65,8 @@ type TabKey = "profile" | "subscription" | "teacher" | "schedule" | "settings";
  */
 export function StudentProfile({ studentId }: { studentId: string }) {
   const t = useTranslations("students");
+  const tLevels = useTranslations("levels");
+  const word = useLevelWord();
   const locale = useLocale();
   const router = useRouter();
   // `?tab=schedule`: the door a subscription sale with no timetable yet opens straight onto.
@@ -223,7 +226,9 @@ export function StudentProfile({ studentId }: { studentId: string }) {
             {centre && typeof data.student.level_name === "string" && data.student.level_name !== "" && (
               <HeroBadge>
                 <Layers className="size-3" aria-hidden />
-                <span data-testid="student-level-badge">{data.student.level_name}</span>
+                <span data-testid="student-level-badge" title={tLevels("select.label", { word })}>
+                  {data.student.level_name}
+                </span>
               </HeroBadge>
             )}
           </>

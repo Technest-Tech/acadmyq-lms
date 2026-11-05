@@ -45,6 +45,7 @@ import { LevelSelect } from "@/components/levels/level-select";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -200,6 +201,7 @@ export function StudentForm({
   const t = useTranslations("students");
   const tLevels = useTranslations("levels");
   const tSubs = useTranslations("subscriptions");
+  const word = useLevelWord();
   const locale = useLocale();
   const { can, session } = useAuth();
   // Naming a price is a pricing act wherever it happens — the API enforces `student.set_price`
@@ -749,7 +751,7 @@ export function StudentForm({
 
       {/* ── Level / grade — a centre's classification, from its own list (Settings) ── */}
       {centre && (
-        <Field label={tLevels("select.label")}>
+        <Field label={tLevels("select.label", { word })}>
           <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="student-level" />
         </Field>
       )}

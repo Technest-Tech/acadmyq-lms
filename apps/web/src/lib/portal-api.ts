@@ -244,4 +244,6 @@ export interface PortalPayload {
   balance: { currency: string; due_minor: number }[];
   /** Only for an academy holding `accounting`. */
   family_account?: PortalFamilyAccount;
+  /** A centre's word for its classification (lib/levels.ts); absent elsewhere ⇒ LEVEL. */
+  level_label?: "LEVEL" | "GRADE" | "YEAR";
 }

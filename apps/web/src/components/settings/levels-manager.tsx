@@ -6,9 +6,11 @@ import { useCallback, useEffect, useState } from "react";
 import { SectionCard } from "@/components/settings/section-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { ApiError } from "@/lib/api";
+import { useAuth } from "@/components/auth-provider";
+import { ApiError, updateAcademyLevelLabel } from "@/lib/api";
 import { createLevel, deleteLevel, listLevels, type Level, updateLevel } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
+import { LEVEL_LABELS, type LevelLabel, useLevelWord } from "@/lib/levels";
 
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
@@ -21,6 +23,12 @@ const inputBase =
  */
 export function LevelsManager() {
   const t = useTranslations("levels");
+  const word = useLevelWord();
+  const { refresh: refreshSession } = useAuth();
+  // The word picked here, ahead of the session catching up (it re-reads after the save).
+  const [picked, setPicked] = useState<LevelLabel | null>(null);
+  const [savingWord, setSavingWord] = useState(false);
+  const currentWord = picked ?? word;
   const [items, setItems] = useState<Level[] | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -52,6 +60,23 @@ export function LevelsManager() {
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
       return false;
+    }
+  }
+
+  /** Name the classification: one PATCH, then the session re-reads so every label follows. */
+  async function chooseWord(next: LevelLabel) {
+    if (next === currentWord || savingWord) return;
+    setError(null);
+    setPicked(next);
+    setSavingWord(true);
+    try {
+      await updateAcademyLevelLabel(next);
+      await refreshSession();
+    } catch (err) {
+      setPicked(null);
+      setError(err instanceof ApiError ? err.message : t("word.failed"));
+    } finally {
+      setSavingWord(false);
     }
   }
 
@@ -89,13 +114,39 @@ export function LevelsManager() {
   return (
     <SectionCard
       icon={Layers}
-      title={t("cardTitle")}
+      title={t("cardTitle", { word: currentWord })}
       description={t("hint")}
       iconClassName="bg-gradient-to-br from-sky-500 to-indigo-500 shadow-sky-500/25"
       testId="levels-manager"
     >
       <div className="space-y-4">
         {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+
+        {/* What the centre calls the classification — every label naming it follows (lib/levels.ts). */}
+        <div className="space-y-2" data-testid="level-word">
+          <p className="text-sm font-medium">{t("word.title")}</p>
+          <div role="radiogroup" aria-label={t("word.title")} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+            {LEVEL_LABELS.map((option) => (
+              <button
+                key={option}
+                type="button"
+                role="radio"
+                aria-checked={currentWord === option}
+                disabled={savingWord}
+                onClick={() => void chooseWord(option)}
+                className={cn(
+                  "rounded-xl border px-3 py-2 text-start text-sm transition-colors disabled:opacity-60",
+                  currentWord === option ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted",
+                )}
+                data-testid={`level-word-${option}`}
+              >
+                <span className="block font-semibold">{t(`word.options.${option}`)}</span>
+                <span className="text-muted-foreground block text-xs">{t(`word.examples.${option}`)}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-muted-foreground text-xs">{t("word.hint")}</p>
+        </div>
 
         <form onSubmit={add} className="flex items-center gap-2">
           <input
@@ -150,7 +201,7 @@ export function LevelsManager() {
                   </>
                 ) : confirmDeleteId === level.id ? (
                   <>
-                    <span className="text-destructive flex-1 text-sm">{t("confirmDelete")}</span>
+                    <span className="text-destructive flex-1 text-sm">{t("confirmDelete", { word })}</span>
                     <Button type="button" variant="ghost" size="xs" className="shrink-0" onClick={() => setConfirmDeleteId(null)}>
                       {t("cancel")}
                     </Button>

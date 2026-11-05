@@ -176,6 +176,20 @@ describe("TermReportView", () => {
     expect(screen.getByTestId("report-publish-state")).toHaveTextContent("منشور لولي الأمر");
   });
 
+  it("labels the level in the centre's own word: its default is the old one", async () => {
+    const { unmount } = render(withAuth(centreSession(), <TermReportView groupId="g1" studentId="s-adam" onBack={() => {}} />));
+    await screen.findByTestId("report-student");
+    expect(screen.getByText("المستوى:")).toBeInTheDocument();
+    unmount();
+
+    const grade = centreSession();
+    grade.academy = { ...grade.academy!, levelLabel: "GRADE" };
+    render(withAuth(grade, <TermReportView groupId="g1" studentId="s-adam" onBack={() => {}} />));
+    await screen.findByTestId("report-student");
+    expect(screen.getByText("الصف:")).toBeInTheDocument();
+    expect(screen.queryByText("المستوى:")).toBeNull();
+  });
+
   it("hides publish from a teacher and the certificate without the switch", async () => {
     getTermReport.mockResolvedValue({ ...REPORT, can_publish: false });
     render(

@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { ProfileCard } from "@/components/ui/profile-card";
 import { getLevelHistory, type LevelHistoryItem } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 /**
  * The student page's level card (docs/centre-profile, Phase 2.1): where they stand, the "ترقية"
@@ -27,6 +28,7 @@ export function LevelCard({
   onChanged?: () => void;
 }) {
   const t = useTranslations("levels");
+  const word = useLevelWord();
   const { can } = useAuth();
   const canPromote = can("student.update") && can("group.manage");
   const [levelId, setLevelId] = useState<string | null>(null);
@@ -53,8 +55,8 @@ export function LevelCard({
   return (
     <ProfileCard
       icon={Layers}
-      title={t("history.title")}
-      description={t("history.hint")}
+      title={t("history.title", { word })}
+      description={t("history.hint", { word })}
       tone="violet"
       testId="level-card"
       action={
@@ -68,7 +70,7 @@ export function LevelCard({
     >
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-muted-foreground text-sm">{t("promote.current")}</span>
+          <span className="text-muted-foreground text-sm">{t("promote.current", { word })}</span>
           <span
             className="inline-flex items-center gap-1.5 rounded-full bg-sky-100 px-2.5 py-0.5 text-sm font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
             data-testid="level-current"

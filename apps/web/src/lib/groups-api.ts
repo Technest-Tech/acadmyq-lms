@@ -63,6 +63,12 @@ export interface GroupLessonCounters {
   next_lesson_at: string | null;
 }
 
+/** A room on the centre's list, as a group names it. */
+export interface GroupRoomRef {
+  id: string;
+  name: string;
+}
+
 export interface GroupRow {
   id: string;
   name: string;
@@ -78,6 +84,8 @@ export interface GroupRow {
   member_count: number;
   mode: GroupMode;
   location: string | null;
+  /** A centre's room from the academy's list (rooms-api); `location` then carries its name. */
+  room?: GroupRoomRef | null;
   meeting_url: string | null;
   timezone: string;
   start_date: string;
@@ -221,6 +229,8 @@ export interface GroupInput {
   capacity?: number | null;
   mode?: GroupMode;
   location?: string | null;
+  /** A centre picks a room from the list; the server writes `location` as its name. */
+  room_id?: string | null;
   meeting_url?: string | null;
   timezone?: string | null;
   start_date: string;
@@ -523,6 +533,7 @@ export interface BoardLesson extends GroupLesson {
     timezone: string;
     mode: GroupMode;
     location: string | null;
+    room?: GroupRoomRef | null;
     specialization_name?: string | null;
   };
   /** The weekly time this lesson came from; null = an extra lesson. */

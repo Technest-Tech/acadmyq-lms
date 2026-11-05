@@ -8,6 +8,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { ApiError } from "@/lib/api";
 import { type GroupRow, listBoardLessons, listGroups } from "@/lib/groups-api";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 /** The first day (Saturday, the week's start everywhere in the groups module) of the week holding `date`, as YYYY-MM-DD. */
 export function weekStartOf(date: Date): string {
@@ -26,6 +27,7 @@ export function weekStartOf(date: Date): string {
 export function TeacherGroups({ teacherId }: { teacherId: string }) {
   const t = useTranslations("teachers");
   const tg = useTranslations("groups");
+  const word = useLevelWord();
   const locale = useLocale();
   const [groups, setGroups] = useState<GroupRow[] | null>(null);
   const [owedThisWeek, setOwedThisWeek] = useState<Record<string, number>>({});
@@ -84,7 +86,7 @@ export function TeacherGroups({ teacherId }: { teacherId: string }) {
                 </Link>
                 <p className="text-muted-foreground mt-0.5 flex items-center gap-1 text-xs">
                   <Layers className="size-3" aria-hidden />
-                  {g.level ?? tg("noLevel")}
+                  {g.level ?? tg("noLevel", { word })}
                   {g.specialization_name ? ` · ${g.specialization_name}` : ""}
                 </p>
               </div>

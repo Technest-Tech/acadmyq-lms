@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
 import { makeSession, withAuth } from "@/test/auth";
+import { forWord } from "@/test/level-word";
 import type { GroupDetail, GroupMember } from "@/lib/groups-api";
 import type { Level } from "@/lib/levels-api";
 import { CourseEndPanel } from "./course-end-panel";
@@ -204,7 +205,7 @@ describe("CourseEndPanel — renew / promote / close", () => {
 
     await user.click(screen.getByTestId("course-promote"));
     const form = await screen.findByTestId("promote-form");
-    expect(await within(form).findByText(ar.promote.noNext)).toBeInTheDocument();
+    expect(await within(form).findByText(forWord(ar.promote.noNext))).toBeInTheDocument();
     expect(within(form).getByTestId("promote-submit")).toBeDisabled();
 
     await user.selectOptions(within(form).getByTestId("promote-to-level"), "l1");

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Http\Controllers\People\FamilyPayController;
+use App\Support\AcademyLevelLabel;
 use App\Support\AcademyUrl;
 use App\Support\Entitlement;
 use Illuminate\Database\Query\Builder;
@@ -58,9 +59,16 @@ final class GuardianPortalCentre
 
         return [
             'children' => $children,
-            'family' => in_array('accounting', $capabilities, true)
-                ? ['family_account' => $this->familyAccount($guardianId, $academyId, $tz, $now)]
-                : [],
+            'family' => [
+                ...(in_array('accounting', $capabilities, true)
+                    ? ['family_account' => $this->familyAccount($guardianId, $academyId, $tz, $now)]
+                    : []),
+                // What the centre calls its classification, so the page says "Grade: …" for a
+                // curriculum centre (docs/centre-profile §3). A centre's only: nobody else's payload moves.
+                ...(in_array('centre', $capabilities, true)
+                    ? ['level_label' => AcademyLevelLabel::forAcademy($academyId)]
+                    : []),
+            ],
         ];
     }
 

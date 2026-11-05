@@ -12,6 +12,7 @@ import { ApiError } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { type GroupRow, listGroups } from "@/lib/groups-api";
 import { type Level, type LevelHistoryItem, listLevels, type Promotion, promoteStudent } from "@/lib/levels-api";
+import { useLevelWord } from "@/lib/levels";
 
 /**
  * "ترقية": move a student to a new level (docs/centre-profile, Phase 2.1) and, if wanted, into a
@@ -37,6 +38,7 @@ export function PromoteModal({
   onPromoted: (result: { promotion: Promotion; history: LevelHistoryItem[] }) => void;
 }) {
   const t = useTranslations("levels");
+  const word = useLevelWord();
   const groupsOn = useCapability("groups");
   const [levels, setLevels] = useState<Level[] | undefined>(undefined);
   const [groups, setGroups] = useState<GroupRow[]>([]);
@@ -100,18 +102,18 @@ export function PromoteModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={t("promote.title")} description={t("promote.subtitle", { name: studentName })}>
+    <Modal open={open} onClose={onClose} title={t("promote.title")} description={t("promote.subtitle", { name: studentName, word })}>
       <form onSubmit={submit} className="space-y-4" data-testid="promote-form">
         {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
 
         <div className="bg-muted/40 flex items-center justify-between gap-3 rounded-xl px-3.5 py-2.5 text-sm">
-          <span className="text-muted-foreground">{t("promote.current")}</span>
+          <span className="text-muted-foreground">{t("promote.current", { word })}</span>
           <span className="font-semibold">{currentLevelName ?? t("promote.noCurrent")}</span>
         </div>
 
         <div className="space-y-1.5">
           <label className="text-sm font-medium">
-            {t("promote.toLevel")}
+            {t("promote.toLevel", { word })}
             <span className="text-destructive ms-0.5">*</span>
           </label>
           <LevelSelect
@@ -121,7 +123,7 @@ export function PromoteModal({
               setToGroupId("");
             }}
             levels={levels}
-            noneLabel={t("promote.toLevelPlaceholder")}
+            noneLabel={t("promote.toLevelPlaceholder", { word })}
             testId="promote-level"
           />
         </div>
@@ -145,7 +147,7 @@ export function PromoteModal({
                 </option>
               ))}
             </select>
-            <p className="text-muted-foreground text-xs">{groupOptions.length === 0 ? t("promote.noGroups") : t("promote.toGroupHint")}</p>
+            <p className="text-muted-foreground text-xs">{groupOptions.length === 0 ? t("promote.noGroups", { word }) : t("promote.toGroupHint", { word })}</p>
           </div>
         )}
 
@@ -168,7 +170,7 @@ export function PromoteModal({
               rows={2}
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder={t("promote.notePlaceholder")}
+              placeholder={t("promote.notePlaceholder", { word })}
               maxLength={500}
               aria-label={t("promote.note")}
             />

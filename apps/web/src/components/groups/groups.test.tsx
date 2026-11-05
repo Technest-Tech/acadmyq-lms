@@ -32,6 +32,18 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   createGroup: (input: unknown) => createGroup(input),
 }));
 
+const getGroupDefaults = vi.fn(() => Promise.resolve({ defaults: {} as Record<string, unknown> }));
+vi.mock("@/lib/group-defaults-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/group-defaults-api")>()),
+  getGroupDefaults: () => getGroupDefaults(),
+}));
+
+const listRooms = vi.fn(() => Promise.resolve({ rooms: [] as unknown[] }));
+vi.mock("@/lib/rooms-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rooms-api")>()),
+  listRooms: () => listRooms(),
+}));
+
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listTeachers: () => Promise.resolve({ rows: [{ id: "t1", full_name: "Mona", session_rate_minor: 6000, pay_type: "HOURLY", currency: "EGP" }], total: 1, page: 1, pageSize: 200 }),
@@ -590,6 +602,185 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
 
     await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
     expect(createGroup.mock.calls[0]![0]).toMatchObject({ student_ids: ["s-adam"], month_minutes: 480, solo_billed_minutes: 90 });
+  });
+});
+
+describe("The classification's word on the group pages", () => {
+  const centre = (levelLabel?: "LEVEL" | "GRADE" | "YEAR") => {
+    const session = makeSession("ACADEMY_OWNER", { permissions: ["group.read", "group.manage"], capabilities: ["groups", "centre"] });
+    session.academy = { ...session.academy!, levelLabel };
+    return session;
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    listGroups.mockResolvedValue({ groups: [groupRow({ level: null, specialization_name: null })], counts: { RUNNING: 1, UPCOMING: 0, FINISHED: 0, ARCHIVED: 0 } });
+  });
+
+  it("keeps every word as it was for an academy that never chose", async () => {
+    const quran = makeSession("ACADEMY_OWNER", { permissions: ["group.read", "group.manage"] });
+    const { unmount } = render(withAuth(quran, <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+    expect(screen.getByText("المستوى")).toBeInTheDocument();
+    expect(screen.queryByText("الصف")).toBeNull();
+    unmount();
+
+    render(withAuth(quran, <GroupsManager />));
+    expect(await screen.findByPlaceholderText("ابحث بالمجموعة أو المستوى أو المدرس")).toBeInTheDocument();
+    expect(await screen.findByText("بدون مستوى")).toBeInTheDocument();
+  });
+
+  it("says grade on the form, the search and the card for a grade-keeping centre", async () => {
+    const { unmount } = render(withAuth(centre("GRADE"), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+    expect(screen.getByText("الصف")).toBeInTheDocument();
+    expect(screen.queryByText("المستوى")).toBeNull();
+    unmount();
+
+    render(withAuth(centre("GRADE"), <GroupsManager />));
+    expect(await screen.findByPlaceholderText("ابحث بالمجموعة أو الصف أو المدرس")).toBeInTheDocument();
+    expect(await screen.findByText("بدون صف")).toBeInTheDocument();
+  });
+});
+
+describe("GroupForm — a centre's group defaults", () => {
+  const centre = () =>
+    makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price", "teacher.set_pay"], capabilities: ["groups", "centre"] });
+  const DEFAULTS = {
+    lesson_minutes: 90,
+    mode: "ONLINE",
+    billing_mode: "PER_LESSON",
+    month_lessons: 8,
+    teacher_pay_mode: "PER_LESSON",
+    teacher_pay_minor: 15000,
+    teacher_share_bp: null,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createGroup.mockResolvedValue({ group: { id: "new" }, generated: { created: 0, removed: 0 } });
+    getGroupDefaults.mockResolvedValue({ defaults: DEFAULTS });
+  });
+
+  it("opens a new group on them", async () => {
+    render(withAuth(centre(), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await waitFor(() => expect(screen.getByTestId("group-duration")).toHaveValue("90"));
+    expect(screen.getByRole("radio", { name: ar.mode.ONLINE })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("billing-PER_LESSON")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("group-pay-mode")).toHaveValue("PER_LESSON");
+    expect(screen.getByTestId("group-pay-amount")).toHaveValue("150");
+  });
+
+  it("shows a default length off the list as Other", async () => {
+    getGroupDefaults.mockResolvedValue({ defaults: { ...DEFAULTS, lesson_minutes: 75 } });
+    render(withAuth(centre(), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    expect(await screen.findByTestId("group-duration-other")).toHaveValue(75);
+    expect(screen.getByTestId("group-duration")).toHaveValue("other");
+  });
+
+  it("never overwrites what was typed or picked before they arrive", async () => {
+    const user = userEvent.setup();
+    let arrive: (v: { defaults: Record<string, unknown> }) => void = () => {};
+    getGroupDefaults.mockReturnValue(new Promise((resolve) => (arrive = resolve)));
+    render(withAuth(centre(), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await user.selectOptions(screen.getByTestId("group-duration"), "45");
+    await user.click(screen.getByRole("radio", { name: ar.mode.OFFLINE }));
+    await user.click(screen.getByTestId("billing-COURSE"));
+    await user.selectOptions(screen.getByTestId("group-pay-mode"), "PER_STUDENT");
+    await user.type(screen.getByTestId("group-pay-amount"), "20");
+
+    arrive({ defaults: DEFAULTS });
+    await waitFor(() => expect(getGroupDefaults).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(screen.getByTestId("group-duration")).toHaveValue("45");
+    expect(screen.getByRole("radio", { name: ar.mode.OFFLINE })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("billing-COURSE")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("group-pay-mode")).toHaveValue("PER_STUDENT");
+    expect(screen.getByTestId("group-pay-amount")).toHaveValue("20");
+  });
+
+  it("leaves an edit on the group's own values, and never asks", async () => {
+    const group = {
+      ...groupRow({ mode: "OFFLINE", slots: [{ weekday: 1, start_time_local: "17:00", duration_minutes: 45 }] }),
+      notes: null,
+      effective_meeting_url: null,
+      members: [],
+      attendance_rate: null,
+    } as GroupDetail;
+    render(withAuth(centre(), <GroupForm group={group} onSaved={() => {}} onCancel={() => {}} />));
+
+    expect(screen.getByTestId("group-duration")).toHaveValue("45");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getGroupDefaults).not.toHaveBeenCalled();
+    expect(screen.getByTestId("group-duration")).toHaveValue("45");
+  });
+
+  it("does not ask for an academy without the centre switch: its form is unchanged", async () => {
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage"] }), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await new Promise((r) => setTimeout(r, 0));
+    expect(getGroupDefaults).not.toHaveBeenCalled();
+    expect(screen.getByTestId("group-duration")).toHaveValue("60");
+    expect(screen.getByRole("radio", { name: ar.mode.ONLINE })).toHaveAttribute("aria-checked", "true");
+  });
+});
+
+describe("GroupForm — a centre's room comes from its list", () => {
+  const centre = () =>
+    makeSession("ACADEMY_OWNER", { permissions: ["group.manage"], capabilities: ["groups", "centre"] });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    createGroup.mockResolvedValue({ group: { id: "new" }, generated: { created: 0, removed: 0 } });
+    getGroupDefaults.mockResolvedValue({ defaults: {} });
+    listRooms.mockResolvedValue({
+      rooms: [
+        { id: "r1", name: "Room 1", capacity: 12, position: 1, is_active: true, groups_count: 0 },
+        { id: "r2", name: "Old hall", capacity: null, position: 2, is_active: false, groups_count: 0 },
+      ],
+    });
+  });
+
+  it("picks the room from the list, offers the Settings link, and sends its id", async () => {
+    const user = userEvent.setup();
+    render(withAuth(centre(), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    const select = await screen.findByTestId("group-room");
+    await waitFor(() => expect(select).not.toBeDisabled());
+    // The switched-off room is not offered for a new placement.
+    expect(within(select).queryByText("Old hall")).toBeNull();
+    expect(screen.getByTestId("group-room-add")).toHaveAttribute("href", "/settings");
+    expect(screen.queryByPlaceholderText(ar.form.locationPlaceholder)).toBeNull();
+
+    await user.type(screen.getByTestId("group-name"), "English A1");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    await user.selectOptions(select, "r1");
+    await user.click(screen.getByTestId("group-save"));
+
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ mode: "OFFLINE", room_id: "r1", location: null });
+  });
+
+  it("keeps the typed room as free text for every other academy", async () => {
+    const user = userEvent.setup();
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage"] }), <GroupForm onSaved={() => {}} onCancel={() => {}} />));
+
+    await user.type(screen.getByTestId("group-name"), "Hifz");
+    await user.click(screen.getByTestId("group-teacher"));
+    await user.click(await screen.findByText("Mona"));
+    await user.click(screen.getByRole("radio", { name: ar.mode.OFFLINE }));
+    await user.type(screen.getByPlaceholderText(ar.form.locationPlaceholder), "Masjid hall");
+    await user.click(screen.getByTestId("group-save"));
+
+    await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
+    const input = createGroup.mock.calls[0]![0];
+    expect(input).toMatchObject({ mode: "OFFLINE", location: "Masjid hall" });
+    expect(input).not.toHaveProperty("room_id");
+    expect(screen.queryByTestId("group-room")).toBeNull();
+    expect(listRooms).not.toHaveBeenCalled();
   });
 });
 

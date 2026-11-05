@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Levels;
 
 use App\Http\Controllers\Controller;
 use App\Services\StudentLevels;
+use App\Support\AcademyLevelLabel;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use Illuminate\Http\JsonResponse;
@@ -39,7 +40,14 @@ final class LevelController extends Controller
             ->get()
             ->map(fn ($l) => $this->present($l));
 
-        return response()->json(['levels' => $rows]);
+        // The word the academy uses for them (Settings → this card), so the list's own screen and
+        // every picker name the classification the same way.
+        $academyId = app(AuthContext::class)->academyId;
+
+        return response()->json([
+            'levels' => $rows,
+            'level_label' => $academyId !== null ? AcademyLevelLabel::forAcademy($academyId) : AcademyLevelLabel::LEVEL,
+        ]);
     }
 
     /** POST /api/levels — add one; it lands at the end of the list unless a position is given. */

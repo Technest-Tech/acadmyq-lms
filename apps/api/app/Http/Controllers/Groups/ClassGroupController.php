@@ -11,6 +11,7 @@ use App\Services\CourseTerm;
 use App\Services\GroupBilling;
 use App\Services\GroupLessonGenerator;
 use App\Services\GroupPayroll;
+use App\Services\Rooms;
 use App\Services\StudentLevels;
 use App\Support\Audit;
 use App\Support\TimeHelper;
@@ -71,7 +72,8 @@ final class ClassGroupController extends Controller
         $query = DB::table('class_groups as g')
             ->leftJoin('teachers as te', 'te.id', '=', 'g.teacher_id')
             ->leftJoin('specializations as sp', 'sp.id', '=', 'g.specialization_id')
-            ->select(['g.*', 'te.full_name as teacher_name', 'te.currency as teacher_currency', 'sp.name as specialization_name'])
+            ->leftJoin('academy_rooms as rm', 'rm.id', '=', 'g.room_id')
+            ->select(['g.*', 'te.full_name as teacher_name', 'te.currency as teacher_currency', 'sp.name as specialization_name', 'rm.name as room_name'])
             ->selectRaw("(select count(*) from class_group_members m where m.group_id = g.id and m.status = 'ACTIVE') as member_count")
             ->orderBy('g.name');
 
@@ -143,6 +145,7 @@ final class ClassGroupController extends Controller
                 'capacity' => $data['capacity'] ?? null,
                 'mode' => $data['mode'] ?? 'ONLINE',
                 'location' => $data['location'] ?? null,
+                'room_id' => $data['room_id'] ?? null,
                 'meeting_url' => $data['meeting_url'] ?? null,
                 'timezone' => $data['timezone'] ?? $this->academyTimezone($academyId),
                 'start_date' => $data['start_date'],
@@ -208,7 +211,7 @@ final class ClassGroupController extends Controller
         }
 
         $fields = array_intersect_key($data, array_flip([
-            'name', 'specialization_id', 'level', 'level_id', 'teacher_id', 'capacity', 'mode', 'location',
+            'name', 'specialization_id', 'level', 'level_id', 'teacher_id', 'capacity', 'mode', 'location', 'room_id',
             'meeting_url', 'timezone', 'start_date', 'end_date', 'lessons_planned', 'notes',
             ...self::PRICE_FIELDS, ...self::TEACHER_PAY_FIELDS,
         ]));
@@ -636,8 +639,9 @@ final class ClassGroupController extends Controller
         $g = DB::table('class_groups as g')
             ->leftJoin('teachers as te', 'te.id', '=', 'g.teacher_id')
             ->leftJoin('specializations as sp', 'sp.id', '=', 'g.specialization_id')
+            ->leftJoin('academy_rooms as rm', 'rm.id', '=', 'g.room_id')
             ->where('g.id', $id)
-            ->select(['g.*', 'te.full_name as teacher_name', 'te.currency as teacher_currency', 'te.meeting_url as teacher_meeting_url', 'sp.name as specialization_name'])
+            ->select(['g.*', 'te.full_name as teacher_name', 'te.currency as teacher_currency', 'te.meeting_url as teacher_meeting_url', 'sp.name as specialization_name', 'rm.name as room_name'])
             ->selectRaw("(select count(*) from class_group_members m where m.group_id = g.id and m.status = 'ACTIVE') as member_count")
             ->first();
 
@@ -706,7 +710,10 @@ final class ClassGroupController extends Controller
             'capacity' => $g->capacity !== null ? (int) $g->capacity : null,
             'member_count' => (int) ($g->member_count ?? 0),
             'mode' => (string) $g->mode,
-            'location' => $g->location,
+            // A centre's room from the list (Rooms); `location` then says the room's name, so every
+            // reader of the text keeps working. Null room = the free text (a branch, or nothing).
+            'location' => isset($g->room_name) ? (string) $g->room_name : $g->location,
+            'room' => isset($g->room_id, $g->room_name) ? ['id' => (string) $g->room_id, 'name' => (string) $g->room_name] : null,
             'meeting_url' => $g->meeting_url,
             'timezone' => (string) $g->timezone,
             'start_date' => Carbon::parse($g->start_date)->format('Y-m-d'),
@@ -822,6 +829,9 @@ final class ClassGroupController extends Controller
             'capacity' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
             'mode' => ['sometimes', Rule::in(['ONLINE', 'OFFLINE'])],
             'location' => ['sometimes', 'nullable', 'string', 'max:200'],
+            // A centre's room from the academy's list (Rooms); it also writes `location` as the
+            // room's name, so every reader of the text keeps working. Nothing passes it elsewhere.
+            'room_id' => ['sometimes', 'nullable', 'uuid'],
             'meeting_url' => ['sometimes', 'nullable', 'url', 'max:500'],
             'timezone' => ['sometimes', 'nullable', 'string', 'max:64', 'timezone'],
             'start_date' => [$req, 'date_format:Y-m-d'],
@@ -895,6 +905,28 @@ final class ClassGroupController extends Controller
             $levels = app(StudentLevels::class);
             $levels->assertUsable($data['level_id']);
             $data['level'] = $levels->nameOf($data['level_id']);
+        }
+
+        // A room from the list names the group's location text too; clearing the room keeps whatever
+        // text was sent with it (or clears it when none was).
+        if (array_key_exists('room_id', $data)) {
+            $rooms = app(Rooms::class);
+            // A room switched off since keeps the groups already in it: re-saving one passes.
+            if ($data['room_id'] === null || $current === null || (string) ($current->room_id ?? '') !== $data['room_id']) {
+                $rooms->assertUsable($data['room_id']);
+            }
+            if ($data['room_id'] !== null) {
+                $data['location'] = $rooms->nameOf($data['room_id']);
+            } elseif (! array_key_exists('location', $data)) {
+                $data['location'] = null;
+            }
+        } elseif (array_key_exists('location', $data) && $current !== null && isset($current->room_id)) {
+            // Free text typed over a group that sits in a listed room (the board's room form on a
+            // non-centre academy): a different text leaves the list; the room's own name keeps it.
+            $roomName = app(Rooms::class)->nameOf((string) $current->room_id);
+            if (mb_strtolower(trim((string) ($data['location'] ?? ''))) !== mb_strtolower(trim((string) $roomName))) {
+                $data['room_id'] = null;
+            }
         }
 
         return $data;

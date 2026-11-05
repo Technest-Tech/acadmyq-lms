@@ -3,6 +3,7 @@
 import { Building2 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
+import { useAuth } from "@/components/auth-provider";
 import { SectionCard } from "@/components/settings/section-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -18,9 +19,18 @@ import { cn } from "@/lib/utils";
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
 
+type OnlineChoice = "AUTO" | "ON" | "OFF";
+const ONLINE_CHOICES: OnlineChoice[] = ["AUTO", "ON", "OFF"];
+const ONLINE_VALUE: Record<OnlineChoice, boolean | null> = { AUTO: null, ON: true, OFF: false };
+
 /** Settings card for editing the academy display name (and timezone). */
 export function AcademyNameCard() {
   const t = useTranslations("settings.academy");
+  const { session, refresh } = useAuth();
+  // The online-lessons switch is a centre's; nobody else's card grows a control.
+  const isCentre = session?.capabilities?.includes("centre") ?? false;
+  const [online, setOnline] = useState<OnlineChoice>("AUTO");
+  const [savedOnline, setSavedOnline] = useState<OnlineChoice>("AUTO");
 
   const [name, setName]           = useState("");
   const [timezone, setTimezone]   = useState("");
@@ -41,6 +51,9 @@ export function AcademyNameCard() {
       setTimezone(res.academy.timezone);
       setCountry(res.academy.country ?? "");
       setCurrency(res.academy.default_currency ?? "");
+      const said: OnlineChoice = res.academy.online_lessons == null ? "AUTO" : res.academy.online_lessons ? "ON" : "OFF";
+      setOnline(said);
+      setSavedOnline(said);
     } catch (err) {
       setError(err instanceof ApiError ? err.message : String(err));
     } finally {
@@ -66,8 +79,13 @@ export function AcademyNameCard() {
     setBusy(true);
     setError(null);
     try {
-      await updateAcademyProfile({ name: name.trim(), timezone: timezone.trim(), country: country || null, ...(currency ? { default_currency: currency } : {}) });
+      await updateAcademyProfile({ name: name.trim(), timezone: timezone.trim(), country: country || null, ...(currency ? { default_currency: currency } : {}), ...(isCentre ? { online_lessons: ONLINE_VALUE[online] } : {}) });
       setDirty(false);
+      // The Enter button, the meeting link and the Punctuality tab read it from the session.
+      if (isCentre && online !== savedOnline) {
+        setSavedOnline(online);
+        await refresh();
+      }
       setSavedFlag(true);
       setTimeout(() => setSavedFlag(false), 2000);
     } catch (err) {
@@ -153,6 +171,38 @@ export function AcademyNameCard() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground/70 sm:col-span-2">{t("defaultsHint")}</p>
+            {isCentre && (
+              <div className="sm:col-span-2" data-testid="academy-online">
+                <span className="mb-1.5 block text-xs font-medium text-muted-foreground">{t("online.label")}</span>
+                <div role="radiogroup" aria-label={t("online.label")} className="grid grid-cols-3 gap-2">
+                  {ONLINE_CHOICES.map((choice) => (
+                    <button
+                      key={choice}
+                      type="button"
+                      role="radio"
+                      aria-checked={online === choice}
+                      onClick={() => {
+                        setOnline(choice);
+                        setDirty(true);
+                      }}
+                      className={cn(
+                        "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
+                        online === choice ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted",
+                      )}
+                      data-testid={`academy-online-${choice}`}
+                    >
+                      {t(`online.${choice}`)}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground/70">
+                  {t("online.hint")}
+                  {online === savedOnline && online === "AUTO" && session?.academy?.onlineLessons !== undefined && (
+                    <> {session.academy.onlineLessons ? t("online.nowOn") : t("online.nowOff")}</>
+                  )}
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-1">

@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Support\AcademyLevelLabel;
 use App\Support\AcademyProfile;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
 use App\Support\LmsSite;
+use App\Support\OnlineLessons;
 use App\Support\PermissionResolver;
 use App\Support\Subdomain;
 use Illuminate\Http\JsonResponse;
@@ -192,7 +194,7 @@ final class AuthController extends Controller
 
         $academy = DB::table('academies')
             ->where('id', $academyId)
-            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'country', 'default_currency']);
+            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'country', 'default_currency', 'level_label']);
 
         if ($academy === null) {
             return null;
@@ -221,6 +223,12 @@ final class AuthController extends Controller
             // Which kind of school this is (App\Support\AcademyProfile) — the shell shapes its
             // sidebar, dashboard and wording on it. QURAN unless the type says CENTRE.
             'profile' => AcademyProfile::forAcademy($academyId),
+            // What the classification is called — LEVEL, GRADE or YEAR (null has always read as
+            // LEVEL): every label naming it on the web reads through lib/levels.ts.
+            'levelLabel' => AcademyLevelLabel::of($academy->level_label ?? null),
+            // Does it teach online (the setting, else worked out)? A centre's Enter button, teacher
+            // meeting link and Punctuality tab hang on it; nobody else's screens read it.
+            'onlineLessons' => OnlineLessons::forAcademy($academyId),
         ];
     }
 

@@ -80,7 +80,10 @@ final class GroupBoardController extends Controller
                     'level' => $l->group_level,
                     'timezone' => (string) $l->group_timezone,
                     'mode' => (string) $l->group_mode,
-                    'location' => $l->group_location,
+                    'location' => $l->group_room_name ?? $l->group_location,
+                    'room' => $l->group_room_id !== null && $l->group_room_name !== null
+                        ? ['id' => (string) $l->group_room_id, 'name' => (string) $l->group_room_name]
+                        : null,
                     'specialization_name' => $l->specialization_name,
                 ],
                 // The weekly time this lesson came from (null = an extra lesson): what "move it every
@@ -509,10 +512,12 @@ final class GroupBoardController extends Controller
             ->leftJoin('teachers as te', 'te.id', '=', 'l.teacher_id')
             ->leftJoin('specializations as sp', 'sp.id', '=', 'g.specialization_id')
             ->leftJoin('class_group_slots as s', 's.id', '=', 'l.slot_id')
+            ->leftJoin('academy_rooms as rm', 'rm.id', '=', 'g.room_id')
             ->select([
                 'l.*', 'te.full_name as teacher_name',
                 'g.name as group_name', 'g.level as group_level', 'g.timezone as group_timezone',
                 'g.mode as group_mode', 'g.location as group_location', 'sp.name as specialization_name',
+                'g.room_id as group_room_id', 'rm.name as group_room_name',
                 's.weekday as slot_weekday', 's.start_time_local as slot_time', 's.duration_minutes as slot_duration',
             ])
             ->when(! empty($data['group_id']), fn ($q) => $q->where('l.group_id', $data['group_id']))

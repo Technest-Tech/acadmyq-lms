@@ -29,6 +29,7 @@ import {
 import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
+import { useOnlineLessons } from "@/lib/capabilities";
 
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
@@ -70,6 +71,7 @@ export function TeacherForm({
 }) {
   const t = useTranslations("teachers");
   const { can } = useAuth();
+  const onlineLessons = useOnlineLessons();
   // Setting pay is teacher.set_pay's. Without it the teacher is added at the "nothing chosen" pay
   // (hourly, zero) and the owner or accountant sets it on the Salary tab.
   const canPay = can("teacher.set_pay");
@@ -211,23 +213,25 @@ export function TeacherForm({
         </div>
       )}
 
-      <Field label={t("form.meetingUrl")}>
-        <div className="relative">
-          <Video className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            dir="ltr"
-            type="url"
-            inputMode="url"
-            aria-label={t("form.meetingUrl")}
-            className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-            placeholder={t("form.meetingUrlPlaceholder")}
-            value={meetingUrl}
-            onChange={(e) => setMeetingUrl(e.target.value)}
-            data-testid="meeting-url"
-          />
-        </div>
-        <p className="text-[11px] text-muted-foreground">{t("form.meetingUrlHint")}</p>
-      </Field>
+      {onlineLessons && (
+        <Field label={t("form.meetingUrl")}>
+          <div className="relative">
+            <Video className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              dir="ltr"
+              type="url"
+              inputMode="url"
+              aria-label={t("form.meetingUrl")}
+              className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+              placeholder={t("form.meetingUrlPlaceholder")}
+              value={meetingUrl}
+              onChange={(e) => setMeetingUrl(e.target.value)}
+              data-testid="meeting-url"
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground">{t("form.meetingUrlHint")}</p>
+        </Field>
+      )}
 
       <Field label={t("detail.availability")}>
         <AvailabilityEditor value={availability} onChange={setAvailability} />

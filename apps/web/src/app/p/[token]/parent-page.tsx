@@ -53,6 +53,7 @@ import {
   weekdayName,
   yearMonthText,
 } from "./copy";
+import { type LevelLabel, wordOf } from "@/lib/levels";
 
 // ── The viewer's clock ──────────────────────────────────────────────────────
 
@@ -212,7 +213,7 @@ export function ParentPage({
     }
   }
 
-  const ctx: ViewCtx = { lang, tz, now, hueOf, nameOf, showChild: severalChildren && childId === null };
+  const ctx: ViewCtx = { lang, tz, now, hueOf, nameOf, showChild: severalChildren && childId === null, word: wordOf(data.level_label) };
   const next = data.upcoming[0] ?? null;
   // A centre's page: the payload carries each child's groups, sheets and the family's account.
   const centreChildren = data.children.filter((c) => c.group_lessons !== undefined);
@@ -382,6 +383,8 @@ interface ViewCtx {
   nameOf: Map<string, string>;
   /** Name the child on each row — only when several children are shown together. */
   showChild: boolean;
+  /** The centre's word for its classification (lib/levels.ts). */
+  word: LevelLabel;
 }
 
 function HeroTile({
@@ -914,7 +917,7 @@ function ChildGroupsCard({ child, ctx }: { child: PortalChild; ctx: ViewCtx }) {
 
       <div className="divide-y divide-slate-100">
         {child.groups.map((g) => (
-          <GroupRow key={g.id ?? g.name} group={g} lang={lang} />
+          <GroupRow key={g.id ?? g.name} group={g} lang={lang} word={ctx.word} />
         ))}
       </div>
 
@@ -988,10 +991,10 @@ function ChildGroupsCard({ child, ctx }: { child: PortalChild; ctx: ViewCtx }) {
 }
 
 /** A group's name, level and teacher, with its weekly slots in the centre's own wall time. */
-function GroupRow({ group, lang }: { group: PortalGroup; lang: Lang }) {
+function GroupRow({ group, lang, word }: { group: PortalGroup; lang: Lang; word: LevelLabel }) {
   const t = COPY[lang].groups;
   const teacher = group.teacher_name ?? group.teacher;
-  const meta = [group.level ? t.level(group.level) : null, teacher ? t.teacher(teacher) : null, group.joined_on ? t.since(plainDate(group.joined_on, lang, true)) : null]
+  const meta = [group.level ? t.level(group.level, word) : null, teacher ? t.teacher(teacher) : null, group.joined_on ? t.since(plainDate(group.joined_on, lang, true)) : null]
     .filter(Boolean)
     .join(" · ");
 
@@ -1107,7 +1110,7 @@ function ChildTermReportCard({ child, report, ctx }: { child: PortalChild; repor
   const { lang } = ctx;
   const t = COPY[lang].termReports;
   const hue = ctx.hueOf.get(child.id) ?? HUES[0];
-  const meta = [report.group_name, report.level ? COPY[lang].groups.level(report.level) : null, report.teacher_name ? COPY[lang].groups.teacher(report.teacher_name) : null]
+  const meta = [report.group_name, report.level ? COPY[lang].groups.level(report.level, ctx.word) : null, report.teacher_name ? COPY[lang].groups.teacher(report.teacher_name) : null]
     .filter(Boolean)
     .join(" · ");
   const att = report.attendance;

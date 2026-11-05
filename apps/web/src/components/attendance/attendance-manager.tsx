@@ -49,7 +49,7 @@ import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { RevertOutcomeDialog } from "@/components/attendance/revert-outcome-dialog";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, useOnlineLessons } from "@/lib/capabilities";
 import { actorLabel, DoneByCell, useTeamActorsState } from "@/components/team/done-by";
 import {
   addDays,
@@ -212,6 +212,8 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   // The control belongs to the Supervision feature: an academy with it switched off (a learning
   // centre's preset) has no Supervision page to measure the click on, so the button is not offered.
   const hasSupervision = useCapability("supervision");
+  // A centre whose lessons are all in rooms has no Enter button (Settings → Academy).
+  const onlineLessons = useOnlineLessons();
   const canFollow = can("session.follow") && hasSupervision;
   // The Enter button's clock: re-read every half minute so a lesson's button lights up on time.
   const now = useNow();
@@ -1285,7 +1287,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                     )}
                                     {/* Enter: only the lesson's own teacher opens the room — an
                                         owner's press would read as the teacher arriving. */}
-                                    {isTeacher && (
+                                    {isTeacher && onlineLessons && (
                                       <EnterLessonButton
                                         lesson={{ ...s, status: displayStatus }}
                                         meetingUrl={s.meeting_url}
@@ -1454,7 +1456,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                   {t("sendWhatsapp")}
                                 </Button>
                               )}
-                              {isTeacher && (
+                              {isTeacher && onlineLessons && (
                                 <EnterLessonButton
                                   lesson={{ ...s, status: displayStatus }}
                                   meetingUrl={s.meeting_url}

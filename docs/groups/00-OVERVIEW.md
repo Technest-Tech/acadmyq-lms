@@ -369,3 +369,8 @@ Room clashes: two groups in one room (case/space-blind) at overlapping times sho
 timetable (client-side, cancelled lessons free the room), and moving/adding a lesson returns a
 `room` warning (`roomWarnings`, centre only). A new centre group opens in person. Non-centres:
 unchanged.
+
+Since 2026-11-05 a centre's rooms are a list (`academy_rooms`, Settings → Rooms) and a group points
+at one (`class_groups.room_id`; `location` is written as its name); the filter, "set the room" and
+the clash work by id. See `docs/centre-profile/02-COHERENCE-AUDIT.md` §7, which also covers the
+centre's group defaults (open questions 1 and 2 above are now a per-centre setting).

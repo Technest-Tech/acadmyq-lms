@@ -78,6 +78,15 @@ const CENTRE: PortalPayload = {
 };
 
 describe("ParentPage for a centre", () => {
+  it("names the level in the centre's own word, in both languages", () => {
+    const { unmount } = render(<ParentPage data={{ ...CENTRE, level_label: "GRADE" }} initialLang="en" renderedAt={NOW} />);
+    expect(screen.getByTestId("parent-group")).toHaveTextContent("Grade: A1 · with Miss Mona");
+    unmount();
+
+    render(<ParentPage data={{ ...CENTRE, level_label: "YEAR" }} initialLang="ar" renderedAt={NOW} />);
+    expect(screen.getByTestId("parent-group")).toHaveTextContent("السنة: A1");
+  });
+
   it("draws the groups with their weekly times, the marks, the week ahead and the latest sheets", () => {
     render(<ParentPage data={CENTRE} initialLang="en" renderedAt={NOW} />);
 

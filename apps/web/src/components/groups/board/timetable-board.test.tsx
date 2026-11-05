@@ -5,6 +5,7 @@ import arMessages from "../../../../messages/ar.json";
 import { todayIn } from "@/components/groups/group-format";
 import { makeSession, withAuth } from "@/test/auth";
 import type { BoardLesson, GroupRow } from "@/lib/groups-api";
+import type { Room } from "@/lib/rooms-api";
 import { LessonsBoard } from "./lessons-board";
 import { roomClashes, toTimetableRow, weekStartOf } from "./timetable-board";
 
@@ -26,6 +27,11 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   rescheduleGroupLesson: (id: string, input: unknown) => rescheduleGroupLesson(id, input),
   listGroups: () => Promise.resolve({ groups, counts: { RUNNING: 0, UPCOMING: 0, FINISHED: 0, ARCHIVED: 0 } }),
 }));
+const listRooms = vi.fn(() => Promise.resolve({ rooms: [] as Room[] }));
+vi.mock("@/lib/rooms-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/rooms-api")>()),
+  listRooms: () => listRooms(),
+}));
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   listTeachers: () => Promise.resolve({ rows: [], total: 0, page: 1, pageSize: 200 }),
@@ -33,6 +39,12 @@ vi.mock("@/lib/api", async (importOriginal) => ({
 
 const tt = arMessages.groups.board.timetable;
 const SATURDAY = weekStartOf(todayIn(Intl.DateTimeFormat().resolvedOptions().timeZone));
+
+/** A lesson of a group sitting in a room from the centre's list. */
+function listed(id: string, groupId: string, name: string, time: string, room: { id: string; name: string }, text: string | null = room.name): BoardLesson {
+  const l = lesson(id, groupId, name, time, {}, text);
+  return { ...l, group: { ...l.group, room } };
+}
 
 function lesson(id: string, groupId: string, name: string, time: string, over: Partial<BoardLesson> = {}, room: string | null = null): BoardLesson {
   return {
@@ -80,12 +92,29 @@ describe("timetable helpers", () => {
 
     expect([...roomClashes(rows)].sort()).toEqual(["a", "b"]);
   });
+
+  it("compares rooms on the list by id, and a typed room by the listed room's name", () => {
+    const r3 = { id: "r3", name: "Room 3" };
+    const rows = [
+      listed("a", "g1", "Grade 5 Math", "16:00", r3),
+      // Same room by id, whatever its text says.
+      listed("b", "g2", "Prep 1 Science", "16:15", r3, "stale text"),
+      // A different listed room that happens to share nothing with Room 3.
+      listed("c", "g3", "KG2 English", "16:00", { id: "r4", name: "Room 4" }),
+      // Still typed before the list, spelling Room 3: the same room.
+      lesson("d", "g4", "Prep 2 Arabic", "18:00", {}, " room 3 "),
+      listed("e", "g5", "Grade 6 French", "18:30", r3),
+    ].map(toTimetableRow);
+
+    expect([...roomClashes(rows)].sort()).toEqual(["a", "b", "d", "e"]);
+  });
 });
 
 describe("TimetableBoard — the centre's week by the hour", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     groups = [];
+    listRooms.mockResolvedValue({ rooms: [] });
     listBoardLessons.mockImplementation(async (p: { view: string }) => ({
       view: p.view,
       from: SATURDAY,
@@ -117,6 +146,54 @@ describe("TimetableBoard — the centre's week by the hour", () => {
     await user.selectOptions(screen.getByTestId("timetable-filter-hour"), "17");
     expect(screen.queryByTestId(`timetable-hour-${SATURDAY}-16`)).toBeNull();
     expect(screen.getByTestId("timetable-row-c")).toBeInTheDocument();
+  });
+
+  it("filters by a room from the centre's list, and sets a group's room from it", async () => {
+    listRooms.mockResolvedValue({
+      rooms: [
+        { id: "r3", name: "Room 3", capacity: 20, position: 1, is_active: true, groups_count: 2 },
+        { id: "r4", name: "Room 4", capacity: null, position: 2, is_active: true, groups_count: 1 },
+        { id: "r9", name: "Old hall", capacity: null, position: 3, is_active: false, groups_count: 0 },
+      ],
+    });
+    listBoardLessons.mockImplementation(async (p: { view: string }) => ({
+      view: p.view,
+      from: SATURDAY,
+      to: SATURDAY,
+      timezone: "UTC",
+      lessons:
+        p.view === "week"
+          ? [
+              listed("a", "g1", "Grade 5 Math", "16:00", { id: "r3", name: "Room 3" }),
+              listed("b", "g2", "Prep 1 Science", "16:30", { id: "r3", name: "Room 3" }),
+              listed("c", "g3", "KG2 English", "17:00", { id: "r4", name: "Room 4" }),
+            ]
+          : [],
+    }));
+    updateGroup.mockResolvedValue({ group: {}, generated: { created: 0, removed: 0 } });
+    const user = userEvent.setup();
+    render(withAuth(centre(), <LessonsBoard />));
+
+    await user.click(await screen.findByTestId("timetable-day-all"));
+    await screen.findByTestId("timetable-row-a");
+    const filter = screen.getByTestId("timetable-filter-room");
+    await waitFor(() => expect(within(filter).getByText("Room 4")).toBeInTheDocument());
+    // The list's own rooms in its order; a switched-off room nobody uses is not offered.
+    expect(within(filter).getAllByRole("option").map((o) => o.textContent)).toEqual([tt.filters.allRooms, "Room 3", "Room 4"]);
+    expect(screen.getByTestId("timetable-clash-a")).toBeInTheDocument();
+
+    await user.selectOptions(filter, "id:r4");
+    expect(screen.queryByTestId("timetable-row-a")).toBeNull();
+    expect(screen.getByTestId("timetable-row-c")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("timetable-menu-c"));
+    await user.click(await screen.findByText(tt.setRoom));
+    const select = await screen.findByTestId("timetable-room-select");
+    expect(select).toHaveValue("r4");
+    await user.selectOptions(select, "r3");
+    await user.click(screen.getByTestId("timetable-room-save"));
+
+    await waitFor(() => expect(updateGroup).toHaveBeenCalledWith("g3", { mode: "OFFLINE", room_id: "r3" }));
   });
 
   it("is not there for an academy that is not a centre", async () => {

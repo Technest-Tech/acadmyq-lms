@@ -2,7 +2,7 @@
 
 import { CalendarDays, Clock, Coins, GraduationCap, Link2, ListChecks, MapPin, Plus, StickyNote, Trash2, Users, Video, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useMemo, useState, type ComponentType, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { fieldClass, hoursText, sortSlots, textareaClass, todayIn } from "@/components/groups/group-format";
 import { StudentPicker } from "@/components/groups/student-picker";
@@ -26,8 +26,12 @@ import {
 import { LessonPriceFields, lessonPriceFromTotal, lessonsIn, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { LevelSelect } from "@/components/levels/level-select";
+import { RoomSelect } from "@/components/rooms/room-select";
+import { listRooms, type Room } from "@/lib/rooms-api";
+import { getGroupDefaults } from "@/lib/group-defaults-api";
 import { useCapability, useProfile } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
+import { useLevelWord } from "@/lib/levels";
 
 /** A typed major-unit amount ("450", "12.5") → integer minor units; "" → null. */
 export function toMinor(value: string): number | null {
@@ -166,6 +170,8 @@ export function GroupForm({
 }) {
   const t = useTranslations("groups");
   const tTerm = useTranslations("courseTerm");
+  const tRooms = useTranslations("rooms");
+  const word = useLevelWord();
   const tw = useTranslations("scheduling");
   const locale = useLocale();
   const { can } = useAuth();
@@ -187,6 +193,11 @@ export function GroupForm({
   const centre = useCapability("centre");
   const [mode, setMode] = useState<GroupMode>(group?.mode ?? (centre ? "OFFLINE" : "ONLINE"));
   const [location, setLocation] = useState(group?.location ?? "");
+  // A centre's room comes from its list (02-COHERENCE-AUDIT §3), not typed. A group still holding a
+  // room typed before the list keeps that text until a room is picked.
+  const [roomId, setRoomId] = useState(group?.room?.id ?? "");
+  const legacyLocation = group?.room ? "" : (group?.location?.trim() ?? "");
+  const [rooms, setRooms] = useState<Room[] | undefined>(undefined);
   const [meetingUrl, setMeetingUrl] = useState(group?.meeting_url ?? "");
   const [startDate, setStartDate] = useState(group?.start_date ?? todayIn(group?.timezone ?? browserTz));
   const [endDate, setEndDate] = useState(group?.end_date ?? "");
@@ -248,6 +259,47 @@ export function GroupForm({
       .then((res) => setSubjects(res.specializations.filter((s) => s.is_active)))
       .catch(() => setSubjects([]));
   }, []);
+
+  // Create only, a centre only: its group defaults (Settings) fill whatever nobody has touched yet.
+  // They arrive after the form is on screen, so what was already typed or picked is kept.
+  const touched = useRef(new Set<string>());
+  useEffect(() => {
+    if (!centre || editing) return;
+    let live = true;
+    void getGroupDefaults()
+      .then(({ defaults: d }) => {
+        if (!live) return;
+        const open = (field: string) => !touched.current.has(field);
+        if (d.mode && open("mode")) setMode(d.mode);
+        const minutes = d.lesson_minutes;
+        if (minutes) {
+          if (open("duration")) setSlots((prev) => prev.map((s) => ({ ...s, duration_minutes: minutes })));
+          if (open("lessonMinutes")) setLessonMinutes(minutes);
+        }
+        if (canPrice) {
+          if (d.billing_mode && open("billing")) setBillingMode(d.billing_mode);
+          if (d.month_lessons && open("monthLessons")) setMonthLessons(String(d.month_lessons));
+        }
+        if (canPay && d.teacher_pay_mode && open("pay")) {
+          setPayMode(d.teacher_pay_mode);
+          setPayFromTeacher(null);
+          if (d.teacher_pay_mode === "REVENUE_SHARE") setSharePct(d.teacher_share_bp != null ? String(d.teacher_share_bp / 100) : "");
+          else setPayAmount(fromMinor(d.teacher_pay_minor));
+        }
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!centre) return;
+    void listRooms()
+      .then((res) => setRooms(res.rooms))
+      .catch(() => setRooms([]));
+  }, [centre]);
 
   // An edit can be opened on a group whose teacher has since been deactivated: keep them pickable.
   const teacherOptions = useMemo(() => {
@@ -347,7 +399,13 @@ export function GroupForm({
       ...(centre ? { level_id: levelId || null } : { level: level.trim() || null }),
       capacity: capacity ? Number(capacity) : null,
       mode,
-      location: mode === "OFFLINE" ? location.trim() || null : null,
+      // A centre picks a room from its list and the server names the text; everyone else types it.
+      ...(centre
+        ? {
+            room_id: mode === "OFFLINE" ? roomId || null : null,
+            location: mode === "OFFLINE" && !roomId ? legacyLocation || null : null,
+          }
+        : { location: mode === "OFFLINE" ? location.trim() || null : null }),
       meeting_url: mode === "ONLINE" ? meetingUrl.trim() || null : null,
       start_date: startDate,
       end_date: endDate || null,
@@ -431,7 +489,7 @@ export function GroupForm({
           </select>
         </Field>
 
-        <Field label={t("form.level")}>
+        <Field label={t("form.level", { word })}>
           {centre ? (
             <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="group-level" />
           ) : (
@@ -471,7 +529,10 @@ export function GroupForm({
               type="button"
               role="radio"
               aria-checked={mode === m}
-              onClick={() => setMode(m)}
+              onClick={() => {
+                touched.current.add("mode");
+                setMode(m);
+              }}
               className={cn(
                 "rounded-xl border px-3 py-2 text-sm font-medium transition-colors",
                 look && "flex items-center gap-3 p-3 text-start",
@@ -502,6 +563,10 @@ export function GroupForm({
               onChange={(e) => setMeetingUrl(e.target.value)}
               placeholder="https://"
             />
+          </Field>
+        ) : centre ? (
+          <Field label={tRooms("select.label")} icon={MapPin} hint={!roomId && legacyLocation ? tRooms("legacyText", { text: legacyLocation }) : undefined}>
+            <RoomSelect value={roomId} onChange={setRoomId} rooms={rooms} withAddLink testId="group-room" />
           </Field>
         ) : (
           <Field label={t("form.location")} icon={MapPin}>
@@ -597,7 +662,13 @@ export function GroupForm({
                 onChange={(e) => updateSlot(i, { start_time_local: e.target.value })}
                 aria-label={tw("startTime")}
               />
-              <DurationField value={s.duration_minutes} onChange={(minutes) => updateSlot(i, { duration_minutes: minutes })} />
+              <DurationField
+                value={s.duration_minutes}
+                onChange={(minutes) => {
+                  touched.current.add("duration");
+                  updateSlot(i, { duration_minutes: minutes });
+                }}
+              />
               <Button
                 type="button"
                 variant="ghost"
@@ -652,7 +723,10 @@ export function GroupForm({
                 type="button"
                 role="radio"
                 aria-checked={billingMode === m}
-                onClick={() => setBillingMode(m)}
+                onClick={() => {
+                  touched.current.add("billing");
+                  setBillingMode(m);
+                }}
                 className={cn(
                   "rounded-xl border px-3 py-2 text-start text-sm transition-colors",
                   billingMode === m ? "border-primary bg-primary/10" : "hover:bg-muted",
@@ -671,7 +745,10 @@ export function GroupForm({
                   className={cn(fieldClass, "sm:w-40")}
                   inputMode="numeric"
                   value={monthLessons}
-                  onChange={(e) => setMonthLessons(e.target.value)}
+                  onChange={(e) => {
+                    touched.current.add("monthLessons");
+                    setMonthLessons(e.target.value);
+                  }}
                   placeholder={t("money.monthHoursPlaceholder")}
                   data-testid="group-month-lessons"
                 />
@@ -679,7 +756,10 @@ export function GroupForm({
               {monthMinutes() !== null ? (
                 <LessonPriceFields
                   unitMinutes={lessonMinutes}
-                  onUnitMinutes={setLessonMinutes}
+                  onUnitMinutes={(minutes) => {
+                    touched.current.add("lessonMinutes");
+                    setLessonMinutes(minutes);
+                  }}
                   unitPrice={lessonPrice}
                   onUnitPrice={setLessonPrice}
                   totalMinutes={monthMinutes()}
@@ -797,7 +877,10 @@ export function GroupForm({
           <select
             className={fieldClass}
             value={payMode ?? ""}
-            onChange={(e) => setPayMode((e.target.value || null) as GroupTeacherPayMode)}
+            onChange={(e) => {
+              touched.current.add("pay");
+              setPayMode((e.target.value || null) as GroupTeacherPayMode);
+            }}
             aria-label={t("money.teacherEarns")}
             data-testid="group-pay-mode"
           >
@@ -817,12 +900,25 @@ export function GroupForm({
                   : t("money.payCurrencyHint")
               }
             >
-              <input className={fieldClass} inputMode="decimal" value={payAmount} onChange={(e) => setPayAmount(e.target.value)} data-testid="group-pay-amount" />
+              <input className={fieldClass} inputMode="decimal" value={payAmount}
+                onChange={(e) => {
+                  touched.current.add("pay");
+                  setPayAmount(e.target.value);
+                }}
+                data-testid="group-pay-amount"
+              />
             </Field>
           )}
           {payMode === "REVENUE_SHARE" && (
             <Field label={t("money.sharePct")} hint={t("money.shareHint")}>
-              <input className={fieldClass} inputMode="decimal" value={sharePct} onChange={(e) => setSharePct(e.target.value)} placeholder="50" data-testid="group-share" />
+              <input className={fieldClass} inputMode="decimal" value={sharePct}
+                onChange={(e) => {
+                  touched.current.add("pay");
+                  setSharePct(e.target.value);
+                }}
+                placeholder="50"
+                data-testid="group-share"
+              />
             </Field>
           )}
           <p className="text-muted-foreground text-xs">{t(`money.payModeHint.${payMode ?? "DEFAULT"}`)}</p>
@@ -865,6 +961,7 @@ export function GroupForm({
 
   // What the form adds up to so far, beside it on a wide screen.
   const summaryPrice = canPrice ? priceMinor() : null;
+  const placeText = centre ? (rooms?.find((r) => r.id === roomId)?.name ?? (roomId ? (group?.room?.name ?? "") : legacyLocation)) : location.trim();
   const summaryRows: { key: string; icon: ComponentType<{ className?: string }>; text: string; muted?: boolean }[] = [
     {
       key: "teacher",
@@ -875,7 +972,7 @@ export function GroupForm({
     {
       key: "place",
       icon: mode === "ONLINE" ? Video : MapPin,
-      text: mode === "OFFLINE" && location.trim() ? location.trim() : t(`mode.${mode}`),
+      text: mode === "OFFLINE" && placeText ? placeText : t(`mode.${mode}`),
     },
     {
       key: "seats",
@@ -957,7 +1054,9 @@ export function GroupForm({
 function DurationField({ value, onChange }: { value: number; onChange: (minutes: number) => void }) {
   const t = useTranslations("groups");
   const tw = useTranslations("scheduling");
-  const [other, setOther] = useState(() => !DURATION_PRESETS.includes(value));
+  const [chosenOther, setOther] = useState(() => !DURATION_PRESETS.includes(value));
+  // A length that arrives later (the centre's default) and is off the list still reads as "Other".
+  const other = chosenOther || !DURATION_PRESETS.includes(value);
 
   return (
     <div className="flex items-center gap-1.5">
