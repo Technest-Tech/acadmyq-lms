@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarX2, ChevronRight, Clock, GraduationCap, Sparkles, UsersRound } from "lucide-react";
+import { CalendarX2, ChevronRight, Clock, GraduationCap, Sparkles, Trash2, UsersRound } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo } from "react";
 import type { CalendarSession } from "@/lib/api";
@@ -27,11 +27,14 @@ export function AgendaView({
   tz,
   today,
   onSelect,
+  onDelete,
 }: {
   sessions: CalendarSession[];
   tz: string;
   today: string;
   onSelect: (s: CalendarSession) => void;
+  /** Given, every lesson row gets its own delete button (a trial or a group class never does). */
+  onDelete?: (s: CalendarSession) => void;
 }) {
   const t = useTranslations("scheduling");
   const locale = useLocale();
@@ -113,13 +116,13 @@ export function AgendaView({
               {items.map((s) => {
                 const voided = isVoided(s.status);
                 return (
-                  <li key={s.id}>
+                  <li key={s.id} className="flex items-center">
                     <button
                       type="button"
                       data-testid={`session-${s.id}`}
                       data-status={s.status}
                       onClick={() => onSelect(s)}
-                      className="hover:bg-muted/50 group flex w-full items-center gap-3 px-3 py-3 text-start transition-colors sm:px-4"
+                      className="hover:bg-muted/50 group flex min-w-0 flex-1 items-center gap-3 px-3 py-3 text-start transition-colors sm:px-4"
                     >
                       {/* Status rail */}
                       <span
@@ -193,6 +196,18 @@ export function AgendaView({
                         aria-hidden
                       />
                     </button>
+                    {onDelete && !s.trial && !s.group && (
+                      <button
+                        type="button"
+                        data-testid={`session-delete-${s.id}`}
+                        aria-label={t("actions.deleteLesson")}
+                        title={t("actions.deleteLesson")}
+                        onClick={() => onDelete(s)}
+                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive me-2 shrink-0 rounded-lg p-2 transition-colors sm:me-3"
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                      </button>
+                    )}
                   </li>
                 );
               })}

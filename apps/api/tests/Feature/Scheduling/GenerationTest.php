@@ -40,6 +40,25 @@ function expectedOccurrences(string $academy, string $scheduleId, string $tz, st
     return RecurrenceCalculator::occurrences($slots, $tz, $from, $to);
 }
 
+it('makes no lessons for a removed student whose timetable was left running, and clears the ones ahead', function () {
+    Carbon::setTestNow('2026-05-15 06:00:00');
+    $schedule = $this->createSchedule($this->academy, $this->student, $this->teacher);
+    $this->addSlot($this->academy, $schedule, 0, '17:00:00', 30);
+
+    $this->asAcademy($this->academy);
+    $window = [Carbon::parse('2026-06-01'), Carbon::parse('2026-07-31')];
+    expect($this->generator->generateForAcademy($this->academy, ...$window)['created'])->toBeGreaterThan(0);
+
+    $this->asAcademy($this->academy);
+    DB::table('students')->where('id', $this->student)->update(['deleted_at' => now()]);
+
+    $result = $this->generator->generateForAcademy($this->academy, ...$window);
+    $this->asAcademy($this->academy);
+    expect($result['created'])->toBe(0)
+        ->and($result['removed'])->toBeGreaterThan(0)
+        ->and(DB::table('sessions')->where('schedule_id', $schedule)->count())->toBe(0);
+});
+
 // ── TC-5.1 / AC-5.1: exact occurrences & correct UTC across a 2-month window ──
 it('generates the exact occurrences with correct UTC instants', function () {
     Carbon::setTestNow('2026-05-15 06:00:00');

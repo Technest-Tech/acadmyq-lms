@@ -41,7 +41,7 @@ async function allGuardians(): Promise<GuardianRow[]> {
 }
 
 /** Common currencies offered in the form (ISO 4217). The student's own currency is added if missing. */
-const CURRENCIES = ["EGP", "SAR", "AED", "USD", "EUR", "GBP", "JOD", "KWD", "QAR", "BHD", "OMR", "TRY"];
+const CURRENCIES = ["EGP", "SAR", "AED", "USD", "CAD", "EUR", "GBP", "JOD", "KWD", "QAR", "BHD", "OMR", "TRY"];
 
 /** Major-unit string → integer minor units (2-decimal currencies, like money.ts). */
 function toMinor(major: string): number {

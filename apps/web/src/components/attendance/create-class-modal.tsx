@@ -19,6 +19,10 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { fetchRoster } from "@/lib/roster";
+import { cn } from "@/lib/utils";
+
+/** Lesson lengths offered as one-tap choices beside the minutes field. */
+const LENGTH_PICKS = [30, 40, 45, 60];
 
 const inputClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-3";
@@ -305,6 +309,26 @@ export function CreateClassModal({
               value={duration}
               onChange={(e) => setDuration(Number(e.target.value))}
             />
+            {/* The usual lengths one tap away; any other number can still be typed above. */}
+            <span className="flex flex-wrap gap-1.5">
+              {LENGTH_PICKS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  data-testid={`create-class-duration-${m}`}
+                  aria-pressed={duration === m}
+                  onClick={() => setDuration(m)}
+                  className={cn(
+                    "rounded-lg border px-2.5 py-1 text-xs font-medium tabular-nums transition-colors",
+                    duration === m
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted",
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </span>
           </label>
         </div>
 

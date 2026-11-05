@@ -122,7 +122,11 @@ final class SessionGenerator
         $intended = [];
         // Each slot's subject, which its lessons keep (a teacher can teach a student two).
         $slotCourses = [];
-        if ($schedule->is_active && $schedule->deleted_at === null) {
+        // A removed student has no more lessons, whatever their timetable still says: one removed
+        // before the wind-down existed kept a live timetable and went on getting lessons every month.
+        $studentRemoved = $schedule->student_id !== null
+            && DB::table('students')->where('id', $schedule->student_id)->whereNotNull('deleted_at')->exists();
+        if ($schedule->is_active && $schedule->deleted_at === null && ! $studentRemoved) {
             $slots = DB::table('schedule_slots')
                 ->where('schedule_id', $scheduleId)
                 ->orderBy('id')

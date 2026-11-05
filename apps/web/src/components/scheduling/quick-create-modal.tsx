@@ -19,7 +19,7 @@ import { cn } from "@/lib/utils";
 const fieldClass =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-3 disabled:cursor-not-allowed disabled:opacity-60";
 
-const DURATION_PRESETS = [15, 30, 45, 60, 90, 120];
+const DURATION_PRESETS = [15, 30, 40, 45, 60, 90, 120];
 
 /**
  * Quick-create a one-off session (§5.1) straight from an empty calendar slot. The day + time

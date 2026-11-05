@@ -408,13 +408,13 @@ export function TeacherLessons({ teacherId }: { teacherId: string }) {
  * so it says so first. A refusal (closed invoice, finalized salary) is shown inside the dialog
  * rather than as a toast that outlives it.
  */
-function DeleteLessonDialog({
+export function DeleteLessonDialog({
   session,
   when,
   onClose,
   onDeleted,
 }: {
-  session: DaySession;
+  session: Pick<DaySession, "id" | "status"> & { student_name: string | null };
   when: string;
   onClose: () => void;
   onDeleted: () => void;

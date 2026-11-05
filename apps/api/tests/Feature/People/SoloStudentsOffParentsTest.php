@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\LessonPackages;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -79,4 +80,46 @@ it('does not touch another academy', function () {
     $this->postJson('/api/students', ['full_name' => 'Other Solo', 'whatsapp_phone' => '+201000000006', 'is_self_guardian' => true])->assertCreated();
 
     expect(collect($this->getJson('/api/guardians')->assertOk()->json('rows'))->pluck('full_name')->all())->toContain('Other Solo');
+});
+
+it('leaves a student working when their one-student family is deleted, and they can join a new family', function () {
+    ($this->switchOn)();
+    $this->asAcademy($this->academy);
+    $old = (string) DB::table('students')->where('id', $this->solo)->value('guardian_id');
+    $teacher = $this->createTeacher($this->academy, ['session_rate_minor' => 6000, 'currency' => 'EGP']);
+    app(LessonPackages::class)->open([
+        'student_id' => $this->solo, 'label' => 'Six', 'minutes_total' => 60, 'price_minor' => 6000,
+        'currency' => 'EGP', 'bill_timing' => 'ON_START', 'starts_on' => now()->subDay()->toDateString(),
+    ], (string) $this->owner->id, 'ACADEMY_OWNER');
+
+    // What the data repair does: the family row goes, the student is not touched.
+    DB::table('guardians')->where('id', $old)->update(['deleted_at' => now()]);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/students/{$this->solo}")->assertOk();
+    expect(collect($this->getJson('/api/students?pageSize=50')->assertOk()->json('rows'))->pluck('id'))->toContain($this->solo);
+    $this->getJson('/api/invoices')->assertOk();
+    $this->getJson('/api/packages?scope=due')->assertOk();
+
+    // Lessons, the package, its renewal and pay all carry on.
+    $this->asAcademy($this->academy);
+    $lesson = $this->createSession($this->academy, $this->solo, $teacher, [
+        'scheduled_at_utc' => now()->subHours(3)->toIso8601String(), 'duration_minutes' => 60, 'status' => 'SCHEDULED',
+    ]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$lesson}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->asAcademy($this->academy);
+    expect(DB::table('lesson_package_credits')->where('session_id', $lesson)->exists())->toBeTrue()
+        ->and(DB::table('lesson_packages')->where('student_id', $this->solo)->where('status', 'ACTIVE')->count())->toBe(1)
+        ->and(DB::table('payout_line_items')->where('session_id', $lesson)->exists())->toBeTrue();
+
+    // The supervisor registers the family by hand.
+    Sanctum::actingAs($this->owner);
+    $family = $this->postJson('/api/guardians', ['full_name' => 'Real Family', 'whatsapp_phone' => '+201000000009'])->assertCreated()->json('guardianId');
+    $this->patchJson("/api/students/{$this->solo}", ['guardian_id' => $family])->assertOk();
+    $this->asAcademy($this->academy);
+    $row = DB::table('students')->where('id', $this->solo)->first();
+    expect((string) $row->guardian_id)->toBe($family)->and((bool) $row->is_self_guardian)->toBeFalse()->and($row->deleted_at)->toBeNull();
+    Sanctum::actingAs($this->owner);
+    expect(($this->names)())->toContain('Real Family')->not->toContain('Solo Adult');
 });

@@ -21,6 +21,8 @@ import { TeacherTimetables } from "@/components/scheduling/schedule-editor";
 import { SessionActions } from "@/components/scheduling/session-actions";
 import { AttendanceReportModal } from "@/components/attendance/attendance-report-modal";
 import { ScheduleTrialModal } from "@/components/students/schedule-trial-modal";
+import { DeleteLessonDialog } from "@/components/teachers/teacher-lessons";
+import { useCentreLook } from "@/lib/capabilities";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -61,6 +63,18 @@ export function StudentTimetable({
   const [sessions, setSessions] = useState<CalendarSession[]>([]);
   const [selected, setSelected] = useState<CalendarSession | null>(null);
   const [trialOpen, setTrialOpen] = useState(false);
+  const [deleting, setDeleting] = useState<CalendarSession | null>(null);
+  // Quran academies only: a centre's lessons belong to its subscriptions.
+  const centre = useCentreLook();
+  const canDelete = can("session.delete") && !centre;
+  const whenFmt = new Intl.DateTimeFormat(locale, {
+    timeZone: tz,
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
   const loadSessions = useCallback(async () => {
     const from = startOfMonth(anchor);
@@ -154,6 +168,7 @@ export function StudentTimetable({
           tz={tz}
           today={today}
           onSelect={setSelected}
+          onDelete={canDelete ? setDeleting : undefined}
         />
       </div>
 
@@ -189,6 +204,18 @@ export function StudentTimetable({
           open
           onClose={() => setSelected(null)}
           readOnly
+        />
+      )}
+
+      {deleting !== null && (
+        <DeleteLessonDialog
+          session={deleting}
+          when={whenFmt.format(new Date(deleting.scheduled_at_utc))}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            void loadSessions();
+          }}
         />
       )}
 
