@@ -5,11 +5,13 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { RateBar, Tile, pct, todayLocal } from "@/components/accounting/accounting-ui";
+import { ExportButton } from "@/components/accounting/export-button";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { PageHero } from "@/components/ui/page-hero";
 import { getAccountingGroups, type AccountingGroups, type GroupMoney } from "@/lib/accounting-api";
+import type { SheetColumn } from "@/lib/accounting-export";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -18,8 +20,8 @@ type Sort = "name" | "rate" | "remaining" | "net";
 /**
  * Every group's money for a month (docs/groups/01-ACCOUNTING.md): what it was due, what came in,
  * what is left and still owed from before, its collection rate — and, for whoever reads payroll,
- * what the teacher cost and what the group left the academy (net on money actually received). Then
- * the same per teacher. A group opens its own Accounts tab.
+ * what the teacher cost, what was spent on the group, and what it left the academy (net on money
+ * actually received). Then the same per teacher. A group opens its own Accounts tab.
  */
 export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
   const t = useTranslations("accounting");
@@ -52,6 +54,27 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
     return [...list].sort((a, b) => key(a) - key(b) || a.g.name.localeCompare(b.g.name));
   }, [data, sort]);
 
+  // Only a column when something was spent on a group this month: most months read as before.
+  const showExpenses = cost && rows.some((r) => (r.m?.expenses_minor ?? 0) > 0);
+  const sheet: SheetColumn<(typeof rows)[number]>[] = [
+    { header: t("groupsPage.col.group"), width: 28, value: (r) => r.g.name },
+    { header: t("groupsPage.col.teacher"), width: 24, value: (r) => r.g.teacher_name },
+    { header: t("groupsPage.col.students"), width: 10, kind: "number", value: (r) => r.g.students },
+    { header: t("exportCurrency"), width: 10, value: (r) => r.m?.currency },
+    { header: t("groupsPage.col.expected"), kind: "money", value: (r) => r.m?.expected_minor },
+    { header: t("groupsPage.col.collected"), kind: "money", value: (r) => r.m?.collected_minor },
+    { header: t("groupsPage.col.remaining"), kind: "money", value: (r) => r.m?.remaining_minor },
+    { header: t("groupsPage.col.arrears"), kind: "money", value: (r) => r.m?.arrears_minor },
+    { header: t("sheet.receivedInMonth"), kind: "money", value: (r) => r.m?.received_in_month_minor },
+    ...(cost
+      ? ([
+          { header: t("groupsPage.col.cost"), kind: "money", value: (r) => r.m?.teacher_cost_minor },
+          { header: t("groupsPage.col.expenses"), kind: "money", value: (r) => r.m?.expenses_minor },
+          { header: t("groupsPage.col.net"), kind: "money", value: (r) => r.m?.net_minor },
+        ] as SheetColumn<(typeof rows)[number]>[])
+      : []),
+  ];
+
   return (
     <div className="space-y-5" data-testid="accounting-groups">
       {hero && <PageHero icon={Layers} title={t("groupsPage.title")} subtitle={t("groupsPage.subtitle")} latticeId="accounting-groups-hero" />}
@@ -66,7 +89,10 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
             <option value="name">{t("groupsPage.sort.name")}</option>
           </select>
         </label>
-        <input type="month" className={cn(fieldClass, "w-44")} value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} aria-label={t("sheet.month")} />
+        <div className="flex flex-wrap items-center gap-2">
+          <ExportButton name={`group-collections-${month}`} sheetName={t("groupsPage.title")} columns={sheet} rows={rows} />
+          <input type="month" className={cn(fieldClass, "w-44")} value={month} onChange={(e) => e.target.value && setMonth(e.target.value)} aria-label={t("sheet.month")} />
+        </div>
       </div>
 
       {error && <AlertBanner variant="error" message={error} />}
@@ -94,7 +120,11 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
                 label={t("groupsPage.netAfterTeacher")} icon={TrendingUp} accent="violet"
                 value={money(tot.net_minor, tot.currency)}
                 tone={(tot.net_minor ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-600 dark:text-emerald-400"}
-                hint={t("groupsPage.netHint", { cost: money(tot.teacher_cost_minor, tot.currency), margin: pct(tot.margin) })}
+                hint={
+                  (tot.expenses_minor ?? 0) > 0
+                    ? t("groupsPage.netHintExpenses", { cost: money(tot.teacher_cost_minor, tot.currency), expenses: money(tot.expenses_minor ?? 0, tot.currency), margin: pct(tot.margin) })
+                    : t("groupsPage.netHint", { cost: money(tot.teacher_cost_minor, tot.currency), margin: pct(tot.margin) })
+                }
               />
             )}
           </div>
@@ -117,6 +147,7 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
                   <th className="p-3 text-end font-medium">{t("groupsPage.col.arrears")}</th>
                   <th className="w-32 p-3 text-start font-medium">{t("groupsPage.col.rate")}</th>
                   {cost && <th className="p-3 text-end font-medium">{t("groupsPage.col.cost")}</th>}
+                  {showExpenses && <th className="p-3 text-end font-medium">{t("groupsPage.col.expenses")}</th>}
                   {cost && <th className="p-3 text-end font-medium">{t("groupsPage.col.net")}</th>}
                 </tr>
               </thead>
@@ -150,6 +181,7 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
                           </div>
                         </td>
                         {cost && <td className="p-3 text-end tabular-nums">{money(m.teacher_cost_minor, m.currency)}</td>}
+                        {showExpenses && <td className="p-3 text-end tabular-nums">{(m.expenses_minor ?? 0) > 0 ? money(m.expenses_minor ?? 0, m.currency) : "—"}</td>}
                         {cost && (
                           <td className={cn("p-3 text-end font-semibold tabular-nums", (m.net_minor ?? 0) < 0 ? "text-rose-600 dark:text-rose-400" : "text-emerald-700 dark:text-emerald-300")}>
                             {money(m.net_minor, m.currency)}
@@ -157,7 +189,7 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
                         )}
                       </>
                     ) : (
-                      <td className="text-muted-foreground p-3 text-center text-xs" colSpan={cost ? 7 : 5}>
+                      <td className="text-muted-foreground p-3 text-center text-xs" colSpan={(cost ? 7 : 5) + (showExpenses ? 1 : 0)}>
                         {g.price_minor === null ? t("sheet.noPrice") : t("groupsPage.nothingThisMonth")}
                       </td>
                     )}
@@ -188,6 +220,7 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
                       <Cell label={t("groupsPage.col.remaining")} value={money(m.remaining_minor, m.currency)} tone={m.remaining_minor > 0 ? "text-rose-600 dark:text-rose-400" : undefined} />
                       <Cell label={t("groupsPage.col.arrears")} value={money(m.arrears_minor, m.currency)} />
                       {cost && <Cell label={t("groupsPage.col.cost")} value={money(m.teacher_cost_minor, m.currency)} />}
+                      {showExpenses && <Cell label={t("groupsPage.col.expenses")} value={money(m.expenses_minor ?? 0, m.currency)} />}
                       {cost && <Cell label={t("groupsPage.col.net")} value={money(m.net_minor, m.currency)} />}
                     </div>
                   </>
@@ -237,7 +270,7 @@ export function AccountingGroupsScreen({ hero = true }: { hero?: boolean }) {
   );
 }
 
-function Cell({ label, value, tone }: { label: string; value: string; tone?: string }) {
+export function Cell({ label, value, tone }: { label: string; value: string; tone?: string }) {
   return (
     <div className="bg-muted/40 rounded-lg p-2">
       <p className="text-muted-foreground">{label}</p>

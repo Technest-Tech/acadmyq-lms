@@ -8,7 +8,7 @@ import { apiErrorMessage } from "@/components/groups/group-form";
 import { SoftBadge, type PastelTone } from "@/components/groups/group-look";
 import { AlertBanner } from "@/components/ui/alert";
 import { formatMoney } from "@/lib/money";
-import { getSubscription, subscriptionSubjectText, type SubscriptionLessonRow, type SubscriptionRow, type SubscriptionStatus } from "@/lib/subscriptions-api";
+import { closedReasonText, getSubscription, subscriptionSubjectText, type SubscriptionLessonRow, type SubscriptionRow, type SubscriptionStatus } from "@/lib/subscriptions-api";
 import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -54,7 +54,7 @@ export function SubscriptionDetail({ id, initial }: { id: string; initial?: Subs
     { label: t("detail.total"), value: money(row.price_minor) },
     { label: t("detail.bill"), value: row.invoice_id === null ? t("row.notBilled") : row.outstanding_minor > 0 ? t("row.due", { amount: money(row.outstanding_minor) }) : t("row.paid") },
     { label: t("detail.startsOn"), value: dayLabel(row.starts_on, locale) },
-    ...(row.closed_at ? [{ label: t("detail.closedOn"), value: [dayLabel(row.closed_at.slice(0, 10), locale), row.closed_reason, row.closed_by_name].filter(Boolean).join(" · ") }] : []),
+    ...(row.closed_at ? [{ label: t("detail.closedOn"), value: [dayLabel(row.closed_at.slice(0, 10), locale), closedReasonText(row.closed_reason, t), row.closed_by_name].filter(Boolean).join(" · ") }] : []),
     ...(row.opened_by_name ? [{ label: t("detail.openedBy"), value: row.opened_by_name }] : []),
   ];
 

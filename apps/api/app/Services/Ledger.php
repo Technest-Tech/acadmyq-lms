@@ -220,6 +220,7 @@ final class Ledger
 
         // Money in may settle what a pay-first family's next group month or package waits on.
         app(RenewalPolicy::class)->release($academyId, RenewalPolicy::studentsOf($payer), $opts['received_by'] ?? null, $opts['actor_role'] ?? null);
+        app(GroupPayroll::class)->syncCollectedShares($academyId);
 
         return DB::table('receipts')->where('id', $receipt->id)->first();
     }
@@ -267,6 +268,8 @@ final class Ledger
             'amount_minor' => (int) $receipt->amount_minor,
             'allocations' => $covered->map(fn ($a) => ['line' => (string) $a->invoice_line_id, 'amount_minor' => (int) $a->amount_minor])->all(),
         ], after: ['reason' => $reason]);
+
+        app(GroupPayroll::class)->syncCollectedShares((string) $receipt->academy_id);
 
         return DB::table('receipts')->where('id', $receiptId)->first();
     }
@@ -356,6 +359,7 @@ final class Ledger
                 ]);
 
                 app(RenewalPolicy::class)->release($academyId, RenewalPolicy::studentsOf($this->payerOfInvoice($invoice)), null, 'SUPER_ADMIN');
+                app(GroupPayroll::class)->syncCollectedShares($academyId);
             });
         } finally {
             foreach ($previous as $key => $value) {
@@ -418,6 +422,10 @@ final class Ledger
                 $this->applyCredit($academyId, ['guardian_id' => (string) $guardianId], (string) $invoice->currency);
             }
         }
+
+        // A line repriced gives money back and credit reaches other lines: a share of what was
+        // collected follows.
+        app(GroupPayroll::class)->syncCollectedShares($academyId);
     }
 
     // ── Reading ─────────────────────────────────────────────────────────────
@@ -604,7 +612,9 @@ final class Ledger
                     'invoice_line_id' => $line->id,
                     'invoice_id' => $line->invoice_id,
                     'amount_minor' => $take,
-                    'created_at' => now(),
+                    // With its offset: a naive bind lands hours early, and a teacher's share of what
+                    // was collected dates a payment by this.
+                    'created_at' => now()->toIso8601String(),
                 ]);
             }
             $line->allocated = (int) $line->allocated + $take;

@@ -10,7 +10,7 @@ import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { STATUS_TONE } from "@/components/subscriptions/subscription-detail";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/money";
-import { createSubscriptionFamilyPayLink, subscriptionSubjectText, type SubscriptionRow } from "@/lib/subscriptions-api";
+import { closedReasonText, createSubscriptionFamilyPayLink, subscriptionSubjectText, type SubscriptionRow } from "@/lib/subscriptions-api";
 import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -126,7 +126,7 @@ export function SubscriptionRowCard({ row, canManage, canRemind, actions, compac
           </span>
         )}
         {open && row.upcoming_lesson_count > 0 && <span>{t("row.upcoming", { count: row.upcoming_lesson_count })}</span>}
-        {finished && row.closed_at && <span>{[t("row.closedOn", { date: dayLabel(row.closed_at.slice(0, 10), locale) }), row.closed_reason, row.closed_by_name].filter(Boolean).join(" · ")}</span>}
+        {finished && row.closed_at && <span>{[t("row.closedOn", { date: dayLabel(row.closed_at.slice(0, 10), locale) }), closedReasonText(row.closed_reason, t), row.closed_by_name].filter(Boolean).join(" · ")}</span>}
         {row.settlement === "PENDING" && <span className="font-semibold text-amber-700 dark:text-amber-300">{t("row.settlementPending")}</span>}
       </p>
 

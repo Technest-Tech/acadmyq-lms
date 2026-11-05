@@ -233,9 +233,8 @@ it('changes nothing for an academy that is not a centre — on the accounts or n
     Sanctum::actingAs($this->owner);
     $june = cdLine($this, $this->adam, '2026-06-01');
 
-    // No dues offered, none let go — from the suspend dialog or from a charge.
+    // No dues offered and none let go in bulk: the suspend dialog is the centre's.
     $this->getJson("/api/guardians/{$this->parent}/advance-dues")->assertOk()->assertJsonPath('dues', []);
-    $this->postJson("/api/accounting/family/{$this->parent}/charges/{$june->id}/cancel")->assertStatus(422);
     $this->postJson("/api/guardians/{$this->parent}/suspend", ['cancel_line_ids' => [(string) $june->id]])->assertOk()->assertJsonPath('cancelled', []);
     expect((int) cdLine($this, $this->adam, '2026-06-01')->amount_minor)->toBe(45000);
 
@@ -253,7 +252,31 @@ it('changes nothing for an academy that is not a centre — on the accounts or n
     expect(cdTenant($this->academy, fn () => DB::table('lesson_packages')->where('id', $pkg['id'])->value('settlement')))->toBeNull();
     $this->getJson("/api/packages/{$pkg['id']}/settlement")->assertOk()->assertJsonPath('preview', null);
     $card = $this->getJson("/api/accounting/family/{$this->other}")->assertOk();
-    expect($card->json('unsettled'))->toBe([])->and($card->json('can_refund'))->toBeFalse()->and($card->json('can_settle'))->toBeFalse();
+    expect($card->json('unsettled'))->toBe([])->and($card->json('can_settle'))->toBeFalse();
+});
+
+it('lets any academy on the accounts cancel one charge the desk picked, and pay a family’s credit back', function () {
+    // A Quran academy on the accounts: no `centre`.
+    cdOn($this->academy, ['accounting']);
+    Sanctum::actingAs($this->owner);
+    $june = cdLine($this, $this->adam, '2026-06-01');
+
+    $this->postJson("/api/accounting/family/{$this->parent}/charges/{$june->id}/cancel", ['reason' => 'Not continuing'])->assertOk();
+    expect((int) cdLine($this, $this->adam, '2026-06-01')->amount_minor)->toBe(0);
+
+    // Unlike a centre's, this academy's bills close at the month's end: an emptied bill must still close.
+    $closed = cdTenant($this->academy, fn () => app(\App\Services\Invoicing::class)->closeInvoice((string) $june->invoice_id, $this->academy, (string) $this->owner->id, 'ACADEMY_OWNER'));
+    expect($closed)->not->toBeFalse();
+    $this->postJson("/api/accounting/family/{$this->parent}/charges/{$june->id}/cancel")->assertStatus(422);
+
+    $drawer = $this->postJson('/api/treasury/accounts', ['name' => 'Drawer', 'kind' => 'CASH', 'methods' => ['CASH']])->assertCreated()->json('id');
+    // May's 450 is still owed; 500 leaves 50 of credit.
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 50000, 'method' => 'CASH'])->assertCreated();
+    $card = $this->getJson("/api/accounting/family/{$this->parent}")->assertOk();
+    expect($card->json('can_refund'))->toBeTrue()->and($card->json('can_settle'))->toBeFalse();
+    $refund = fn (int $amount) => $this->postJson("/api/accounting/family/{$this->parent}/refund", ['amount_minor' => $amount, 'currency' => 'EGP', 'cash_account_id' => $drawer]);
+    $refund(5001)->assertStatus(422);
+    $refund(5000)->assertCreated();
 });
 
 it('never lets a closed bill’s total change outside a settlement — on any connection', function () {

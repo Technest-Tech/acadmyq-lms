@@ -538,11 +538,11 @@ describe("Family card", () => {
     expect(await screen.findByText(new RegExp(ar.family.chargeCancelled.split("{amount}")[1]!.trim().replace(".", "\\.")))).toBeTruthy();
   });
 
-  it("offers no charge cancel to an academy that is not a centre", async () => {
+  it("offers a charge cancel to any academy on the accounts, centre or not", async () => {
     api.getFamilyAccount.mockResolvedValue(family());
     render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
     await screen.findByTestId("family-charges");
-    expect(screen.queryByTestId("charge-cancel-l1")).toBeNull();
+    expect(screen.getByTestId("charge-cancel-l1")).toBeTruthy();
   });
 
   it("puts one discount on several groups and private subscriptions — only the chosen child's", async () => {

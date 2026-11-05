@@ -318,6 +318,24 @@ it('gives a removed charge’s money back as credit for the payer’s other char
     expect((int) acctInvoice($this, $this->parent, null, 6)->amount_paid_minor)->toBe(45000);
 });
 
+it('opens a bill that has receipts, with what each line was paid and who paid it', function () {
+    acctSwitch($this, true);
+    acctGroup($this);
+    $invoice = acctInvoice($this, $this->parent, null, 6);
+
+    Sanctum::actingAs($this->owner);
+    // Nothing paid yet: every line at zero.
+    $unpaid = $this->getJson("/api/invoices/{$invoice->id}")->assertOk();
+    expect(collect($unpaid->json('lineItems'))->sum('paid_minor'))->toBe(0)->and($unpaid->json('receipts'))->toBe([]);
+
+    // The one that answered 500 on prod from e128021: a bill with money on it.
+    $this->postJson("/api/invoices/{$invoice->id}/mark-paid", ['payment_method' => 'CASH', 'amount_paid_minor' => 50000])->assertOk();
+    $paid = $this->getJson("/api/invoices/{$invoice->id}")->assertOk();
+    expect(collect($paid->json('lineItems'))->sum('paid_minor'))->toBe(50000)
+        ->and($paid->json('receipts'))->toHaveCount(1)
+        ->and($paid->json('receipts.0.applied_minor'))->toBe(50000);
+});
+
 it('records a receipt from the classic mark-paid once accounting is on', function () {
     acctSwitch($this, true);
     acctGroup($this);

@@ -126,8 +126,10 @@ describe("DashboardHome — the centre's home screen", () => {
 
     const ring = within(await screen.findByTestId("distribution-ring"));
     expect(ring.getByText(t.distribution.active)).toBeInTheDocument();
-    expect(ring.getByText(`${formatNumber(70, "ar")}%`)).toBeInTheDocument();
-    expect(ring.getByText(t.distribution.new)).toBeInTheDocument();
+    // New students are active students (70 + 10): said under the ring, not a slice of it.
+    expect(ring.getByText(`${formatNumber(80, "ar")}%`)).toBeInTheDocument();
+    expect(ring.queryByText(t.distribution.newNote)).toBeNull();
+    expect(screen.getByTestId("distribution-new").textContent).toBe(t.distribution.newNote.replace("{count}", "10"));
     expect(ring.getByText(formatNumber(100, "ar"))).toBeInTheDocument();
 
     expect(await screen.findByTestId("trend-chart")).toBeInTheDocument();

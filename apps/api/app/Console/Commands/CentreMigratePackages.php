@@ -13,6 +13,7 @@ use App\Support\LessonCount;
 use App\Support\Tenancy;
 use App\Support\TenantContext;
 use Illuminate\Console\Command;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -25,7 +26,8 @@ use Illuminate\Support\Str;
  *   php artisan centre:migrate-packages <academy id | exact name> [--dry-run|--apply]
  *
  * Dry-run (the default) prints what would be written and the verification sums; `--apply` writes it
- * in one transaction and prints the same sums before and after. Idempotent: a package already moved
+ * in one transaction, checked before it commits: if the sums move or a count is short, nothing stays
+ * written and the command fails. Idempotent: a package already moved
  * (`legacy_package_id`) is skipped. Only an academy holding `centre`.
  *
  * `--apply` also ends the old engine for this academy, in that same transaction: each moved row is
@@ -66,18 +68,32 @@ final class CentreMigratePackages extends Command
                 return self::FAILURE;
             }
             $this->line(($apply ? 'Moving' : 'Would move')." {$academy->name}'s packages onto centre_subscriptions.");
-            $before = $this->sums($academyId);
-            $this->printSums('Before', $before);
 
+            // The checks run before the commit: a move that fails one leaves nothing behind.
             $run = function () use ($academyId, $packages, $apply): array {
+                $before = $this->sums($academyId);
+                $this->printSums('Before', $before);
                 $moved = $this->move($academyId, $packages, $apply);
                 if ($apply) {
                     $this->endPackageEngine($academyId);
                 }
+                $after = $this->sums($academyId);
+                if ($after !== $before) {
+                    throw new \RuntimeException('Money moved, and it must not: '.json_encode(['before' => $before, 'after' => $after]).'. Nothing was written. If someone took a payment or marked a lesson during the move, run it again; otherwise investigate.');
+                }
 
-                return $moved;
+                return $moved + ['after' => $after, 'verified' => $apply && $moved['skipped'] === 0 ? $this->verifiedCounts($academyId) : null];
             };
-            $result = $apply ? DB::transaction($run) : $run();
+            try {
+                $result = $apply ? DB::transaction($run) : $run();
+            } catch (\RuntimeException $e) {
+                $this->error($e->getMessage());
+
+                return self::FAILURE;
+            }
+            if ($apply) {
+                $this->line('The packages switch is off for this academy.');
+            }
 
             $this->table(['Package', 'Student', 'Subject', 'Sold', 'Used', 'Status', 'Line'], $result['rows']);
             $this->line("Packages mapped: {$result['mapped']} (skipped, already moved: {$result['skipped']})");
@@ -91,31 +107,33 @@ final class CentreMigratePackages extends Command
             }
             $this->warnLessonsBeforeTheirBlock($academyId);
 
-            $after = $this->sums($academyId);
-            $this->printSums('After', $after);
-            if ($after['lines'] !== $before['lines'] || $after['allocations'] !== $before['allocations']) {
-                $this->error('Money moved — it must not. Investigate before deploying.');
-
-                return self::FAILURE;
-            }
-            // Only the run that moved them can compare: lessons are counted and undone from then on.
-            if ($apply && $result['skipped'] === 0) {
-                $expected = (int) DB::table('lesson_packages')->where('academy_id', $academyId)->count();
-                $got = (int) DB::table('centre_subscriptions')->where('academy_id', $academyId)->whereNotNull('legacy_package_id')->count();
-                $credits = (int) DB::table('lesson_package_credits')->where('academy_id', $academyId)->count();
-                $lessons = (int) DB::table('centre_subscription_lessons as l')->join('centre_subscriptions as cs', 'cs.id', '=', 'l.subscription_id')
-                    ->where('l.academy_id', $academyId)->whereNotNull('cs.legacy_package_id')->count();
-                $this->line("Verify: {$got}/{$expected} packages have a subscription row; {$lessons}/{$credits} credits have a lesson row.");
-                if ($got !== $expected || $lessons !== $credits) {
-                    $this->error('Counts do not match.');
-
-                    return self::FAILURE;
-                }
+            $this->printSums('After', $result['after']);
+            if ($result['verified'] !== null) {
+                $this->line($result['verified']);
             }
             $this->info($apply ? 'Done.' : 'Dry run — nothing written. Run with --apply to write.');
 
             return self::SUCCESS;
         });
+    }
+
+    /**
+     * Every package has its row and every credit its lesson. Only the run that moved them can compare:
+     * lessons are counted and undone from then on.
+     */
+    private function verifiedCounts(string $academyId): string
+    {
+        $expected = (int) DB::table('lesson_packages')->where('academy_id', $academyId)->count();
+        $got = (int) DB::table('centre_subscriptions')->where('academy_id', $academyId)->whereNotNull('legacy_package_id')->count();
+        $credits = (int) DB::table('lesson_package_credits')->where('academy_id', $academyId)->count();
+        $lessons = (int) DB::table('centre_subscription_lessons as l')->join('centre_subscriptions as cs', 'cs.id', '=', 'l.subscription_id')
+            ->where('l.academy_id', $academyId)->whereNotNull('cs.legacy_package_id')->count();
+        $said = "Verify: {$got}/{$expected} packages have a subscription row; {$lessons}/{$credits} credits have a lesson row.";
+        if ($got !== $expected || $lessons !== $credits) {
+            throw new \RuntimeException("{$said} Counts do not match. Nothing was written.");
+        }
+
+        return $said;
     }
 
     /** @return array{rows: list<array<int, mixed>>, mapped: int, skipped: int, credits: int, unmapped: int, unmapped_ids: list<string>, warnings: list<string>} */
@@ -191,7 +209,7 @@ final class CentreMigratePackages extends Command
                     'id' => (string) Str::uuid(), 'academy_id' => $academyId, 'subscription_id' => $id, 'session_id' => (string) $c->session_id,
                     'student_id' => (string) $p->student_id, 'teacher_id' => (string) ($teacher ?? $c->teacher_id),
                     'course' => $c->course !== null && trim((string) $c->course) !== '' ? trim((string) $c->course) : null,
-                    'lesson_on' => \Illuminate\Support\Carbon::parse($c->scheduled_at_utc)->setTimezone($tz)->toDateString(),
+                    'lesson_on' => Carbon::parse($c->scheduled_at_utc)->setTimezone($tz)->toDateString(),
                     'counted_at' => $c->consumed_at, 'created_at' => $c->consumed_at,
                 ]);
             }
@@ -238,7 +256,6 @@ final class CentreMigratePackages extends Command
         $overrides = is_array($overrides) ? $overrides : [];
         $disabled = array_values(array_unique([...array_map('strval', (array) ($overrides['disabled'] ?? [])), 'packages']));
         $modules->setDisabledFeatures($academyId, 'MANAGEMENT', $disabled, array_map('strval', (array) ($overrides['enabled'] ?? [])));
-        $this->line('The packages switch is off for this academy.');
     }
 
     /**

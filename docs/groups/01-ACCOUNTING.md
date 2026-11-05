@@ -823,7 +823,8 @@ Endpoints: `GET /packages/{id}/settlement`, `POST /packages/{id}/settle`, `settl
 `POST /packages/{id}/close|cancel`, `POST /accounting/family/{guardianId}/refund`. Money moves on
 `invoice.mark_paid` (+ `package.manage` to settle); paying out also takes `expense.manage`.
 
-**Scope rule (Ahmed, 2026-10-29): none of the 2026-10-29 work may change anything for the existing
+**(Since 2026-11-05 cancelling one charge and paying credit back reach any academy on the accounts; see the last
+section.) Scope rule (Ahmed, 2026-10-29): none of the 2026-10-29 work may change anything for the existing
 Quran academies.** Everything above — and the prepaid-subscription settlement shipped beside it —
 is gated on `centre`, on the server (`Entitlement::hasCapability($academyId, 'centre')`:
 `ChargeCancellation::availableFor`, `PackageSettlement::availableFor`, `ClassGroups::roster`) and in
@@ -850,3 +851,50 @@ in any academy; now `coalesce(…, '')`, pinned by "never lets a closed bill's t
 - **Leftovers from before**: `php artisan subscriptions:clear-deleted-dues [--academy=] [--apply]`
   (centres only) lists, then clears, group charges of students deleted from the group (audit
   `class_group.member_undone`, no membership left, open bill) and unpaid bills of cancelled blocks.
+
+## "How much did we make?" (2026-11-05)
+
+An audit against who the clients are (online academies: groups, students, subscriptions) found the cycle
+from bill to treasury sound and the reports short. Migration `2026_11_09_000001` is additive. Everything is
+behind `entitled:accounting`, so an academy without it sees nothing; an academy on the accounts sees all of
+it, Quran or centre.
+
+- **Profit in the income report.** `net` is the cash that moved, so a salary marked "transferred" outside the
+  treasury never reached it, and one paid next month landed on the wrong month. Each month now also carries
+  `salaries_earned_minor` (the month's `payouts.total_minor`), `salaries_paid_minor` (expenses tied to a
+  statement, by the day they were paid) and `profit_minor` = in − (out − paid) − earned. Only an expense tied
+  to a statement is swapped out, so a salary typed in by hand stays a cost, counted once. Without `payout.read`
+  the three are null and the screen reads as it always did. `in`, `out` and `net` are unchanged.
+- **One figure across currencies.** With more than one currency the income report offers "All in {default
+  currency}", at today's rate, for reading only and labelled approximate. A currency with no rate is named and
+  left out. `GET /accounting/exchange-rates` serves every currency the source quotes (the statistics page's list
+  stops at six and misses OMR, KWD, QAR), behind `entitled:accounting` because a client on the accounts may not
+  hold `financial_statistics`. No rates: the report stays per currency.
+- **Private lessons report.** `GET /accounting/private?month=`, the Reports hub's new tab: per student and
+  teacher, expected, collected, remaining, arrears, received, teacher cost, net. A line is private when it is a
+  session's, a `centre_subscriptions` line or on a `lesson_packages` bill; a hand-typed bill has no teacher and is
+  left out. An untied block reads as the student's current teacher. `teachers[]` is each teacher whole: private
+  and group money in, everything their lines pay for the month, what was spent on their groups.
+- **What was spent on a group.** `expenses.class_group_id` (optional; refused beside `payout_id`, a salary
+  reaches a group through its statement's lines). `GET /accounting/groups` gains `expenses_minor` and its net
+  takes it off. Existing expenses cannot be tagged afterwards: void and re-enter.
+- **A share of what was collected.** `class_groups.teacher_share_basis` = `BILLED` (default, what it always was)
+  or `COLLECTED`, refused without receipts, and read as `BILLED` if the academy later leaves the accounts. On
+  `COLLECTED`, `GroupPayroll::syncRevenueShare` takes the allocations on the group's lines, dated by the later of
+  `received_on` and the day the allocation was made, so a receipt dated back or old credit lands on a month still
+  open. `Ledger` calls `syncCollectedShares` after a receipt, a void, a gateway payment and `afterLinesChanged`; it
+  re-reads the current month and the two before it. A finalized statement stays as it was paid, so a receipt
+  voided after the seal leaves the teacher overpaid by that part (the same rule as a billed share).
+- **Refund and cancel for every academy on the accounts.** The audit's recommendation, on the list Ahmed said to fix
+  on 2026-11-05: an overpaying parent is not only a centre's problem. `PackageSettlement::refundCredit` now asks `Ledger::keeps`; `ChargeCancellation::cancel` asks
+  `canCancelCharge` (`Ledger::enabledFor`). This is a deliberate exception to "the Quran path does not change",
+  and only for an academy on the accounts. Still behind `centre`: settling a block closed early, the suspend
+  dialog's advance dues, and what leaves with a deleted family.
+- **Excel.** `ExportButton` + `lib/accounting-export.ts` on arrears, receipts (the whole filter, not the page),
+  expenses, daily collections, income, groups and private lessons. Money goes out as real numbers (`#,##0.00`).
+
+Not done, on purpose: instalments, fixed fees (registration, books), freezing a membership, LMS sales in the books.
+Most clients have no LMS courses; build these when a client asks.
+
+Tests: `tests/Feature/Accounting/AccountingReportsTest.php`, `CancelDuesTest`, web `accounting-reports.test.tsx`,
+`accounting-treasury.test.tsx`, `groups.test.tsx`.

@@ -4,11 +4,13 @@ import { Banknote, CalendarDays } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { METHOD_SWATCH, MethodBar, Tile, todayLocal } from "@/components/accounting/accounting-ui";
+import { ExportButton } from "@/components/accounting/export-button";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { PageHero } from "@/components/ui/page-hero";
 import { RECEIPT_METHODS, getDailyCollections, type DailyCollections, type ReceiptMethod } from "@/lib/accounting-api";
+import type { SheetColumn } from "@/lib/accounting-export";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -56,9 +58,23 @@ export function AccountingDailyScreen({ hero = true }: { hero?: boolean }) {
     [data],
   );
 
+  type DayRow = { date: string; currency: DailyCollections["days"][number]["currencies"][number] };
+  const dayRows: DayRow[] = (data?.days ?? []).flatMap((d) => d.currencies.map((currency) => ({ date: d.date, currency })));
+  const sheet: SheetColumn<DayRow>[] = [
+    { header: t("statement.col.date"), width: 12, value: (r) => r.date },
+    { header: t("exportCurrency"), width: 10, value: (r) => r.currency.currency },
+    { header: t("exportCount"), width: 10, kind: "number", value: (r) => r.currency.count },
+    { header: t("exportAmount"), kind: "money", value: (r) => r.currency.amount_minor },
+    ...RECEIPT_METHODS.map((m) => ({ header: t(`method.${m}`), kind: "money" as const, value: (r: DayRow) => r.currency.by_method[m] ?? null })),
+  ];
+
   return (
     <div className="space-y-5" data-testid="accounting-daily">
       {hero && <PageHero icon={CalendarDays} title={t("daily.title")} subtitle={t("daily.subtitle")} latticeId="accounting-daily-hero" />}
+
+      <div className="flex justify-end empty:hidden">
+        <ExportButton name={`daily-collections-${from}-${to}`} sheetName={t("daily.title")} columns={sheet} rows={dayRows} />
+      </div>
 
       <div className="bg-card grid grid-cols-1 gap-2 rounded-2xl border p-3 shadow-sm sm:grid-cols-3">
         <label className="text-muted-foreground text-xs">

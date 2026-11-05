@@ -5,6 +5,7 @@ declare(strict_types=1);
 use App\Services\Ledger;
 use App\Services\LessonPackages;
 use App\Services\ModuleBilling;
+use App\Support\Entitlement;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -140,6 +141,35 @@ it('moves every package and credit onto the new tables, finds each bill line, an
     ($this->attend)($this->malika, '2026-06-05 10:00:00+00');
     expect(($this->tenant)(fn () => DB::table('centre_subscription_lessons')->where('subscription_id', $m->id)->count()))->toBe(3)
         ->and(($this->tenant)(fn () => (int) DB::table('lesson_packages')->where('id', $malika['package_id'])->value('minutes_consumed')))->toBe(120);
+});
+
+it('leaves nothing written when the money moves during the move', function () {
+    $opened = ($this->open)($this->malika);
+    // Something that should never happen: a side effect that touches a bill while a package is closed.
+    DB::unprepared(<<<'SQL'
+        create or replace function pg_temp.rehearse_money_moved() returns trigger language plpgsql as $$
+        begin
+          update invoice_line_items set amount_minor = amount_minor + 1 where invoice_id = new.invoice_id;
+          return new;
+        end $$;
+        create trigger trg_rehearse_money_moved after update on lesson_packages for each row execute function pg_temp.rehearse_money_moved();
+    SQL);
+    try {
+        $this->artisan('centre:migrate-packages', ['academy' => 'Lingo Test Centre', '--apply' => true])
+            ->expectsOutputToContain('Money moved')
+            ->assertExitCode(1);
+    } finally {
+        DB::unprepared('drop trigger if exists trg_rehearse_money_moved on lesson_packages');
+    }
+
+    // All of it rolled back: no new row, the package still running, its switch still on.
+    expect(($this->tenant)(fn () => DB::table('centre_subscriptions')->count()))->toBe(0)
+        ->and(($this->tenant)(fn () => DB::table('lesson_packages')->where('id', $opened['package_id'])->value('status')))->toBe('ACTIVE')
+        ->and(($this->tenant)(fn () => Entitlement::hasCapability($this->academy, 'packages')))->toBeTrue();
+
+    // And with the side effect gone, the same command goes through.
+    $this->artisan('centre:migrate-packages', ['academy' => 'Lingo Test Centre', '--apply' => true])->assertExitCode(0);
+    expect(($this->tenant)(fn () => DB::table('centre_subscriptions')->count()))->toBe(1);
 });
 
 it('refuses an academy that is not a centre, and an unknown name', function () {

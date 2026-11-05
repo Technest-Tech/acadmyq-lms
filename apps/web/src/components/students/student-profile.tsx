@@ -45,6 +45,7 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
+import { usePlanLabel } from "@/lib/plan-label";
 import { useLevelWord } from "@/lib/levels";
 import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
@@ -64,6 +65,7 @@ type TabKey = "profile" | "subscription" | "teacher" | "schedule" | "settings";
  * Yusuf and what do we charge?") cost two navigations to answer.
  */
 export function StudentProfile({ studentId }: { studentId: string }) {
+  const planLabel = usePlanLabel();
   const t = useTranslations("students");
   const tLevels = useTranslations("levels");
   const word = useLevelWord();
@@ -220,7 +222,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
             {sub && (
               <HeroBadge>
                 <BookOpen className="size-3" aria-hidden />
-                {sub.plan_label}
+                {planLabel(sub.plan_label)}
               </HeroBadge>
             )}
             {centre && typeof data.student.level_name === "string" && data.student.level_name !== "" && (

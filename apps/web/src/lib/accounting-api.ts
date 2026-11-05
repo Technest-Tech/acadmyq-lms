@@ -319,6 +319,8 @@ export interface GroupMoney {
   remaining_minor: number;
   arrears_minor: number;
   received_in_month_minor: number;
+  /** Spent on this group in the month (an expense that names it); comes off the net. */
+  expenses_minor?: number;
   teacher_cost_minor: number | null;
   net_minor: number | null;
   rate: number | null;
@@ -342,6 +344,37 @@ export interface AccountingGroups {
   totals: GroupMoney[];
   teachers: (GroupMoney & { teacher_id: string | null; teacher_name: string | null; groups: number })[] | null;
   sees_teacher_cost: boolean;
+}
+
+/** GET /accounting/private: the month's private lessons by student, then each teacher whole. */
+export interface AccountingPrivate {
+  month: string;
+  rows: (GroupMoney & { student_id: string; student_name: string | null; teacher_id: string | null; teacher_name: string | null })[];
+  totals: GroupMoney[];
+  teachers:
+    | {
+        teacher_id: string | null;
+        teacher_name: string | null;
+        currency: string;
+        students: number;
+        private_received_minor: number;
+        groups_received_minor: number;
+        received_in_month_minor: number;
+        expenses_minor: number;
+        teacher_cost_minor: number;
+        net_minor: number;
+      }[]
+    | null;
+  sees_teacher_cost: boolean;
+}
+
+/** GET /accounting/exchange-rates: every currency's value in the source's home currency. */
+export interface AccountingRates {
+  home: string;
+  available: boolean;
+  stale: boolean;
+  as_of: number | null;
+  rates: { currency: string; to_home: number }[];
 }
 
 export interface ArrearsPayer {
@@ -414,6 +447,14 @@ export function getAccountingOverview(month?: string): Promise<AccountingOvervie
 
 export function getAccountingGroups(month?: string): Promise<AccountingGroups> {
   return apiFetch(`/api/accounting/groups${query({ month })}`);
+}
+
+export function getAccountingPrivate(month?: string): Promise<AccountingPrivate> {
+  return apiFetch(`/api/accounting/private${query({ month })}`);
+}
+
+export function getAccountingRates(): Promise<AccountingRates> {
+  return apiFetch(`/api/accounting/exchange-rates`);
 }
 
 export function getArrears(filters: { group_id?: string; bucket?: AgeBucket | "overdue" | ""; q?: string } = {}): Promise<Arrears> {
@@ -707,6 +748,16 @@ export interface InOut {
   currencies: { currency: string; in_minor: number; out_minor: number; net_minor: number }[];
 }
 
+/** A month of the income report: the cash that moved, and what the month actually earned. */
+export interface IncomeMonth {
+  currencies: (InOut["currencies"][number] & {
+    /** The teachers' statements for this month, however and whenever they were paid; null without pay rights. */
+    salaries_earned_minor?: number | null;
+    salaries_paid_minor?: number | null;
+    profit_minor?: number | null;
+  })[];
+}
+
 export interface TreasuryState {
   today: string;
   accounts: CashAccount[];
@@ -828,6 +879,8 @@ export interface Expense {
   description: string | null;
   has_attachment: boolean;
   payout_id: string | null;
+  class_group_id?: string | null;
+  group_name?: string | null;
   created_by_name: string | null;
   voided: boolean;
   void_reason: string | null;
@@ -862,10 +915,11 @@ export function getExpenses(filters: { from?: string; to?: string; category_id?:
   return apiFetch(`/api/expenses${query(filters)}`);
 }
 
-export function createExpense(input: { category_id?: string | null; payout_id?: string | null; cash_account_id: string; amount_minor: number; spent_on?: string; payee?: string; description?: string; attachment?: File | null }): Promise<{ id: string; number: string }> {
+export function createExpense(input: { category_id?: string | null; payout_id?: string | null; class_group_id?: string | null; cash_account_id: string; amount_minor: number; spent_on?: string; payee?: string; description?: string; attachment?: File | null }): Promise<{ id: string; number: string }> {
   const body = new FormData();
   if (input.category_id) body.set("category_id", input.category_id);
   if (input.payout_id) body.set("payout_id", input.payout_id);
+  if (input.class_group_id) body.set("class_group_id", input.class_group_id);
   body.set("cash_account_id", input.cash_account_id);
   body.set("amount_minor", String(input.amount_minor));
   if (input.spent_on) body.set("spent_on", input.spent_on);
@@ -899,6 +953,6 @@ export function updateExpenseCategory(id: string, patch: { name?: string; is_act
   return apiFetch(`/api/expense-categories/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 }
 
-export function getIncomeExpenses(year?: number): Promise<{ year: number; months: ({ month: string } & InOut)[]; categories: { name: string; currency: string; amount_minor: number }[]; sees_salaries: boolean }> {
+export function getIncomeExpenses(year?: number): Promise<{ year: number; months: ({ month: string } & IncomeMonth)[]; categories: { name: string; currency: string; amount_minor: number }[]; sees_salaries: boolean }> {
   return apiFetch(`/api/accounting/income-expenses${query({ year })}`);
 }

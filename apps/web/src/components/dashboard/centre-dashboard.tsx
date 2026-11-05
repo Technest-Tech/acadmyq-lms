@@ -176,12 +176,14 @@ export function CentreDashboard() {
   const moneyText = (minor: number) => formatMoney({ amount: minor, currency }, locale, { trimZeroDecimals: true });
   const chartText = (value: number) => (showMoney ? moneyText(value) : formatNumber(value, locale));
 
+  // A student who joined this month is an active student: the ring is their status, and how many are
+  // new is said under it. As a slice of its own it read "active 0%" on a client young enough for
+  // everyone to be new.
   const slices: RingSlice[] = students
     ? [
-        { key: "active", label: t("distribution.active"), value: students.active, color: "oklch(0.5 0.21 292)" },
+        { key: "active", label: t("distribution.active"), value: students.active + students.new_recent, color: "oklch(0.5 0.21 292)" },
         { key: "inactive", label: t("distribution.inactive"), value: students.inactive, color: "oklch(0.65 0.17 245)" },
         { key: "trial", label: t("distribution.trial"), value: students.trial, color: "oklch(0.72 0.17 155)" },
-        { key: "new", label: t("distribution.new"), value: students.new_recent, color: "oklch(0.8 0.16 80)" },
       ]
     : [];
 
@@ -370,7 +372,14 @@ export function CentreDashboard() {
                 {students.total === 0 ? (
                   <p className="text-muted-foreground py-14 text-center text-sm">{t("distribution.empty")}</p>
                 ) : (
-                  <DistributionRing slices={slices} total={students.total} unit={t("distribution.unit")} locale={locale} />
+                  <>
+                    <DistributionRing slices={slices} total={students.total} unit={t("distribution.unit")} locale={locale} />
+                    {students.new_recent > 0 && (
+                      <p className="text-muted-foreground mt-3 text-center text-xs" data-testid="distribution-new">
+                        {t("distribution.newNote", { count: students.new_recent })}
+                      </p>
+                    )}
+                  </>
                 )}
               </div>
             )}

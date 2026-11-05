@@ -14,7 +14,7 @@ type Locale = "ar" | "en";
 
 const HEADER_BG = "#047857";
 const HEADER_TEXT = "#FFFFFF";
-const BAND_BG = "#F1F7F4";
+export const BAND_BG = "#F1F7F4";
 const BORDER = "#D5E0DA";
 const TITLE_TEXT = "#065F46";
 
@@ -32,9 +32,9 @@ function sheetName(raw: string, used: Set<string>): string {
   return name;
 }
 
-const border = { borderColor: BORDER, borderStyle: "thin" as const };
+export const border = { borderColor: BORDER, borderStyle: "thin" as const };
 
-function headerCell(value: string) {
+export function headerCell(value: string) {
   return {
     value,
     fontWeight: "bold" as const,

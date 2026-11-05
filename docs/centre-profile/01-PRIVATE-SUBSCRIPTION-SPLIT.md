@@ -544,7 +544,7 @@ Pinned by `tests/Feature/Centre/AfterTheMoveTest.php` unless said otherwise.
 ## Going live
 
 The web reads `/subscriptions` as soon as `centre` is on, so deploy and move happen together, at a quiet hour,
-for **every** academy holding `centre`. Read prod for that list first; only Lingo has been read.
+for **every** academy holding `centre`: on 2026-11-05 that is Lingo and LetsLearn (empty). Check the list again on the day.
 
 ```
 # 1. pre-deploy dump, then deploy (docs: prod-deploy runbook)
@@ -555,7 +555,36 @@ php artisan profile:set "Lingo Academy" CENTRE --dry-run
 php artisan profile:set "Lingo Academy" CENTRE                   # the type, the look, the rest of the preset
 ```
 
-Way back: restore the dump. A rehearsal of all the branch's migrations on a restored prod dump has not been done
-and is worth doing first: tests start from an empty database, which is how item 9 stayed hidden.
+Way back: restore the dump, which takes every academy back to that moment. There is no reverse command.
+
+## Rehearsal on a copy of prod (2026-11-05)
+
+A plain dump of prod (196 migrations, 28 academies, 142 tables) restored locally: PostgreSQL 15 on the Mac, 16 on
+prod. Prod's own code (`feat/superadmin-reorg`, 22c38e2) ran on one copy and this branch on another. Every row of
+every table was fingerprinted per academy before and after each step. All copies were dropped afterwards.
+
+| Step | Result |
+|---|---|
+| The 17 migrations + `PermissionSeeder`, as `deploy.sh` runs them | No error, about 0.5 s. No academy's existing rows changed |
+| Who holds `centre` | Lingo and LetsLearn only. LetsLearn is empty: 0 students, 0 teachers, 0 packages. Al-Furqan and Alrayan do not hold it |
+| `centre:migrate-packages` on Lingo | 160/160 packages, 298/298 credits, about 1 s. Line and allocation sums equal. Only `lesson_packages`, `module_subscriptions` and `audit_log` changed for Lingo; bills, lines, receipts, allocations, payouts and sessions kept their fingerprint. A second run moved nothing |
+| Same GET requests on both codes, 49 real users (owner, teacher, supervisor), 6,953 each | The other 26 academies: no meaning changed except the deliberate refund and profit on Al-Furqan, and random ids of expense categories made on first read. The rest is added keys, and new routes answering 402/403 |
+| A real week: Lingo's 99 coming private lessons marked one by one on both codes | 80 on the same block, 0 on a different block, 19 outside (block finished, or no block for that teacher). Teacher pay equal on 99/99. The old engine raised 9,920 EGP and 6 renewals by itself; the new one 0 |
+| The desk on real records | Sell takes the outside lessons; edit re-issues the line; both pending settlements with paid money list once and settle as credit; cancel; undo and re-mark move no money |
+| Jobs at their real clock: roll, fixed salaries, group months, overdue reports, auto-deduct, reminders, group alerts, month closes | All ran on both codes; 27 of 28 academies equal afterwards. Lingo differs only by 14 overdue-report alerts no longer written (meant) |
+| First browser pass, Lingo's owner on the moved copy: dashboard, subscriptions, family, student, reports, notifications, sell form | All open. Every API call 200, except `GET /students/{id}/schedule` answering 422 on a student with two teachers (not chased; nothing shows) |
+
+**Found by it, and fixed (2026-11-05, uncommitted):**
+
+1. **The bell stayed on 202.** `NotificationController::summary` counted unread REPORT_OVERDUE in `total` while the Reports tab was hidden for an academy that wants no lesson reports, so they could never be read. It now asks `FlagOverdueReportsJob::wantsLessonReports`, the same answer the page and the job read. Only a centre can be without the tab, so a Quran academy's count is unchanged (pinned both ways in `AfterTheMoveTest`). The rows stay.
+2. **The move's checks ran after its commit.** A failure printed an error and left the move in place. The sums and counts now run inside the transaction and throw, so a failed move leaves nothing, the `packages` switch included (pinned in `MigratePackagesCommandTest`). Someone taking a payment during the move also fails it, safely: run it again.
+3. **Opening a bill that has receipts answered 500, on prod's code too.** `InvoiceController:633` plucked `DB::raw('sum(amount_minor)')`, which no row has as a property. It selects a named column now (pinned in `ReceiptsTest`). In prod since e128021, and it reaches prod only with this branch unless taken separately. Prod's logs were not read.
+4. **Words.** Closed reasons the system writes read in the reader's language (`closedReasonText`), and what the desk typed stays as typed. `Package billing` reads "اشتراك خاص" for a centre only (`usePlanLabel`; other academies keep it). The dashboard ring counts a new student as active and says how many are new under it, so a young client no longer reads active 0% (web only; `GET /dashboard/centre` is unchanged).
+
+None of these was re-run on real data: the copies were dropped. Repeat the rehearsal just before go-live.
+
+**Hand-check with Lingo:** 2 blocks closed with no lessons still owe 980 EGP; one attended lesson has neither a credit nor a line; plus the cases in "Lingo's real data". Closing an unpaid block leaves its bill whole on both codes: not a regression, but the desk should know.
+
+**Not covered:** WhatsApp sending (no gateway configured locally, 0 calls); the web's DOM for Quran academies (tests pin it, the API was compared); the deploy's real time; PostgreSQL 16.
 
 Step 6 (strip the centre branches out of `LessonPackages`) comes after this, once no academy runs them.

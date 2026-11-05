@@ -267,9 +267,9 @@ final class FamilyAccountController extends Controller
             ->where('follow_up_on', '>=', $today)->orderBy('follow_up_on')->first(['follow_up_on', 'body']);
 
         ksort($balance);
-        // Settling and paying credit back are a centre's (PackageSettlement::availableFor).
+        // Settling a block closed early is a centre's; paying credit back is any academy's on the accounts.
         $settles = CentreBooks::enabledFor($academyId);
-        $canRefund = $settles && Gate::allows('invoice.mark_paid') && Gate::allows('expense.manage');
+        $canRefund = Ledger::keeps($academyId) && Gate::allows('invoice.mark_paid') && Gate::allows('expense.manage');
 
         return response()->json([
             'family' => ['id' => (string) $guardian->id, 'name' => (string) $guardian->full_name, 'phone' => $guardian->whatsapp_phone, 'renewal_policy' => (string) $guardian->renewal_policy],

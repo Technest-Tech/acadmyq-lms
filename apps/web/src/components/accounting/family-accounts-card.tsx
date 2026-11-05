@@ -62,6 +62,7 @@ import {
   type UnsettledPackage,
 } from "@/lib/accounting-api";
 import { useCapability } from "@/lib/capabilities";
+import { usePlanLabel } from "@/lib/plan-label";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -86,8 +87,7 @@ export function FamilyAccountsCard({ guardianId }: { guardianId: string }) {
 
 function FamilyAccounts({ guardianId }: { guardianId: string }) {
   const t = useTranslations("accounting");
-  // Letting a charge go (إلغاء المستحق) is a centre's; every other academy's card is unchanged.
-  const centre = useCapability("centre");
+  const planLabel = usePlanLabel();
   const locale = useLocale();
   const [data, setData] = useState<FamilyAccount | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -341,7 +341,7 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
                     <GraduationCap className="size-3.5 shrink-0 text-violet-600 dark:text-violet-400" aria-hidden />
                     <span className="font-medium">{t("family.privateLessons")}</span>
                     <span className="text-muted-foreground text-xs">
-                      {[c.private.plan_label, money(c.private.price_minor, c.private.currency), c.private.teachers.join("، ")].filter(Boolean).join(" · ")}
+                      {[planLabel(c.private.plan_label), money(c.private.price_minor, c.private.currency), c.private.teachers.join("، ")].filter(Boolean).join(" · ")}
                     </span>
                   </li>
                 )}
@@ -419,7 +419,7 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-0.5">
                   <span className="font-semibold text-rose-600 tabular-nums dark:text-rose-400">{money(c.remaining_minor, c.currency)}</span>
-                  {centre && data.can_collect && c.bill_open && cancellingCharge !== c.id && (
+                  {data.can_collect && c.bill_open && cancellingCharge !== c.id && (
                     <button
                       type="button"
                       className="text-muted-foreground hover:text-destructive text-[11px] underline-offset-2 hover:underline"

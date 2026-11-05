@@ -61,6 +61,7 @@ import {
 import { RemovalDuesNote } from "@/components/guardians/removal-dues-note";
 import { fetchRoster } from "@/lib/roster";
 import { useCapability } from "@/lib/capabilities";
+import { usePlanLabel } from "@/lib/plan-label";
 import { COUNTRIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -194,6 +195,7 @@ function ChildRow({
   onError: (msg: string) => void;
 }) {
   const centre = useCapability("centre");
+  const planLabel = usePlanLabel();
   const t = useTranslations("guardians");
   const ts = useTranslations("students");
   const locale = useLocale();
@@ -254,7 +256,7 @@ function ChildRow({
           <p className="truncate text-sm font-semibold">{child.full_name}</p>
           <p className="text-muted-foreground mt-0.5 truncate text-xs">
             {child.teacher_name ?? t("detail.noTeacher")}
-            {child.plan_label ? ` · ${child.plan_label}` : ""}
+            {child.plan_label ? ` · ${planLabel(child.plan_label)}` : ""}
           </p>
         </div>
         {statusLabel && active && (

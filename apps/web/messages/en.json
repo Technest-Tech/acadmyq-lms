@@ -30,8 +30,8 @@
         "active": "Active students",
         "inactive": "Inactive",
         "trial": "Placement",
-        "new": "New (last 30 days)",
-        "empty": "No students yet."
+        "empty": "No students yet.",
+        "newNote": "{count} of them new in the last 30 days"
       },
       "trend": {
         "collected": "Collections",
@@ -7645,7 +7645,16 @@
       },
       "soloMinutes": "A student alone in the lesson is charged",
       "soloMinutesHint": "Minutes taken off their hours for each lesson they attend alone. The teacher is paid the real length. Empty = the real length.",
-      "rateFromTeacher": "From the teacher’s profile: {rate} an hour. Change it if this group differs."
+      "rateFromTeacher": "From the teacher’s profile: {rate} an hour. Change it if this group differs.",
+      "shareBasis": "A share of",
+      "shareBasisOption": {
+        "BILLED": "What the group bills",
+        "COLLECTED": "What is actually collected"
+      },
+      "shareBasisHint": {
+        "BILLED": "Worked out from the month's bills, paid or not.",
+        "COLLECTED": "Worked out from what came in during the month, and follows every receipt. A finalized statement does not change."
+      }
     },
     "moneyTab": {
       "loadFailed": "Could not load the group's money.",
@@ -10277,7 +10286,7 @@
     },
     "groupsPage": {
       "title": "Group collections & profit",
-      "subtitle": "Every group's month: due, collected, left, owed from before — and what it left after the teacher.",
+      "subtitle": "Each group's month: due, collected, left and arrears, and what remains after the teacher and expenses.",
       "loadFailed": "Couldn't load the groups' accounts.",
       "sortBy": "Sort by",
       "sort": {
@@ -10300,12 +10309,14 @@
         "cost": "Teacher cost",
         "net": "Net",
         "teacher": "Teacher",
-        "groups": "Groups"
+        "groups": "Groups",
+        "expenses": "Expenses"
       },
       "archived": "archived",
       "nothingThisMonth": "Nothing billed this month",
       "studentsCount": "{count, plural, one {# student} other {# students}}",
-      "byTeacher": "By teacher"
+      "byTeacher": "By teacher",
+      "netHintExpenses": "Teacher cost {cost} · expenses {expenses} · margin {margin}"
     },
     "arrears": {
       "title": "Arrears",
@@ -10686,7 +10697,9 @@
       "statementSummary": "{lines} lessons · lessons {sessions} · rewards {rewards} · deductions {deductions}",
       "statementLines": "Lessons on the statement",
       "noTeacherMatch": "No statements under that name.",
-      "linesCount": "{count} lessons"
+      "linesCount": "{count} lessons",
+      "group": "Group",
+      "noGroup": "General, not one group"
     },
     "income": {
       "title": "Income vs expenses",
@@ -10703,7 +10716,14 @@
       "net": "Net",
       "month": "Month",
       "empty": "No money in or out this year.",
-      "whereItWent": "Where the money went"
+      "whereItWent": "Where the money went",
+      "totalProfit": "Profit this year",
+      "profitHint": "Money in minus expenses and the teachers' pay earned for each month. Cash movement: {net}",
+      "salaries": "Pay earned",
+      "profit": "Profit",
+      "allCurrencies": "All in {currency}",
+      "convertedHint": "Approximate, at today's rate for every month. No recorded amount changes.",
+      "missingRates": "No exchange rate for these currencies, so they are left out of the total: {currencies}"
     },
     "quickCollect": "Collect",
     "hub": {
@@ -10719,10 +10739,11 @@
       },
       "reports": {
         "title": "Reports",
-        "subtitle": "Collections day by day, income against expenses, and every group’s collection.",
+        "subtitle": "Collections day by day, income against expenses, private lessons, and each group's collection.",
         "tabs": {
           "daily": "Daily collections",
           "income": "Income vs expenses",
+          "private": "Private lessons",
           "groups": "Group collections"
         }
       }
@@ -10783,7 +10804,37 @@
         "KEEP": "Recorded: the academy keeps {amount}."
       }
     },
-    "removalDues": "They owe {amount} unpaid, which goes with the deletion. What was paid stays counted."
+    "removalDues": "They owe {amount} unpaid, which goes with the deletion. What was paid stays counted.",
+    "exportExcel": "Export Excel",
+    "exportFailed": "The export failed. Try again.",
+    "exportCurrency": "Currency",
+    "exportAmount": "Amount",
+    "exportNumber": "Number",
+    "exportPayer": "Payer",
+    "exportPhone": "Phone",
+    "exportStudents": "Students",
+    "exportGroups": "Groups",
+    "exportOldest": "Oldest charge",
+    "exportLastPayment": "Last payment",
+    "exportMethod": "Method",
+    "exportReference": "Reference",
+    "exportCount": "Count",
+    "privatePage": {
+      "title": "Private lessons",
+      "subtitle": "Each student's month: due, collected, left and arrears, and what remains after the teacher.",
+      "loadFailed": "Could not load the private lessons report.",
+      "empty": "No private lessons with money this month.",
+      "noTeacher": "No teacher",
+      "wholeTeacher": "Each teacher: private and groups",
+      "wholeTeacherHint": "What came in this month from their private students and groups, minus everything they earned for the month and what was spent on their groups.",
+      "col": {
+        "student": "Student",
+        "teacher": "Teacher",
+        "privateStudents": "Private students",
+        "privateReceived": "In from private",
+        "groupsReceived": "In from groups"
+      }
+    }
   },
   "doneBy": {
     "col": "Done by",
@@ -11519,6 +11570,16 @@
     "quickBill": {
       "note": "“{label}” already has a bill waiting ({amount}). Collect it from the subscriptions page instead of a new bill.",
       "open": "Open what is due"
+    },
+    "planPrivate": "Private subscription",
+    "closedReason": {
+      "STUDENT_REMOVED": "Student removed",
+      "CANCELLED": "Cancelled",
+      "RENEWAL_UNDONE": "Renewal undone",
+      "CLOSED_EARLY": "Closed early",
+      "CHARGE_CANCELLED": "Charge cancelled",
+      "EXHAUSTED": "Lessons used up",
+      "CARRIED_OVER": "Carried over"
     }
   },
   "rooms": {

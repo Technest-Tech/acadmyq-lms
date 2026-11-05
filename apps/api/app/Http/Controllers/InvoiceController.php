@@ -630,7 +630,8 @@ final class InvoiceController extends Controller
         if (Ledger::keeps((string) $invoice->academy_id)) {
             $paidByLine = DB::table('receipt_allocations')->where('invoice_id', $id)
                 ->groupBy('invoice_line_id')
-                ->pluck(DB::raw('sum(amount_minor)'), 'invoice_line_id');
+                ->selectRaw('invoice_line_id, sum(amount_minor) as paid')
+                ->pluck('paid', 'invoice_line_id');
             $lineItems = $lineItems->map(function ($l) use ($paidByLine) {
                 $l->paid_minor = (int) ($paidByLine[(string) $l->id] ?? 0);
 

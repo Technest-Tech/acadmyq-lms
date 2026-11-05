@@ -431,6 +431,24 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     });
   });
 
+  it("asks what a revenue share is of only on the accounts, and sends nothing extra off them", async () => {
+    const user = userEvent.setup();
+    const session = (capabilities: string[]) => makeSession("ACADEMY_OWNER", { capabilities, permissions: ["group.read", "group.manage", "student.set_price", "teacher.set_pay"] });
+
+    const { unmount } = render(withAuth(session(["groups", "invoicing"]), <GroupForm onCancel={vi.fn()} onSaved={vi.fn()} />));
+    await user.selectOptions(await screen.findByTestId("group-pay-mode"), "REVENUE_SHARE");
+    expect(screen.queryByTestId("group-share-basis")).toBeNull();
+    unmount();
+
+    render(withAuth(session(["groups", "invoicing", "accounting"]), <GroupForm onCancel={vi.fn()} onSaved={vi.fn()} />));
+    await user.selectOptions(await screen.findByTestId("group-pay-mode"), "REVENUE_SHARE");
+    const basis = screen.getByTestId("group-share-basis") as HTMLSelectElement;
+    // Billed stays the default: nobody's pay moves unless someone chooses.
+    expect(basis.value).toBe("BILLED");
+    await user.selectOptions(basis, "COLLECTED");
+    expect(screen.getByText(arMessages.groups.money.shareBasisHint.COLLECTED)).toBeTruthy();
+  });
+
   it("gives a centre's form its sections and a live summary, and sends the same thing", async () => {
     const user = userEvent.setup();
     render(

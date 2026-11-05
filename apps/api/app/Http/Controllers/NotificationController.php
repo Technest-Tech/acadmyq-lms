@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Jobs\FlagOverdueReportsJob;
 use App\Support\AuthContext;
+use App\Support\Entitlement;
 use App\Support\MoneyPolicy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -105,16 +107,19 @@ final class NotificationController extends Controller
     {
         Gate::authorize('notification.read');
 
+        $academyId = app(AuthContext::class)->academyId;
+
         // The "Reports" tab is about overdue session reports, so package alerts must not inflate
         // it just because they share the notifications table. Each category counts for its own tab.
-        $reports = (int) $this->visibleQuery()
+        // An academy that asks for no lesson reports has no such tab (the same answer the page and the
+        // job read), so an old unread alert would sit on the bell with nowhere to read it.
+        $hasReportsTab = $academyId === null || FlagOverdueReportsJob::wantsLessonReports(Entitlement::resolve($academyId)['capabilities']);
+        $reports = ! $hasReportsTab ? 0 : (int) $this->visibleQuery()
             ->whereNull('n.read_at')
             ->whereNotIn('n.category', ['PACKAGES', self::SUBSCRIPTIONS, ...self::LOGS])
             ->count();
 
-        // A centre that moved onto its subscriptions has no packages tab: an old unread package
-        // alert would sit on the bell with nowhere to read it.
-        $academyId = app(AuthContext::class)->academyId;
+        // A centre that moved onto its subscriptions has no packages tab: the same.
         $packages = $academyId !== null && MoneyPolicy::usesSubscriptions($academyId) ? 0 : (int) $this->visibleQuery()
             ->whereNull('n.read_at')
             ->where('n.category', 'PACKAGES')

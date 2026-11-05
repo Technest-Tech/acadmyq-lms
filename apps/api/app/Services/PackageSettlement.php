@@ -162,8 +162,10 @@ final class PackageSettlement
      */
     public function refundCredit(string $academyId, array $payer, int $amountMinor, string $currency, string $cashAccountId, ?string $description, ?string $userId, ?string $role): array
     {
-        if (! self::availableFor($academyId)) {
-            throw ValidationException::withMessages(['amount_minor' => ['Paying credit back is for centres on the accounts. / رد الرصيد متاح للمراكز مع الحسابات.']]);
+        // Any academy on the accounts: a family that overpaid is owed it wherever they study. Settling
+        // a block closed early stays a centre's (availableFor).
+        if (! Ledger::keeps($academyId)) {
+            throw ValidationException::withMessages(['amount_minor' => ['Paying credit back needs the accounts. / رد الرصيد يتطلب تفعيل الحسابات.']]);
         }
 
         return DB::transaction(function () use ($academyId, $payer, $amountMinor, $currency, $cashAccountId, $description, $userId, $role): array {

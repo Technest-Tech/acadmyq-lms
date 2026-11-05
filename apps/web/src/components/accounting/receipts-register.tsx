@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { MethodBadge, MethodBar, Tile, dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
+import { ExportButton } from "@/components/accounting/export-button";
 import { PayerPicker } from "@/components/accounting/payer-picker";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { useAuth } from "@/components/auth-provider";
@@ -14,7 +15,8 @@ import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/ui/page-hero";
-import { RECEIPT_METHODS, getReceipts, type ReceiptFilters, type ReceiptMethod, type ReceiptRegister } from "@/lib/accounting-api";
+import { RECEIPT_METHODS, getReceipts, type ReceiptFilters, type ReceiptMethod, type ReceiptRegister, type ReceiptRow } from "@/lib/accounting-api";
+import type { SheetColumn } from "@/lib/accounting-export";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -66,12 +68,39 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
   const pages = data ? Math.max(1, Math.ceil(data.meta.total / data.meta.per_page)) : 1;
   const page = filters.page ?? 1;
 
-  const actions = can("invoice.mark_paid") ? (
-    <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="register-record">
-      <Plus className="size-4" aria-hidden />
-      {t("register.record")}
-    </Button>
-  ) : undefined;
+  // The sheet takes the whole filter, not the page on screen.
+  async function allReceipts(): Promise<ReceiptRow[]> {
+    const rows: ReceiptRow[] = [];
+    for (let p = 1; ; p++) {
+      const res = await getReceipts({ ...filters, page: p, per_page: 200 });
+      rows.push(...res.receipts);
+      if (res.receipts.length === 0 || rows.length >= res.meta.total) return rows;
+    }
+  }
+  const sheet: SheetColumn<ReceiptRow>[] = [
+    { header: t("exportNumber"), width: 14, value: (r) => r.number },
+    { header: t("statement.col.date"), width: 12, value: (r) => r.received_on },
+    { header: t("exportPayer"), width: 28, value: (r) => r.payer_name },
+    { header: t("exportCurrency"), width: 10, value: (r) => r.currency },
+    { header: t("exportAmount"), kind: "money", value: (r) => r.amount_minor },
+    { header: t("exportMethod"), width: 16, value: (r) => t(`method.${r.method}`) },
+    { header: t("exportReference"), width: 22, value: (r) => r.reference },
+    { header: t("register.collector"), width: 22, value: (r) => r.received_by_name },
+    { header: t("exportGroups"), width: 28, value: (r) => r.groups.join("، ") },
+    { header: t("register.void"), width: 24, value: (r) => (r.voided ? r.void_reason || t("register.void") : null) },
+  ];
+
+  const actions = (
+    <div className="flex flex-wrap gap-2">
+      <ExportButton name="receipts" sheetName={t("register.title")} columns={sheet} rows={allReceipts} count={data?.meta.total ?? 0} />
+      {can("invoice.mark_paid") && (
+        <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="register-record">
+          <Plus className="size-4" aria-hidden />
+          {t("register.record")}
+        </Button>
+      )}
+    </div>
+  );
 
   return (
     <div className="space-y-5" data-testid="receipts-register">

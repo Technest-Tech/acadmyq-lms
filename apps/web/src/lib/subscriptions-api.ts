@@ -252,6 +252,15 @@ export function subscriptionSubjectKey(teacherId: string | null | undefined, cou
 }
 
 /** The scope a row belongs to — the same key the pickers use. */
+/** The reasons the system writes when it closes a block; anything else was typed by the desk. */
+const CLOSED_REASON_CODES = new Set(["STUDENT_REMOVED", "CANCELLED", "RENEWAL_UNDONE", "CLOSED_EARLY", "CHARGE_CANCELLED", "EXHAUSTED", "CARRIED_OVER"]);
+
+/** A block's closing reason in the reader's words: a code through `closedReason.*`, typed text as typed. */
+export function closedReasonText(reason: string | null, t: (key: string) => string): string | null {
+  if (!reason) return null;
+  return CLOSED_REASON_CODES.has(reason) ? t(`closedReason.${reason}`) : reason;
+}
+
 export function subscriptionScope(row: Pick<SubscriptionRow, "teacher" | "course">): string {
   return subscriptionSubjectKey(row.teacher?.id ?? null, row.course);
 }

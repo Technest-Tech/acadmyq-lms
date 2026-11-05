@@ -9,6 +9,7 @@ use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
 use App\Services\ClassGroups;
 use App\Services\CourseTerm;
 use App\Services\GroupBilling;
+use App\Services\Ledger;
 use App\Services\GroupLessonGenerator;
 use App\Services\GroupPayroll;
 use App\Services\Rooms;
@@ -40,7 +41,7 @@ final class ClassGroupController extends Controller
     private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes', 'solo_billed_minutes'];
 
     /** What the teacher earns — `teacher.set_pay` to change; it or `payout.read` to see. */
-    private const TEACHER_PAY_FIELDS = ['teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp'];
+    private const TEACHER_PAY_FIELDS = ['teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp', 'teacher_share_basis'];
 
     public function __construct(
         private readonly ClassGroups $groups,
@@ -736,6 +737,7 @@ final class ClassGroupController extends Controller
                 'mode' => $g->teacher_pay_mode,
                 'amount_minor' => $g->teacher_pay_minor !== null ? (int) $g->teacher_pay_minor : null,
                 'share_bp' => $g->teacher_share_bp !== null ? (int) $g->teacher_share_bp : null,
+                'share_basis' => (string) ($g->teacher_share_basis ?? 'BILLED'),
                 'currency' => $g->teacher_currency ?? DB::table('teachers')->where('id', $g->teacher_id)->value('currency'),
             ] : null,
             // The course term (docs/centre-profile, Phase 2 §2): nullable keys, null / 0 / false for a
@@ -810,6 +812,10 @@ final class ClassGroupController extends Controller
             if ($currency !== null && $teacherCurrency !== null && strtoupper((string) $currency) !== strtoupper((string) $teacherCurrency)) {
                 throw ValidationException::withMessages(['teacher_pay_mode' => ['A revenue share needs the group to bill in the teacher\'s currency ('.$teacherCurrency.'). / نسبة الإيراد تتطلب أن تكون عملة المجموعة هي عملة المدرس.']]);
             }
+            // Only receipts say what was collected on a group's lines.
+            if ($get('teacher_share_basis') === 'COLLECTED' && ! Ledger::keeps($this->currentAcademyId())) {
+                throw ValidationException::withMessages(['teacher_share_basis' => ['A share of what was collected needs the accounts. / النسبة من المحصّل تتطلب تفعيل الحسابات.']]);
+            }
         }
     }
 
@@ -859,6 +865,7 @@ final class ClassGroupController extends Controller
             'teacher_pay_mode' => ['sometimes', 'nullable', Rule::in(['PER_LESSON', 'PER_HOUR', 'PER_STUDENT', 'REVENUE_SHARE'])],
             'teacher_pay_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
             'teacher_share_bp' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:10000'],
+            'teacher_share_basis' => ['sometimes', Rule::in(['BILLED', 'COLLECTED'])],
         ]);
 
         // Setting what a student pays is a money decision (student.set_price, never a supervisor's);

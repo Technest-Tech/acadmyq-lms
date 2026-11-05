@@ -279,6 +279,31 @@ it('stops counting old package alerts on the bell once the centre has moved', fu
     $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('packages', 0);
 });
 
+it('stops counting old overdue-report alerts on the bell once the academy asks for no lesson reports', function () {
+    ($this->tenant)(fn () => DB::table('notifications')->insert([
+        'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'type' => 'REPORT_OVERDUE', 'category' => 'REPORTS',
+        'audience_role' => 'ACADEMY_OWNER', 'data' => '{}',
+    ]));
+    Sanctum::actingAs($this->owner);
+    // Progress reports still on: the Reports tab is there, and the alert counts.
+    $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('reports', 1)->assertJsonPath('total', 1);
+
+    // The centre's preset takes them off, and with them the tab.
+    ($this->switches)(['student_reports']);
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('reports', 0)->assertJsonPath('total', 0);
+
+    // The structured report is enough to bring the tab back.
+    ($this->switches)(['student_reports'], ['centre', 'accounting', 'lesson_report']);
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('reports', 1);
+
+    // Without `centre` the tab is always there, whatever else is off: nothing changes for a Quran academy.
+    ($this->switches)(['student_reports'], ['accounting']);
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/notifications/summary')->assertOk()->assertJsonPath('reports', 1)->assertJsonPath('total', 1);
+});
+
 it('knows an open block\'s subject on the timetable', function () {
     $opened = ($this->open)($this->malika, ['course' => 'English']);
     ($this->tenant)(fn () => $this->createSchedule($this->academy, $this->malika, $this->teacher));

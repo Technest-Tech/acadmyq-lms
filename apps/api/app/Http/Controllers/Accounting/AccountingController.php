@@ -27,6 +27,7 @@ use Illuminate\Validation\ValidationException;
  *   GET  /accounting/overview?month=      the month: collected (by method / collector / day), what is
  *                                         owed and how old, credit held, top debtors, latest receipts
  *   GET  /accounting/groups?month=        every group's collection and profit, plus a per-teacher roll-up
+ *   GET  /accounting/private?month=       the same for private lessons, plus each teacher whole (private + groups)
  *   GET  /accounting/arrears              everyone who owes, aged 0–30 / 31–60 / 61–90 / 90+ days
  *   POST /accounting/arrears/remind       WhatsApp a payer what they owe
  *   GET  /accounting/statement            one payer's statement: every charge and receipt, running balance
@@ -192,10 +193,7 @@ final class AccountingController extends Controller
             ->pluck('n', 'group_id');
 
         $per = [];
-        $blank = fn (string $c) => [
-            'currency' => $c, 'expected_minor' => 0, 'collected_minor' => 0, 'remaining_minor' => 0, 'arrears_minor' => 0,
-            'received_in_month_minor' => 0, 'teacher_cost_minor' => $seesCost ? 0 : null, 'net_minor' => null, 'rate' => null, 'margin' => null,
-        ];
+        $blank = fn (string $c) => $this->blankMoney($c, $seesCost);
 
         foreach ($this->linesQuery($academyId)->whereNotNull('li.class_group_id')->where('li.group_period', '<=', $to)->get() as $l) {
             $gid = (string) $l->class_group_id;
@@ -226,6 +224,14 @@ final class AccountingController extends Controller
             $per[$gid][$c]['received_in_month_minor'] = (int) $row->amount;
         }
 
+        // What was spent on the group this month: its profit takes it off.
+        foreach ($this->groupExpenses($academyId, $from, $to) as $row) {
+            $gid = (string) $row->class_group_id;
+            $c = (string) $row->currency;
+            $per[$gid][$c] ??= $blank($c);
+            $per[$gid][$c]['expenses_minor'] = (int) $row->amount;
+        }
+
         if ($seesCost) {
             foreach (DB::table('payout_line_items as pl')
                 ->leftJoin('class_group_lessons as l', 'l.id', '=', 'pl.class_group_lesson_id')
@@ -251,7 +257,7 @@ final class AccountingController extends Controller
             foreach ($money as $c => $m) {
                 $money[$c] = $this->finishMoney($m, $seesCost);
                 $totals[$c] ??= $blank($c);
-                foreach (['expected_minor', 'collected_minor', 'remaining_minor', 'arrears_minor', 'received_in_month_minor'] as $k) {
+                foreach (['expected_minor', 'collected_minor', 'remaining_minor', 'arrears_minor', 'received_in_month_minor', 'expenses_minor'] as $k) {
                     $totals[$c][$k] += $m[$k];
                 }
                 if ($seesCost) {
@@ -259,7 +265,7 @@ final class AccountingController extends Controller
                     $tid = (string) ($g->teacher_id ?? 'none');
                     $teachers[$tid.'|'.$c] ??= ['teacher_id' => $g->teacher_id, 'teacher_name' => $g->teacher_name, 'groups' => 0] + $blank($c);
                     $teachers[$tid.'|'.$c]['groups']++;
-                    foreach (['expected_minor', 'collected_minor', 'remaining_minor', 'arrears_minor', 'received_in_month_minor', 'teacher_cost_minor'] as $k) {
+                    foreach (['expected_minor', 'collected_minor', 'remaining_minor', 'arrears_minor', 'received_in_month_minor', 'teacher_cost_minor', 'expenses_minor'] as $k) {
                         $teachers[$tid.'|'.$c][$k] += (int) $m[$k];
                     }
                 }
@@ -289,6 +295,224 @@ final class AccountingController extends Controller
             'teachers' => $seesCost ? $teacherRows : null,
             'sees_teacher_cost' => $seesCost,
         ]);
+    }
+
+    // ── Private lessons: collection and profit ──────────────────────────────
+
+    /**
+     * The private side of the month, the way groups() reads the group side: every student with a
+     * private lesson's charge, a package or a subscription, under the teacher who teaches them. Then
+     * each teacher whole, private and groups together, so someone teaching both shows all their work.
+     *
+     * A hand-typed bill is not a private lesson (it has no teacher), so it is left out here; it still
+     * counts in the overview and in the income report.
+     */
+    public function privateLessons(Request $request): JsonResponse
+    {
+        Gate::authorize('invoice.read');
+        $academyId = $this->academyId();
+        [$month, $from, $to] = $this->month($request, $academyId);
+        $seesCost = Gate::allows('payout.read');
+        $timezone = $this->timezone($academyId);
+
+        $paid = DB::table('receipt_allocations')->selectRaw('invoice_line_id, sum(amount_minor) as paid')->groupBy('invoice_line_id');
+        $packageOf = 'select 1 from lesson_packages p where p.invoice_id = li.invoice_id';
+        $lines = DB::table('invoice_line_items as li')
+            ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->leftJoinSub($paid, 'a', 'a.invoice_line_id', '=', 'li.id')
+            ->leftJoin('centre_subscriptions as cs', 'cs.invoice_line_id', '=', 'li.id')
+            ->leftJoin('sessions as se', 'se.id', '=', 'li.session_id')
+            ->where('i.academy_id', $academyId)
+            ->where('i.status', '<>', 'VOID')
+            ->where('li.amount_minor', '>', 0)
+            ->whereNull('li.class_group_id')
+            ->whereNotNull('li.student_id')
+            ->where(fn ($q) => $q->whereNotNull('cs.id')->orWhereNotNull('li.session_id')->orWhereRaw("exists ({$packageOf})"))
+            ->get([
+                'li.id', 'li.student_id', 'li.currency', 'li.amount_minor',
+                DB::raw('coalesce(a.paid, 0) as paid'),
+                DB::raw('make_date(i.period_year::int, i.period_month::int, 1) as period'),
+                // A block tied to a subject names its teacher; an untied one belongs to the student's
+                // current teacher, which is how a Quran academy's blocks all read.
+                DB::raw('coalesce(cs.teacher_id, se.teacher_id,
+                    (select p.teacher_id from lesson_packages p where p.invoice_id = li.invoice_id and p.teacher_id is not null limit 1),
+                    (select sta.teacher_id from student_teacher_assignments sta where sta.student_id = li.student_id order by sta.ended_at is null desc, sta.started_at desc limit 1)
+                ) as teacher_id'),
+            ]);
+
+        $rows = [];
+        $blank = fn (string $c) => $this->blankMoney($c, $seesCost);
+        $slot = function (string $studentId, ?string $teacherId, string $c) use (&$rows, $blank): string {
+            $key = $studentId.'|'.($teacherId ?? '').'|'.$c;
+            $rows[$key] ??= ['student_id' => $studentId, 'teacher_id' => $teacherId] + $blank($c);
+
+            return $key;
+        };
+
+        $byLine = [];
+        foreach ($lines as $l) {
+            $teacherId = $l->teacher_id !== null ? (string) $l->teacher_id : null;
+            $key = $slot((string) $l->student_id, $teacherId, (string) $l->currency);
+            $byLine[(string) $l->id] = $key;
+            $period = Carbon::parse($l->period)->format('Y-m-d');
+            $amount = (int) $l->amount_minor;
+            $settled = min((int) $l->paid, $amount);
+            if ($period >= $from && $period <= $to) {
+                $rows[$key]['expected_minor'] += $amount;
+                $rows[$key]['collected_minor'] += $settled;
+                $rows[$key]['remaining_minor'] += $amount - $settled;
+            } elseif ($period < $from) {
+                $rows[$key]['arrears_minor'] += $amount - $settled;
+            }
+        }
+
+        foreach (DB::table('receipt_allocations as ra')
+            ->join('receipts as r', 'r.id', '=', 'ra.receipt_id')
+            ->whereNull('r.voided_at')
+            ->whereBetween('r.received_on', [$from, $to])
+            ->get(['ra.invoice_line_id', 'ra.amount_minor']) as $a) {
+            $key = $byLine[(string) $a->invoice_line_id] ?? null;
+            if ($key !== null) {
+                $rows[$key]['received_in_month_minor'] += (int) $a->amount_minor;
+            }
+        }
+
+        if ($seesCost) {
+            foreach (DB::table('payout_line_items as pl')
+                ->join('payouts as p', 'p.id', '=', 'pl.payout_id')
+                ->join('sessions as se', 'se.id', '=', 'pl.session_id')
+                ->whereNull('pl.class_group_id')
+                ->whereNull('pl.class_group_lesson_id')
+                ->whereRaw('coalesce(pl.session_date, (se.scheduled_at_utc at time zone ?)::date) between ? and ?', [$timezone, $from, $to])
+                ->groupBy('p.teacher_id', 'se.student_id', 'pl.currency')
+                ->get(['p.teacher_id', 'se.student_id', 'pl.currency', DB::raw('sum(pl.amount_minor) as amount')]) as $row) {
+                $key = $slot((string) $row->student_id, (string) $row->teacher_id, (string) $row->currency);
+                $rows[$key]['teacher_cost_minor'] += (int) $row->amount;
+            }
+        }
+
+        // A student with nothing in or owed this month and no lesson paid for has nothing to say.
+        $rows = array_filter($rows, fn ($r) => $r['expected_minor'] !== 0 || $r['arrears_minor'] !== 0 || $r['received_in_month_minor'] !== 0 || (int) ($r['teacher_cost_minor'] ?? 0) !== 0);
+
+        $names = fn (string $table, array $ids) => $ids === [] ? collect() : DB::table($table)->whereIn('id', array_values(array_unique($ids)))->pluck('full_name', 'id');
+        $students = $names('students', array_column($rows, 'student_id'));
+        $teacherIds = array_filter(array_column($rows, 'teacher_id'));
+        $totals = [];
+        $out = [];
+        foreach ($rows as $r) {
+            $c = (string) $r['currency'];
+            $totals[$c] ??= $blank($c);
+            foreach (['expected_minor', 'collected_minor', 'remaining_minor', 'arrears_minor', 'received_in_month_minor'] as $k) {
+                $totals[$c][$k] += $r[$k];
+            }
+            if ($seesCost) {
+                $totals[$c]['teacher_cost_minor'] += (int) $r['teacher_cost_minor'];
+            }
+            $out[] = $this->finishMoney($r, $seesCost) + ['student_name' => $students[$r['student_id']] ?? null];
+        }
+
+        $wholeTeachers = $seesCost ? $this->wholeTeachers($academyId, $rows, $from, $to) : null;
+        $teacherNames = $names('teachers', [...array_values($teacherIds), ...array_filter(array_column($wholeTeachers ?? [], 'teacher_id'))]);
+        foreach ($out as $i => $r) {
+            $out[$i]['teacher_name'] = $r['teacher_id'] !== null ? ($teacherNames[$r['teacher_id']] ?? null) : null;
+        }
+        usort($out, fn ($a, $b) => [$b['remaining_minor'] + $b['arrears_minor'], (string) $a['student_name']] <=> [$a['remaining_minor'] + $a['arrears_minor'], (string) $b['student_name']]);
+        ksort($totals);
+
+        return response()->json([
+            'month' => $month,
+            'rows' => $out,
+            'totals' => array_values(array_map(fn ($t) => $this->finishMoney($t, $seesCost), $totals)),
+            'teachers' => $wholeTeachers === null ? null : array_map(fn ($t) => $t + ['teacher_name' => $t['teacher_id'] !== null ? ($teacherNames[$t['teacher_id']] ?? null) : null], $wholeTeachers),
+            'sees_teacher_cost' => $seesCost,
+        ]);
+    }
+
+    /**
+     * Each teacher's whole month: what their private students and their groups brought in, everything
+     * their statements pay them for that month, and what is left.
+     *
+     * @param  array<string, array<string, mixed>>  $privateRows
+     * @return list<array<string, mixed>>
+     */
+    private function wholeTeachers(string $academyId, array $privateRows, string $from, string $to): array
+    {
+        $teachers = [];
+        $slot = function (?string $teacherId, string $c) use (&$teachers): string {
+            $key = ($teacherId ?? '').'|'.$c;
+            $teachers[$key] ??= [
+                'teacher_id' => $teacherId, 'currency' => $c, 'students' => 0, 'private_received_minor' => 0,
+                'groups_received_minor' => 0, 'expenses_minor' => 0, 'teacher_cost_minor' => 0,
+            ];
+
+            return $key;
+        };
+
+        foreach ($privateRows as $r) {
+            $key = $slot($r['teacher_id'], (string) $r['currency']);
+            $teachers[$key]['students']++;
+            $teachers[$key]['private_received_minor'] += (int) $r['received_in_month_minor'];
+        }
+
+        foreach (DB::table('receipt_allocations as ra')
+            ->join('receipts as r', 'r.id', '=', 'ra.receipt_id')
+            ->join('invoice_line_items as li', 'li.id', '=', 'ra.invoice_line_id')
+            ->join('class_groups as g', 'g.id', '=', 'li.class_group_id')
+            ->whereNull('r.voided_at')
+            ->whereBetween('r.received_on', [$from, $to])
+            ->groupBy('g.teacher_id', 'li.currency')
+            ->get(['g.teacher_id', 'li.currency', DB::raw('sum(ra.amount_minor) as amount')]) as $row) {
+            $teachers[$slot($row->teacher_id !== null ? (string) $row->teacher_id : null, (string) $row->currency)]['groups_received_minor'] += (int) $row->amount;
+        }
+
+        $groupTeacher = DB::table('class_groups')->pluck('teacher_id', 'id');
+        foreach ($this->groupExpenses($academyId, $from, $to) as $row) {
+            $teacherId = $groupTeacher[(string) $row->class_group_id] ?? null;
+            $teachers[$slot($teacherId !== null ? (string) $teacherId : null, (string) $row->currency)]['expenses_minor'] += (int) $row->amount;
+        }
+
+        // Every line of theirs dated in the month, private or group, the same dating as both reports.
+        foreach (DB::table('payout_line_items as pl')
+            ->join('payouts as p', 'p.id', '=', 'pl.payout_id')
+            ->leftJoin('sessions as se', 'se.id', '=', 'pl.session_id')
+            ->whereRaw('coalesce(pl.session_date, (se.scheduled_at_utc at time zone ?)::date) between ? and ?', [$this->timezone($academyId), $from, $to])
+            ->groupBy('p.teacher_id', 'pl.currency')
+            ->get(['p.teacher_id', 'pl.currency', DB::raw('sum(pl.amount_minor) as amount')]) as $row) {
+            $teachers[$slot((string) $row->teacher_id, (string) $row->currency)]['teacher_cost_minor'] += (int) $row->amount;
+        }
+
+        $list = array_values(array_map(function (array $t): array {
+            $received = $t['private_received_minor'] + $t['groups_received_minor'];
+
+            return $t + [
+                'received_in_month_minor' => $received,
+                'net_minor' => $received - $t['teacher_cost_minor'] - $t['expenses_minor'],
+            ];
+        }, $teachers));
+        usort($list, fn ($a, $b) => [$a['currency'], $b['received_in_month_minor']] <=> [$b['currency'], $a['received_in_month_minor']]);
+
+        return $list;
+    }
+
+    /** @return Collection<int, object> what was spent on each group between two days, per currency */
+    private function groupExpenses(string $academyId, string $from, string $to): Collection
+    {
+        return DB::table('expenses')
+            ->where('academy_id', $academyId)
+            ->whereNotNull('class_group_id')
+            ->whereNull('voided_at')
+            ->whereBetween('spent_on', [$from, $to])
+            ->groupBy('class_group_id', 'currency')
+            ->get(['class_group_id', 'currency', DB::raw('sum(amount_minor) as amount')]);
+    }
+
+    /** @return array<string, mixed> */
+    private function blankMoney(string $currency, bool $seesCost): array
+    {
+        return [
+            'currency' => $currency, 'expected_minor' => 0, 'collected_minor' => 0, 'remaining_minor' => 0, 'arrears_minor' => 0,
+            'received_in_month_minor' => 0, 'expenses_minor' => 0, 'teacher_cost_minor' => $seesCost ? 0 : null, 'net_minor' => null, 'rate' => null, 'margin' => null,
+        ];
     }
 
     // ── Arrears ─────────────────────────────────────────────────────────────
@@ -797,7 +1021,7 @@ final class AccountingController extends Controller
         $m['rate'] = $m['expected_minor'] > 0 ? round($m['collected_minor'] / $m['expected_minor'], 4) : null;
         if ($seesCost) {
             $m['teacher_cost_minor'] = (int) ($m['teacher_cost_minor'] ?? 0);
-            $m['net_minor'] = $m['received_in_month_minor'] - $m['teacher_cost_minor'];
+            $m['net_minor'] = $m['received_in_month_minor'] - $m['teacher_cost_minor'] - (int) ($m['expenses_minor'] ?? 0);
             $m['margin'] = $m['received_in_month_minor'] > 0 ? round($m['net_minor'] / $m['received_in_month_minor'], 4) : null;
         } else {
             $m['teacher_cost_minor'] = null;

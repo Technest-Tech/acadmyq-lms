@@ -36,12 +36,16 @@ export interface GroupPricing {
   solo_billed_minutes: number | null;
 }
 
+export type GroupShareBasis = "BILLED" | "COLLECTED";
+
 /** What the teacher earns per held lesson (or, REVENUE_SHARE, per month). */
 export interface GroupTeacherPay {
   mode: GroupTeacherPayMode;
   amount_minor: number | null;
   /** Basis points: 5000 = 50 %. */
   share_bp: number | null;
+  /** A share of what the group billed (the default) or of what it collected. */
+  share_basis?: GroupShareBasis;
   /** The teacher's pay currency — what amount_minor is in. */
   currency: string | null;
 }
@@ -251,6 +255,7 @@ export interface GroupInput {
   teacher_pay_mode?: GroupTeacherPayMode;
   teacher_pay_minor?: number | null;
   teacher_share_bp?: number | null;
+  teacher_share_basis?: GroupShareBasis;
 }
 
 export interface GroupMoneyLine {

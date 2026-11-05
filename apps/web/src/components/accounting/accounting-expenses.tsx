@@ -4,6 +4,7 @@ import { Ban, FileImage, GraduationCap, Loader2, Plus, ReceiptText, Search, Sett
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Panel, Tile, dayLabel, toMajorText, toMinor, todayLocal } from "@/components/accounting/accounting-ui";
+import { ExportButton } from "@/components/accounting/export-button";
 import { getPayout, type PayoutDetailResponse } from "@/lib/api";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
@@ -23,6 +24,9 @@ import {
   type ExpensesPage,
   type SalaryDue,
 } from "@/lib/accounting-api";
+import type { SheetColumn } from "@/lib/accounting-export";
+import { useCapability } from "@/lib/capabilities";
+import { listGroups } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -86,9 +90,24 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
     }
   }
 
+  const sheet: SheetColumn<Expense>[] = [
+    { header: t("exportNumber"), width: 14, value: (e) => e.number },
+    { header: t("statement.col.date"), width: 12, value: (e) => e.spent_on },
+    { header: t("expenses.category"), width: 22, value: (e) => e.category },
+    { header: t("expenses.group"), width: 24, value: (e) => e.group_name },
+    { header: t("expenses.payee"), width: 24, value: (e) => e.payee },
+    { header: t("expenses.description"), width: 34, value: (e) => e.description },
+    { header: t("expenses.paidFrom"), width: 20, value: (e) => e.account },
+    { header: t("exportCurrency"), width: 10, value: (e) => e.currency },
+    { header: t("exportAmount"), kind: "money", value: (e) => e.amount_minor },
+    { header: t("register.void"), width: 24, value: (e) => (e.voided ? e.void_reason || t("register.void") : null) },
+  ];
+  const exportButton = data ? <ExportButton name="expenses" sheetName={t("expenses.title")} columns={sheet} rows={data.expenses} /> : null;
+
   const actions =
     data?.can_manage && !noAccounts ? (
       <div className="flex flex-wrap gap-2">
+        {exportButton}
         {data.sees_salaries && (
           <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setModal("salary")} data-testid="expense-salary">
             <GraduationCap className="size-4" aria-hidden />
@@ -100,7 +119,9 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
           {t("expenses.new")}
         </Button>
       </div>
-    ) : undefined;
+    ) : (
+      exportButton ?? undefined
+    );
 
   return (
     <div className="space-y-5" data-testid="accounting-expenses">
@@ -231,6 +252,7 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
                   <td className="p-3 whitespace-nowrap">{dayLabel(e.spent_on, locale)}</td>
                   <td className="p-3">
                     <span className="rounded bg-amber-500/10 px-1.5 py-0.5 text-xs font-semibold text-amber-800 dark:text-amber-300">{e.category}</span>
+                    {e.group_name && <span className="bg-primary/10 text-primary ms-1 rounded px-1.5 py-0.5 text-xs font-semibold">{e.group_name}</span>}
                     <p className="mt-1 break-words">{[e.payee, e.description].filter(Boolean).join(" — ") || "—"}</p>
                     {e.voided && e.void_reason && <p className="text-xs text-rose-700 dark:text-rose-300">{e.void_reason}</p>}
                   </td>
@@ -296,6 +318,17 @@ export function ExpenseModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const currency = data.accounts.find((a) => a.id === accountId)?.currency ?? "";
+  // The group this was spent on, for its profit. Whoever cannot read groups just never sees the list.
+  const groupsOn = useCapability("groups");
+  const [groups, setGroups] = useState<{ id: string; name: string }[]>([]);
+  const [groupId, setGroupId] = useState("");
+
+  useEffect(() => {
+    if (!groupsOn) return;
+    listGroups({ state: "ACTIVE" })
+      .then((r) => setGroups(r.groups.map((g) => ({ id: g.id, name: g.name }))))
+      .catch(() => setGroups([]));
+  }, [groupsOn]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -306,7 +339,7 @@ export function ExpenseModal({
       if (category === NEW_CATEGORY) {
         categoryId = (await createExpenseCategory(newCategory.trim())).id;
       }
-      const res = await createExpense({ category_id: categoryId, cash_account_id: accountId, amount_minor: toMinor(amount), spent_on: on, payee, description, attachment: file });
+      const res = await createExpense({ category_id: categoryId, class_group_id: groupId || null, cash_account_id: accountId, amount_minor: toMinor(amount), spent_on: on, payee, description, attachment: file });
       onDone(res.number);
     } catch (err) {
       setError(apiErrorMessage(err, t("treasury.saveFailed")));
@@ -381,6 +414,19 @@ export function ExpenseModal({
             <input type="date" className={cn(fieldClass, "mt-1.5")} value={on} max={todayLocal()} onChange={(e) => setOn(e.target.value)} />
           </label>
         </div>
+        {groups.length > 0 && (
+          <label className="block text-sm font-medium">
+            {t("expenses.group")} <span className="text-muted-foreground font-normal">({t("collect.optional")})</span>
+            <select className={cn(fieldClass, "mt-1.5")} value={groupId} onChange={(e) => setGroupId(e.target.value)} data-testid="expense-group">
+              <option value="">{t("expenses.noGroup")}</option>
+              {groups.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="block text-sm font-medium">
           {t("expenses.payee")} <span className="text-muted-foreground font-normal">({t("collect.optional")})</span>
           <input className={cn(fieldClass, "mt-1.5")} value={payee} onChange={(e) => setPayee(e.target.value)} placeholder={t("expenses.payeeHint")} />

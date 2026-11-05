@@ -7,6 +7,7 @@ import { useCallback, useEffect, useState } from "react";
 import { StatementModal, type StatementTarget } from "@/components/accounting/accounting-statement";
 import { AgingBar, dayLabel, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
+import { ExportButton } from "@/components/accounting/export-button";
 import { PayerPicker } from "@/components/accounting/payer-picker";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
@@ -14,6 +15,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { PageHero } from "@/components/ui/page-hero";
 import { AGE_BUCKETS, getArrears, remindPayer, type AgeBucket, type Arrears, type ArrearsPayer } from "@/lib/accounting-api";
+import type { SheetColumn } from "@/lib/accounting-export";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -94,6 +96,21 @@ export function AccountingArrearsScreen() {
     return Math.max(0, Math.round((Date.parse(data.today) - Date.parse(date)) / 86_400_000));
   };
 
+  type OweRow = { payer: ArrearsPayer; balance: ArrearsPayer["balances"][number] };
+  const oweRows: OweRow[] = (data?.payers ?? []).flatMap((payer) => payer.balances.map((balance) => ({ payer, balance })));
+  const sheet: SheetColumn<OweRow>[] = [
+    { header: t("exportPayer"), width: 28, value: (r) => r.payer.name },
+    { header: t("exportPhone"), width: 18, value: (r) => r.payer.phone },
+    { header: t("exportStudents"), width: 30, value: (r) => r.payer.students.join("، ") },
+    { header: t("exportGroups"), width: 30, value: (r) => r.payer.groups.join("، ") },
+    { header: t("exportCurrency"), width: 10, value: (r) => r.balance.currency },
+    { header: t("exportAmount"), kind: "money", value: (r) => r.balance.due_minor },
+    { header: t("arrears.overdueOnly"), kind: "money", value: (r) => r.balance.overdue_minor },
+    ...AGE_BUCKETS.map((b) => ({ header: t(`bucket.${b}`), kind: "money" as const, value: (r: OweRow) => r.balance[b] })),
+    { header: t("exportOldest"), width: 12, value: (r) => r.payer.oldest_due },
+    { header: t("exportLastPayment"), width: 12, value: (r) => r.payer.last_receipt?.received_on },
+  ];
+
   return (
     <div className="space-y-5" data-testid="accounting-arrears">
       <PageHero
@@ -102,10 +119,13 @@ export function AccountingArrearsScreen() {
         subtitle={t("arrears.subtitle")}
         latticeId="accounting-arrears-hero"
         actions={
-          <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="arrears-pick-statement">
-            <FileText className="size-4" aria-hidden />
-            {t("arrears.pickStatement")}
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <ExportButton name="arrears" sheetName={t("arrears.title")} columns={sheet} rows={oweRows} />
+            <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="arrears-pick-statement">
+              <FileText className="size-4" aria-hidden />
+              {t("arrears.pickStatement")}
+            </Button>
+          </div>
         }
       />
 

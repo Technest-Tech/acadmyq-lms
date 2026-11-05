@@ -21,7 +21,7 @@ import {
   type GroupInput,
   type GroupMode,
   type GroupSlot,
-  type GroupTeacherPayMode,
+  type GroupShareBasis, type GroupTeacherPayMode,
 } from "@/lib/groups-api";
 import { LessonPriceFields, lessonPriceFromTotal, lessonsIn, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
@@ -243,6 +243,9 @@ export function GroupForm({
   const [sharePct, setSharePct] = useState(
     group?.teacher_pay?.share_bp != null ? String(group.teacher_pay.share_bp / 100) : "",
   );
+  // Only receipts say what was collected, so the choice exists only on the accounts.
+  const onAccounts = useCapability("accounting");
+  const [shareBasis, setShareBasis] = useState<GroupShareBasis>(group?.teacher_pay?.share_basis ?? "BILLED");
   // Create only: the students the class starts with.
   const [studentIds, setStudentIds] = useState<Set<string>>(new Set());
 
@@ -429,6 +432,7 @@ export function GroupForm({
             teacher_pay_mode: payMode,
             teacher_pay_minor: payMode !== null && payMode !== "REVENUE_SHARE" ? toMinor(payAmount) : null,
             teacher_share_bp: payMode === "REVENUE_SHARE" ? Math.round(Number.parseFloat(sharePct) * 100) : null,
+            ...(onAccounts && payMode === "REVENUE_SHARE" ? { teacher_share_basis: shareBasis } : {}),
           }
         : {}),
     };
@@ -919,6 +923,14 @@ export function GroupForm({
                 placeholder="50"
                 data-testid="group-share"
               />
+            </Field>
+          )}
+          {payMode === "REVENUE_SHARE" && onAccounts && (
+            <Field label={t("money.shareBasis")} hint={t(`money.shareBasisHint.${shareBasis}`)}>
+              <select className={fieldClass} value={shareBasis} onChange={(e) => setShareBasis(e.target.value as GroupShareBasis)} data-testid="group-share-basis">
+                <option value="BILLED">{t("money.shareBasisOption.BILLED")}</option>
+                <option value="COLLECTED">{t("money.shareBasisOption.COLLECTED")}</option>
+              </select>
             </Field>
           )}
           <p className="text-muted-foreground text-xs">{t(`money.payModeHint.${payMode ?? "DEFAULT"}`)}</p>

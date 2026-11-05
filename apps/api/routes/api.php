@@ -1364,6 +1364,10 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             // The Accounting section's pages.
             Route::get('/accounting/overview', [AccountingController::class, 'overview']);
             Route::get('/accounting/groups', [AccountingController::class, 'groups'])->middleware('entitled:groups');
+            Route::get('/accounting/private', [AccountingController::class, 'privateLessons']);
+            // One figure across currencies, for the income report. Not behind financial_statistics: a
+            // client on the accounts may not hold that page.
+            Route::get('/accounting/exchange-rates', [ExchangeRateController::class, 'all']);
             Route::get('/accounting/arrears', [AccountingController::class, 'arrears']);
             Route::post('/accounting/arrears/remind', [AccountingController::class, 'remind']);
             Route::get('/accounting/statement', [AccountingController::class, 'statement']);

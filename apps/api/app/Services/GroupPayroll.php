@@ -22,7 +22,8 @@ use Illuminate\Support\Facades\DB;
  *   PER_LESSON     a fixed amount per lesson
  *   PER_HOUR       an hourly rate × the lesson's length
  *   PER_STUDENT    an amount × the students who came (present + late)
- *   REVENUE_SHARE  a share (basis points) of what the group BILLED in the month — one monthly line,
+ *   REVENUE_SHARE  a share (basis points) of what the group BILLED in the month, or of what it
+ *                  COLLECTED where `teacher_share_basis` says so — one monthly line,
  *                  kept in step every time a group charge is raised or taken back; the lessons
  *                  themselves still show on the statement, at 0.
  *
@@ -112,8 +113,9 @@ final class GroupPayroll
 
     /**
      * Keep the group's revenue-share line for a month equal to its share of what the group billed
-     * that month, in the teacher's currency. On a group that is not on REVENUE_SHARE (any more) an
-     * open month's line is removed. A finalized statement is left as it was paid.
+     * that month (or, on a group paid on COLLECTED, of what came in that month), in the teacher's
+     * currency. On a group that is not on REVENUE_SHARE (any more) an open month's line is removed. A
+     * finalized statement is left as it was paid.
      */
     public function syncRevenueShare(object $group, int $year, int $month): void
     {
@@ -122,6 +124,7 @@ final class GroupPayroll
         }
 
         $monthStart = Carbon::create($year, $month, 1)->format('Y-m-d');
+        $monthEnd = Carbon::create($year, $month, 1)->endOfMonth()->format('Y-m-d');
         $existing = DB::table('payout_line_items')
             ->where('class_group_id', $group->id)
             ->whereNull('class_group_lesson_id')
@@ -141,15 +144,19 @@ final class GroupPayroll
             return;
         }
 
-        $billed = (int) DB::table('invoice_line_items')
-            ->where('class_group_id', $group->id)
-            ->where('currency', $teacher->currency)
-            ->whereBetween('group_period', [$monthStart, Carbon::create($year, $month, 1)->endOfMonth()->format('Y-m-d')])
-            ->sum('amount_minor');
+        $collected = ($group->teacher_share_basis ?? 'BILLED') === 'COLLECTED' && Ledger::keeps((string) $group->academy_id);
+        $base = $collected
+            ? $this->collectedIn($group, (string) $teacher->currency, $monthStart, $monthEnd)
+            : (int) DB::table('invoice_line_items')
+                ->where('class_group_id', $group->id)
+                ->where('currency', $teacher->currency)
+                ->whereBetween('group_period', [$monthStart, $monthEnd])
+                ->sum('amount_minor');
 
         $share = (int) $group->teacher_share_bp;
-        $amount = (int) round($billed * $share / 10000);
+        $amount = (int) round($base * $share / 10000);
         $label = Carbon::create($year, $month, 1)->locale('en')->translatedFormat('F Y');
+        $percent = rtrim(rtrim(number_format($share / 100, 2, '.', ''), '0'), '.');
 
         $this->payroll->upsertGroupLine(
             (string) $group->academy_id,
@@ -158,10 +165,54 @@ final class GroupPayroll
             $month,
             ['class_group_id' => (string) $group->id, 'group_period' => $monthStart],
             $amount,
-            "{$group->name} — ".rtrim(rtrim(number_format($share / 100, 2, '.', ''), '0'), '.')."% of {$label}",
+            $collected ? "{$group->name} — {$percent}% of collected in {$label}" : "{$group->name} — {$percent}% of {$label}",
             $monthStart,
             quietWhenFinalized: true,
         );
+    }
+
+    /**
+     * A payment moved: re-read the share of every group paid on what it collects. The current month
+     * and the two before it are enough, and a month already finalized is left as it was paid.
+     */
+    public function syncCollectedShares(string $academyId): void
+    {
+        $groups = DB::table('class_groups')
+            ->where('academy_id', $academyId)
+            ->where('teacher_pay_mode', 'REVENUE_SHARE')
+            ->where('teacher_share_basis', 'COLLECTED')
+            ->get();
+        if ($groups->isEmpty()) {
+            return;
+        }
+
+        $timezone = (string) (DB::table('academies')->where('id', $academyId)->value('timezone') ?: 'UTC');
+        $thisMonth = Carbon::now($timezone)->startOfMonth();
+        foreach ($groups as $group) {
+            for ($back = 0; $back <= 2; $back++) {
+                $month = $thisMonth->copy()->subMonthsNoOverflow($back);
+                $this->syncRevenueShare($group, (int) $month->year, (int) $month->month);
+            }
+        }
+    }
+
+    /**
+     * What came in on this group's lines in a month. A payment counts on the later of the day it was
+     * received and the day it reached the line: a receipt dated back, or old credit spent on a new
+     * charge, lands on a month still open instead of a sealed statement that could not take it.
+     */
+    private function collectedIn(object $group, string $currency, string $from, string $to): int
+    {
+        $timezone = (string) (DB::table('academies')->where('id', $group->academy_id)->value('timezone') ?: 'UTC');
+
+        return (int) DB::table('receipt_allocations as ra')
+            ->join('receipts as r', 'r.id', '=', 'ra.receipt_id')
+            ->join('invoice_line_items as li', 'li.id', '=', 'ra.invoice_line_id')
+            ->where('li.class_group_id', $group->id)
+            ->where('li.currency', $currency)
+            ->whereNull('r.voided_at')
+            ->whereRaw('greatest(r.received_on, (ra.created_at at time zone ?)::date) between ? and ?', [$timezone, $from, $to])
+            ->sum('ra.amount_minor');
     }
 
     /**

@@ -36,6 +36,7 @@ import { COUNTRIES } from "@/lib/countries";
 import { type ExcelColumn } from "@/lib/export-excel";
 import { type Level, listLevels } from "@/lib/levels-api";
 import { formatMoney } from "@/lib/money";
+import { usePlanLabel } from "@/lib/plan-label";
 import { cn } from "@/lib/utils";
 import { useLevelWord } from "@/lib/levels";
 
@@ -209,6 +210,7 @@ export function StudentsList({
   /** Warm a student's profile route on hover so the click lands on a loaded page. */
   onPrefetch?: (id: string) => void;
 }) {
+  const planLabel = usePlanLabel();
   const t = useTranslations("students");
   const tDone = useTranslations("doneBy");
   const locale = useLocale();
@@ -340,7 +342,7 @@ export function StudentsList({
               {(r.plan_label || r.start_date) && (
                 <div className="text-muted-foreground flex items-center gap-1.5 text-[11px]">
                   {r.plan_label && (
-                    <span className="truncate font-medium">{r.plan_label}</span>
+                    <span className="truncate font-medium">{planLabel(r.plan_label)}</span>
                   )}
                   {r.plan_label && r.start_date && (
                     <Octagram className="text-gold/50 size-1.5 shrink-0" />
@@ -478,7 +480,7 @@ export function StudentsList({
 
       return cols;
     },
-    [t, tDone, locale, isTeacher, canPrice, priceSuffix, centre],
+    [t, tDone, locale, isTeacher, canPrice, priceSuffix, centre, planLabel],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -551,7 +553,7 @@ export function StudentsList({
         value: (r) =>
           r.subscription_status ? t(`subStatus.${r.subscription_status}`) : "",
       },
-      { header: t("subscription.planLabel"), value: (r) => r.plan_label },
+      { header: t("subscription.planLabel"), value: (r) => planLabel(r.plan_label) },
       { header: t("subscription.startDate"), value: (r) => r.start_date },
     );
     if (!isTeacher) {
@@ -585,7 +587,7 @@ export function StudentsList({
       cols.push({ header: tDone("col"), value: (r) => r.added_by_name ?? "", width: 22 });
     }
     return cols;
-  }, [t, tDone, locale, isTeacher]);
+  }, [t, tDone, locale, isTeacher, planLabel]);
 
   const newButton = can("student.create") ? (
     <Button

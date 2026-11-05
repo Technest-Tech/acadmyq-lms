@@ -32,10 +32,19 @@ final class ChargeCancellation
 {
     public function __construct(private readonly LessonPackages $packages, private readonly Ledger $ledger) {}
 
-    /** A curriculum centre (`centre`) on receipts — nobody else ever lets a charge go this way. */
+    /**
+     * Who lets dues go in bulk, without being asked line by line: the suspend dialog's advance dues, and
+     * what leaves with a child or family deleted. A curriculum centre (`centre`) on receipts.
+     */
     public static function availableFor(string $academyId): bool
     {
         return Ledger::enabledFor($academyId) && Entitlement::hasCapability($academyId, 'centre');
+    }
+
+    /** Who may cancel one charge the desk picked, with a reason: any academy on the accounts. */
+    public static function canCancelCharge(string $academyId): bool
+    {
+        return Ledger::enabledFor($academyId);
     }
 
     /**
@@ -94,8 +103,8 @@ final class ChargeCancellation
      */
     public function cancel(string $academyId, string $lineId, ?string $reason, ?string $userId, ?string $role): array
     {
-        if (! self::availableFor($academyId)) {
-            throw ValidationException::withMessages(['charge' => ['Cancelling a charge is for centres on the accounts. / إلغاء المستحق متاح للمراكز مع الحسابات.']]);
+        if (! self::canCancelCharge($academyId)) {
+            throw ValidationException::withMessages(['charge' => ['Cancelling a charge needs the accounts. / إلغاء المستحق يتطلب تفعيل الحسابات.']]);
         }
 
         return DB::transaction(function () use ($academyId, $lineId, $reason, $userId, $role): array {

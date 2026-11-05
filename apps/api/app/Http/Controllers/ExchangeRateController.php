@@ -69,14 +69,41 @@ final class ExchangeRateController extends Controller
     }
 
     /**
+     * GET /api/accounting/exchange-rates: every currency the source quotes, not just the page's short
+     * list above, because a client on the accounts can bill in anything (OMR, KWD, QAR). Same fallback
+     * as index(): the last good copy, else `available: false` and the report stays per currency.
+     */
+    public function all(): JsonResponse
+    {
+        Gate::authorize('invoice.read');
+
+        $cfg = config('services.exchange');
+        $home = strtoupper((string) $cfg['home_currency']);
+        $cacheKey = "fx_rates_all:{$home}";
+
+        $payload = Cache::remember($cacheKey, max(60, (int) $cfg['ttl']), fn (): ?array => $this->fetchRates($cfg, $home, null));
+        if ($payload === null) {
+            Cache::forget($cacheKey);
+            $stale = Cache::get("{$cacheKey}:last");
+
+            return response()->json(is_array($stale)
+                ? ['stale' => true] + $stale
+                : ['home' => $home, 'available' => false, 'stale' => false, 'as_of' => null, 'source' => null, 'rates' => []]);
+        }
+        Cache::forever("{$cacheKey}:last", $payload);
+
+        return response()->json($payload);
+    }
+
+    /**
      * Fetch home-based rates and invert them to foreign→home. Returns null on any failure so the
      * caller can fall back to a stale copy rather than caching a broken result.
      *
      * @param  array<string,mixed>  $cfg
-     * @param  list<string>  $wanted
+     * @param  list<string>|null  $wanted  null = every currency the source quotes
      * @return array<string,mixed>|null
      */
-    private function fetchRates(array $cfg, string $home, array $wanted): ?array
+    private function fetchRates(array $cfg, string $home, ?array $wanted): ?array
     {
         try {
             $response = Http::timeout((int) $cfg['timeout'])
@@ -100,7 +127,7 @@ final class ExchangeRateController extends Controller
             }
 
             $out = [];
-            foreach ($wanted as $cur) {
+            foreach ($wanted ?? array_map('strval', array_keys($rates)) as $cur) {
                 if ($cur === $home) {
                     continue;
                 }

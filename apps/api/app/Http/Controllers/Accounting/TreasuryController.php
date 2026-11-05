@@ -479,6 +479,7 @@ final class TreasuryController extends Controller
             ->join('expense_categories as c', 'c.id', '=', 'e.category_id')
             ->join('cash_accounts as a', 'a.id', '=', 'e.cash_account_id')
             ->leftJoin('users as u', 'u.id', '=', 'e.created_by')
+            ->leftJoin('class_groups as g', 'g.id', '=', 'e.class_group_id')
             ->whereBetween('e.spent_on', [$from, $to])
             ->when(! $seesSalaries, fn ($q) => $q->where(fn ($w) => $w->whereNull('c.key')->orWhereNotIn('c.key', $salaryKeys)))
             ->when(isset($data['category_id']), fn ($q) => $q->where('e.category_id', $data['category_id']))
@@ -500,10 +501,12 @@ final class TreasuryController extends Controller
             ->when($status === 'active', fn ($q) => $q->whereNull('e.voided_at'))
             ->when($status === 'void', fn ($q) => $q->whereNotNull('e.voided_at'))
             ->orderByDesc('e.spent_on')->orderByDesc('e.created_at')->limit(500)
-            ->get(['e.*', 'c.name as category', 'c.key as category_key', 'a.name as account', 'u.full_name as created_by_name'])
+            ->get(['e.*', 'c.name as category', 'c.key as category_key', 'a.name as account', 'u.full_name as created_by_name', 'g.name as group_name'])
             ->map(fn ($e) => [
                 'id' => (string) $e->id,
                 'number' => (string) $e->number,
+                'class_group_id' => $e->class_group_id,
+                'group_name' => $e->group_name,
                 'spent_on' => Carbon::parse($e->spent_on)->format('Y-m-d'),
                 'category_id' => (string) $e->category_id,
                 'category' => (string) $e->category,
@@ -549,6 +552,9 @@ final class TreasuryController extends Controller
         $data = $request->validate([
             'category_id' => ['nullable', 'uuid', 'required_without:payout_id'],
             'payout_id' => ['nullable', 'uuid'],
+            // The group this was spent on, so its profit takes it off. A salary reaches a group through
+            // its statement's lines, so the two never go together.
+            'class_group_id' => ['nullable', 'uuid', 'prohibits:payout_id', Rule::exists('class_groups', 'id')],
             'cash_account_id' => ['required', 'uuid'],
             'amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000'],
             'spent_on' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.$this->today($academyId)],
@@ -602,6 +608,7 @@ final class TreasuryController extends Controller
                 'amount_minor' => (int) $data['amount_minor'], 'currency' => $account->currency, 'cash_account_id' => $account->id,
                 'payee' => $payee !== null ? trim((string) $payee) : null, 'description' => $description !== null ? trim((string) $description) : null,
                 'attachment_path' => is_string($path) && $path !== '' ? $path : null, 'payout_id' => $data['payout_id'] ?? null,
+                'class_group_id' => $data['class_group_id'] ?? null,
                 'created_by' => app(AuthContext::class)->userId,
             ]);
 
@@ -755,7 +762,8 @@ final class TreasuryController extends Controller
         for ($m = 1; $m <= 12; $m++) {
             $from = sprintf('%04d-%02d-01', $year, $m);
             $to = Carbon::parse($from)->endOfMonth()->format('Y-m-d');
-            $months[] = ['month' => sprintf('%04d-%02d', $year, $m)] + $this->inOut($from, $to, $seesSalaries);
+            $row = $this->inOut($from, $to, $seesSalaries);
+            $months[] = ['month' => sprintf('%04d-%02d', $year, $m), 'currencies' => $this->withProfit($academyId, $row['currencies'], $year, $m, $from, $to, $seesSalaries)];
         }
 
         $categories = [];
@@ -794,6 +802,50 @@ final class TreasuryController extends Controller
         }
 
         return ['currencies' => $rows];
+    }
+
+    /**
+     * What the month actually earned, next to what moved. `net` is the cash that moved, so a salary
+     * marked "transferred" outside the treasury never reaches it and one paid next month lands on the
+     * wrong month. Profit takes the teachers' statements for the month instead of the salaries paid in
+     * it, whatever way and whenever they were paid.
+     *
+     * Only an expense tied to a statement is swapped out: a salary typed in by hand has no statement
+     * behind it, so it stays in the money out and is counted once.
+     *
+     * @param  list<array{currency: string, in_minor: int, out_minor: int, net_minor: int}>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function withProfit(string $academyId, array $rows, int $year, int $month, string $from, string $to, bool $seesSalaries): array
+    {
+        if (! $seesSalaries) {
+            return array_map(fn ($r) => $r + ['salaries_earned_minor' => null, 'salaries_paid_minor' => null, 'profit_minor' => null], $rows);
+        }
+
+        $earned = DB::table('payouts')->where('academy_id', $academyId)->where('period_year', $year)->where('period_month', $month)
+            ->groupBy('currency')->get(['currency', DB::raw('sum(total_minor) as amount')])->pluck('amount', 'currency');
+        $paid = DB::table('expenses')->where('academy_id', $academyId)->whereNotNull('payout_id')->whereNull('voided_at')->whereBetween('spent_on', [$from, $to])
+            ->groupBy('currency')->get(['currency', DB::raw('sum(amount_minor) as amount')])->pluck('amount', 'currency');
+
+        $byCurrency = [];
+        foreach ($rows as $r) {
+            $byCurrency[$r['currency']] = $r;
+        }
+        foreach ($earned->keys() as $c) {
+            $byCurrency[(string) $c] ??= ['currency' => (string) $c, 'in_minor' => 0, 'out_minor' => 0, 'net_minor' => 0];
+        }
+        ksort($byCurrency);
+
+        return array_values(array_map(function (array $r) use ($earned, $paid): array {
+            $salaries = (int) ($earned[$r['currency']] ?? 0);
+            $paidOut = (int) ($paid[$r['currency']] ?? 0);
+
+            return $r + [
+                'salaries_earned_minor' => $salaries,
+                'salaries_paid_minor' => $paidOut,
+                'profit_minor' => $r['in_minor'] - ($r['out_minor'] - $paidOut) - $salaries,
+            ];
+        }, $byCurrency));
     }
 
     private function mapMethod(string $academyId, string $method, string $currency, ?string $accountId): void

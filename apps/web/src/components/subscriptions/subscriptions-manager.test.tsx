@@ -1,7 +1,9 @@
+import { closedReasonText } from "@/lib/subscriptions-api";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
+import enMessages from "../../../messages/en.json";
 import { subRow, subSummary } from "@/components/subscriptions/test-fixtures";
 import { formatMoney } from "@/lib/money";
 import { makeSession, withAuth } from "@/test/auth";
@@ -227,5 +229,23 @@ describe("SubscriptionsManager", () => {
     await userEvent.click(screen.getByTestId("subscriptions-tab-outside"));
     await waitFor(() => expect(screen.getByTestId("subscriptions-empty")).toHaveTextContent(ar.empty.outside));
     expect(within(screen.getByTestId("subscriptions-empty")).queryByRole("button")).toBeNull();
+  });
+});
+
+describe("A block's closing reason", () => {
+  const t = (key: string) => key;
+
+  it("says a code the system wrote in the reader's words, and leaves what the desk typed as typed", () => {
+    expect(closedReasonText("CLOSED_EARLY", t)).toBe("closedReason.CLOSED_EARLY");
+    expect(closedReasonText("STUDENT_REMOVED", t)).toBe("closedReason.STUDENT_REMOVED");
+    expect(closedReasonText("الطالب مكرر", t)).toBe("الطالب مكرر");
+    expect(closedReasonText(null, t)).toBeNull();
+  });
+
+  it("has words for every code in both languages", () => {
+    for (const code of ["STUDENT_REMOVED", "CANCELLED", "RENEWAL_UNDONE", "CLOSED_EARLY", "CHARGE_CANCELLED", "EXHAUSTED", "CARRIED_OVER"] as const) {
+      expect(arMessages.subscriptions.closedReason[code]).toBeTruthy();
+      expect(enMessages.subscriptions.closedReason[code]).toBeTruthy();
+    }
   });
 });
