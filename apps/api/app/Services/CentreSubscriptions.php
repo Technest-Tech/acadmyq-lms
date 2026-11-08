@@ -255,21 +255,21 @@ final class CentreSubscriptions
     }
 
     /**
-     * A block sold by mistake: nothing counted on it. Its bill is voided; what was paid toward it
-     * through receipts goes back to the family as credit (and onto their other open charges), as
-     * a deleted group subscription's does. Money that came in some other way still refuses.
+     * Delete a block sold by mistake. Its bill is voided; what was paid toward it through receipts
+     * goes back to the family as credit (and onto their other open charges), as a deleted group
+     * subscription's does. Lessons already counted on it are not undone — they happened and the
+     * teacher is paid — they leave the block: onto another open block of the same subject with
+     * room, else outside any subscription (flagged, taken by the next block sold). Money that came
+     * in some other way than receipts still refuses.
      *
-     * @return int what became the family's credit
+     * @return array{credited_minor: int, released_lessons: int}
      */
-    public function cancel(string $id, ?string $note, ?string $actorUserId, ?string $actorRole): int
+    public function cancel(string $id, ?string $note, ?string $actorUserId, ?string $actorRole): array
     {
-        return DB::transaction(function () use ($id, $note, $actorUserId, $actorRole): int {
+        return DB::transaction(function () use ($id, $note, $actorUserId, $actorRole): array {
             $sub = $this->lock($id);
             if (! in_array($sub->status, ['OPEN', 'FINISHED'], true)) {
                 throw ValidationException::withMessages(['subscription' => ['This subscription is already closed. / هذا الاشتراك منتهٍ بالفعل.']]);
-            }
-            if ($this->used($id) > 0) {
-                throw ValidationException::withMessages(['subscription' => ['Lessons were counted on this subscription. End it instead. / احتُسبت حصص على هذا الاشتراك. أنهِه بدلًا من ذلك.']]);
             }
             $credited = $sub->invoice_line_id !== null ? $this->billing->allocatedTo((string) $sub->invoice_line_id) : 0;
             if ($this->paidOn($sub) > $credited) {
@@ -279,6 +279,8 @@ final class CentreSubscriptions
                 'status' => 'CANCELLED', 'closed_at' => now(), 'closed_reason' => $note !== null && trim($note) !== '' ? mb_substr(trim($note), 0, 500) : 'CANCELLED',
                 'closed_by' => $actorUserId, 'updated_at' => now(),
             ]);
+            $this->clearAlert('SUBSCRIPTION_FINISHED', $id);
+            $released = $this->releaseAll($sub);
             $voided = false;
             if ($sub->invoice_id !== null) {
                 // The receipts' money comes off this line first (the invoice refreshes itself),
@@ -292,10 +294,40 @@ final class CentreSubscriptions
                 $this->ledger->afterLinesChanged((string) $sub->invoice_id);
             }
             Audit::log(self::ENTITY.'.cancelled', self::ENTITY, $id, (string) $sub->academy_id, $actorUserId, $actorRole,
-                before: ['status' => $sub->status], after: ['note' => $note, 'invoice_voided' => $voided, 'credited_minor' => $credited]);
+                before: ['status' => $sub->status], after: ['note' => $note, 'invoice_voided' => $voided, 'credited_minor' => $credited, 'released_lessons' => $released]);
 
-            return $credited;
+            return ['credited_minor' => $credited, 'released_lessons' => $released];
         });
+    }
+
+    /**
+     * A deleted block's counted lessons leave it: first onto the student's other open blocks (of
+     * their subject, from each block's start, as a sale takes them), the rest outside — flagged
+     * once. Returns how many left the block.
+     */
+    private function releaseAll(object $sub): int
+    {
+        $released = DB::table('centre_subscription_lessons')->where('subscription_id', $sub->id)
+            ->update(['subscription_id' => null, 'counted_at' => null]);
+        if ($released === 0) {
+            return 0;
+        }
+        foreach (DB::table('centre_subscriptions')->where('student_id', $sub->student_id)->where('status', 'OPEN')
+            ->where('id', '<>', $sub->id)->orderBy('sequence_no')->get() as $other) {
+            $this->takeOutside($other);
+        }
+        $studentId = (string) $sub->student_id;
+        $outside = $this->outsideCount($studentId);
+        if ($outside > 0) {
+            $this->notify((string) $sub->academy_id, 'LESSON_OUTSIDE_SUBSCRIPTION', $studentId, [
+                'student_id' => $studentId, 'student_name' => $this->studentName($studentId),
+                'session_id' => null, 'teacher_id' => $sub->teacher_id !== null ? (string) $sub->teacher_id : null,
+                'teacher_name' => $sub->teacher_id !== null ? DB::table('teachers')->where('id', $sub->teacher_id)->value('full_name') : null,
+                'course' => $sub->course, 'outside_count' => $outside,
+            ]);
+        }
+
+        return $released;
     }
 
     /**
@@ -308,6 +340,7 @@ final class CentreSubscriptions
     {
         $ended = 0;
         foreach (DB::table('centre_subscriptions')->where('student_id', $studentId)->where('status', 'OPEN')->get() as $sub) {
+            // Nothing happened on it: voided with its bill. Otherwise it closes where it stands.
             if ($this->used((string) $sub->id) === 0 && $this->paidOn($sub) === 0) {
                 $this->cancel((string) $sub->id, $reason, $actorUserId, $actorRole);
             } else {

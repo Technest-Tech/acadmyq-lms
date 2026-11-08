@@ -315,6 +315,11 @@ export function CancelSubscriptionModal({ row, onClose, onDone }: { row: Subscri
       }
     >
       <p className="text-muted-foreground text-sm">{t("hint")}</p>
+      {row.lessons_used > 0 && (
+        <p className="text-sm font-medium text-amber-700 dark:text-amber-300" data-testid="subscription-cancel-releases">
+          {t("releases", { count: row.lessons_used })}
+        </p>
+      )}
       {row.invoice_paid_minor > 0 && (
         <p className="text-sm font-medium text-amber-700 dark:text-amber-300" data-testid="subscription-cancel-credit">
           {t("paidBack", { amount: formatMoney({ amount: row.invoice_paid_minor, currency: row.currency }, locale) })}

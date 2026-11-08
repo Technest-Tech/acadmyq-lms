@@ -233,10 +233,11 @@ export function closeSubscription(id: string, input: CloseInput): Promise<CloseR
 }
 
 /**
- * A block opened by mistake: only while no lesson was counted on it. Voids its bill; what was paid
- * toward it through receipts comes back as the family's credit (`credited_minor`).
+ * Delete a block opened by mistake. Voids its bill; what was paid toward it through receipts comes
+ * back as the family's credit (`credited_minor`); lessons counted on it move outside any
+ * subscription (`released_lessons`), for the next block of that subject.
  */
-export function cancelSubscription(id: string, note?: string): Promise<{ credited_minor: number }> {
+export function cancelSubscription(id: string, note?: string): Promise<{ credited_minor: number; released_lessons: number }> {
   return apiFetch(`/api/subscriptions/${id}/cancel`, { method: "POST", body: JSON.stringify({ note: note || undefined }) });
 }
 

@@ -11614,7 +11614,7 @@
       "remaining": "{left} of {sold} lessons left.",
       "reason": "Reason",
       "reasonPlaceholder": "e.g. the student stopped, travelling…",
-      "cancelHint": "No lesson counted: it can be deleted instead, voiding its bill (anything paid comes back as the family’s credit).",
+      "cancelHint": "Opened by mistake? Delete it instead of ending it: its bill is voided, anything paid comes back as the family’s credit, and counted lessons move outside the subscription.",
       "cancelConfirm": "Delete it",
       "confirm": "Close",
       "back": "Back",
@@ -11626,13 +11626,14 @@
     },
     "cancel": {
       "title": "Delete “{label}” for {name}?",
-      "hint": "For a subscription opened by mistake: it goes with its bill. Only while no lesson was counted on it — otherwise end it.",
+      "hint": "For a subscription opened by mistake: it is deleted with its bill.",
       "confirm": "Delete",
       "keep": "Keep",
       "done": "Subscription deleted.",
       "failed": "Couldn’t delete it.",
       "paidBack": "{amount} was paid toward it: it comes back as the family’s credit and pays their other charges.",
-      "doneCredited": "Subscription deleted. The {amount} paid toward it is now the family’s credit."
+      "doneCredited": "Subscription deleted. The {amount} paid toward it is now the family’s credit.",
+      "releases": "{count, plural, one {# lesson was} other {# lessons were}} counted on it: they stay delivered and the teacher’s pay is unchanged; they move to “outside subscription” for the next block of that subject."
     },
     "settle": {
       "title": "Lessons paid for and not taken",

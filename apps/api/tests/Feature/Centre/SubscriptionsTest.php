@@ -457,20 +457,28 @@ it('pays the unused part back out of the treasury, or keeps it, and a block clos
     expect(($this->sub)($id)->settlement)->toBe('CREDIT');
 });
 
-it('cancels a block sold by mistake — nothing counted — voids its bill and gives receipts back as credit; otherwise refuses', function () {
+it('deletes a block sold by mistake — voids its bill, gives receipts back as credit, lets counted lessons go outside; refuses money from outside receipts', function () {
     $id = ($this->sell)()->assertCreated()->json('subscription.id');
     $invoiceId = ($this->sub)($id)->invoice_id;
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/subscriptions/{$id}/cancel", ['note' => 'typo'])->assertOk()->assertJsonPath('credited_minor', 0);
+    $this->postJson("/api/subscriptions/{$id}/cancel", ['note' => 'typo'])->assertOk()->assertJsonPath('credited_minor', 0)->assertJsonPath('released_lessons', 0);
     expect(($this->sub)($id)->status)->toBe('CANCELLED')->and(($this->row)('invoices', $invoiceId)->status)->toBe('VOID')
         ->and(($this->balance)())->toBe(['due' => 0, 'credit' => 0]);
     $this->getJson('/api/subscriptions?view=due')->assertOk()->assertJsonPath('meta.total', 0);
 
-    // A lesson counted on it: end it instead.
-    $used = ($this->sell)()->assertCreated()->json('subscription.id');
-    ($this->attend)('2026-06-01 10:00:00+00');
+    // A lesson counted on it: the block still goes; the lesson stays delivered (and paid to the
+    // teacher) and is flagged outside any subscription, for the next block sold to take.
+    $mistake = ($this->sell)()->assertCreated()->json('subscription.id');
+    $lesson = ($this->attend)('2026-06-01 10:00:00+00');
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/subscriptions/{$used}/cancel")->assertStatus(422);
+    $this->getJson("/api/subscriptions/{$mistake}")->assertOk()->assertJsonPath('subscription.deletable', true)->assertJsonPath('subscription.lessons_used', 1);
+    $this->postJson("/api/subscriptions/{$mistake}/cancel")->assertOk()->assertJsonPath('released_lessons', 1);
+    expect(($this->sub)($mistake)->status)->toBe('CANCELLED')
+        ->and(csTenant($this->academy, fn () => DB::table('centre_subscription_lessons')->where('session_id', $lesson)->value('subscription_id')))->toBeNull()
+        ->and(csTenant($this->academy, fn () => DB::table('notifications')->where('type', 'LESSON_OUTSIDE_SUBSCRIPTION')->where('subject_id', $this->hassan)->exists()))->toBeTrue();
+    // The next block of that subject takes it.
+    $used = ($this->sell)()->assertCreated()->assertJsonPath('lessons_taken', 1)->json('subscription.id');
+    expect(csTenant($this->academy, fn () => DB::table('centre_subscription_lessons')->where('session_id', $lesson)->value('subscription_id')))->toBe($used);
     $this->postJson("/api/subscriptions/{$used}/close", ['reason' => 'x'])->assertOk();
 
     // Paid through a receipt (the family paid it with the group fee by mistake): it still goes, as a

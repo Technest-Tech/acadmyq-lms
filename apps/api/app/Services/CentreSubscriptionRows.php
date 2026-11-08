@@ -333,9 +333,9 @@ final class CentreSubscriptionRows
                 'outside_count' => (int) $r->outside_count,
                 'renewed' => $r->renewed_by !== null,
                 'renewal_held' => isset($payFirst[(string) $r->student_id]) && $r->renewed_by === null && $r->status !== 'CANCELLED' && $outstanding > 0,
-                // Sold by mistake: nothing counted, and anything paid came through receipts (it goes
-                // back to the family as credit, as a deleted group subscription's does).
-                'deletable' => $r->status === 'OPEN' && $used === 0 && $paid <= (int) $r->receipts_paid_minor,
+                // Sold by mistake: anything paid came through receipts (it goes back to the family as
+                // credit, as a deleted group subscription's does); counted lessons leave the block.
+                'deletable' => in_array($r->status, ['OPEN', 'FINISHED'], true) && $paid <= (int) $r->receipts_paid_minor,
                 'reminders_sent' => (int) $r->reminders_sent,
                 'last_reminded_at' => $r->last_reminded_at !== null ? Carbon::parse($r->last_reminded_at)->utc()->toIso8601String() : null,
                 'opened_by_name' => $r->opened_by_name,

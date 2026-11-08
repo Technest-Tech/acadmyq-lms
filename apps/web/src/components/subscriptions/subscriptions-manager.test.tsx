@@ -167,6 +167,21 @@ describe("SubscriptionsManager", () => {
     expect(within(fresh).getByTestId("subscription-cancel")).toBeTruthy();
   });
 
+  it("deletes a mistaken block with a lesson counted on it: says the lesson moves outside and the money comes back as credit", async () => {
+    api.listSubscriptions.mockResolvedValue({
+      rows: [subRow({ id: "oops", deletable: true, lessons_used: 1, lessons_left: 3, lessons_sold: 4, invoice_paid_minor: 90000 })],
+      summary: subSummary(),
+      meta: { current_page: 1, last_page: 1, per_page: 50, total: 1 },
+    });
+    api.cancelSubscription.mockResolvedValue({ credited_minor: 90000, released_lessons: 1 });
+    render(withAuth(owner(), <SubscriptionsManager />));
+    await userEvent.click(within(await screen.findByTestId("subscription-oops")).getByTestId("subscription-cancel"));
+    expect(await screen.findByTestId("subscription-cancel-releases")).toHaveTextContent(arMessages.subscriptions.cancel.releases.replace("{count}", "1"));
+    expect(screen.getByTestId("subscription-cancel-credit")).toBeTruthy();
+    await userEvent.click(screen.getByTestId("subscription-cancel-confirm"));
+    await waitFor(() => expect(api.cancelSubscription).toHaveBeenCalledWith("oops"));
+  });
+
   it("sends a reminder through the contract's route and shows the message that went (or did not)", async () => {
     api.listSubscriptions.mockResolvedValue({ rows: [subRow({ outstanding_minor: 20000 })], summary: subSummary(), meta: { current_page: 1, last_page: 1, per_page: 50, total: 1 } });
     api.remindSubscription.mockResolvedValue({ sent: false, preview: "مرحبًا، فاتورة الاشتراك…" });
