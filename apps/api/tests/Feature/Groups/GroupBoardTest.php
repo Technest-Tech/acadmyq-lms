@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+use App\Services\ModuleBilling;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -117,6 +118,13 @@ it('lists every member with their attendance, an absence streak, and this monthâ
     $flagged = collect($this->getJson('/api/group-members?flag=absent_streak')->json('members'));
     expect($flagged->pluck('full_name')->all())->toBe(['Bassel']);
     expect(collect($this->getJson('/api/group-members?flag=unpaid')->json('members'))->pluck('full_name')->sort()->values()->all())->toBe(['Adam', 'Bassel']);
+
+    // Paid by a receipt while the bill stays open (a centre's bills never close): not late any more.
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
+    $this->postJson('/api/receipts', ['student_id' => $this->kids['Adam'], 'amount_minor' => 45000, 'currency' => 'EGP', 'method' => 'CASH'])->assertCreated();
+    $adam = collect($this->getJson('/api/group-members')->assertOk()->json('members'))->firstWhere('full_name', 'Adam');
+    expect($adam['charge'])->toMatchArray(['billed_minor' => 45000, 'outstanding_minor' => 0]);
+    expect(collect($this->getJson('/api/group-members?flag=unpaid')->json('members'))->pluck('full_name')->all())->toBe(['Bassel']);
 
     // The front desk sees the people, never the money.
     Sanctum::actingAs($this->makeUser($this->academy, 'CUSTOMER_SERVICE', ['email' => 'desk-members@test.local']));

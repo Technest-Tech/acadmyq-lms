@@ -7774,7 +7774,10 @@
       "shareBasisHint": {
         "BILLED": "Worked out from the month's bills, paid or not.",
         "COLLECTED": "Worked out from what came in during the month, and follows every receipt. A finalized statement does not change."
-      }
+      },
+      "twoMonthPrice": "Two-month offer price (optional)",
+      "twoMonthPriceHint": "For a student who pays two months together. Empty = twice the month.",
+      "twoMonthPricePlaceholder": "e.g. 800"
     },
     "moneyTab": {
       "loadFailed": "Could not load the group's money.",
@@ -7930,6 +7933,14 @@
         "export": "Download Excel",
         "exportFile": "Groups timetable"
       }
+    },
+    "months": {
+      "label": "Payment",
+      "one": "1 month",
+      "two": "2 months",
+      "twoOffer": "2 months (offer)",
+      "everyTwo": "Pays every 2 months",
+      "forwardHint": "Applies from the next payment; charges already raised stay as they are."
     }
   },
   "academyRoles": {
@@ -11603,22 +11614,25 @@
       "remaining": "{left} of {sold} lessons left.",
       "reason": "Reason",
       "reasonPlaceholder": "e.g. the student stopped, travelling…",
-      "cancelHint": "No lesson counted and nothing paid: it can be deleted instead, voiding its bill line.",
+      "cancelHint": "No lesson counted: it can be deleted instead, voiding its bill (anything paid comes back as the family’s credit).",
       "cancelConfirm": "Delete it",
       "confirm": "Close",
       "back": "Back",
       "closed": "Subscription closed.",
       "cancelled": "Subscription deleted.",
       "failed": "Couldn’t close it.",
-      "cancelFailed": "Couldn’t delete it."
+      "cancelFailed": "Couldn’t delete it.",
+      "cancelledCredited": "Subscription deleted. The {amount} paid toward it is now the family’s credit."
     },
     "cancel": {
       "title": "Delete “{label}” for {name}?",
-      "hint": "For a subscription opened by mistake: it goes with its bill line. Only while no lesson was counted and nothing was paid.",
+      "hint": "For a subscription opened by mistake: it goes with its bill. Only while no lesson was counted on it — otherwise end it.",
       "confirm": "Delete",
       "keep": "Keep",
       "done": "Subscription deleted.",
-      "failed": "Couldn’t delete it."
+      "failed": "Couldn’t delete it.",
+      "paidBack": "{amount} was paid toward it: it comes back as the family’s credit and pays their other charges.",
+      "doneCredited": "Subscription deleted. The {amount} paid toward it is now the family’s credit."
     },
     "settle": {
       "title": "Lessons paid for and not taken",

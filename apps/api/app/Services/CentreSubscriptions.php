@@ -254,10 +254,16 @@ final class CentreSubscriptions
         });
     }
 
-    /** A block sold by mistake: nothing counted, nothing paid. Its bill is voided. */
-    public function cancel(string $id, ?string $note, ?string $actorUserId, ?string $actorRole): void
+    /**
+     * A block sold by mistake: nothing counted on it. Its bill is voided; what was paid toward it
+     * through receipts goes back to the family as credit (and onto their other open charges), as
+     * a deleted group subscription's does. Money that came in some other way still refuses.
+     *
+     * @return int what became the family's credit
+     */
+    public function cancel(string $id, ?string $note, ?string $actorUserId, ?string $actorRole): int
     {
-        DB::transaction(function () use ($id, $note, $actorUserId, $actorRole): void {
+        return DB::transaction(function () use ($id, $note, $actorUserId, $actorRole): int {
             $sub = $this->lock($id);
             if (! in_array($sub->status, ['OPEN', 'FINISHED'], true)) {
                 throw ValidationException::withMessages(['subscription' => ['This subscription is already closed. / هذا الاشتراك منتهٍ بالفعل.']]);
@@ -265,7 +271,8 @@ final class CentreSubscriptions
             if ($this->used($id) > 0) {
                 throw ValidationException::withMessages(['subscription' => ['Lessons were counted on this subscription. End it instead. / احتُسبت حصص على هذا الاشتراك. أنهِه بدلًا من ذلك.']]);
             }
-            if ($this->paidOn($sub) > 0) {
+            $credited = $sub->invoice_line_id !== null ? $this->billing->allocatedTo((string) $sub->invoice_line_id) : 0;
+            if ($this->paidOn($sub) > $credited) {
                 throw ValidationException::withMessages(['subscription' => ['Money was paid on this subscription. End it and settle instead. / دُفع مبلغ على هذا الاشتراك. أنهِه وسوِّه بدلًا من ذلك.']]);
             }
             DB::table('centre_subscriptions')->where('id', $id)->update([
@@ -274,13 +281,20 @@ final class CentreSubscriptions
             ]);
             $voided = false;
             if ($sub->invoice_id !== null) {
+                // The receipts' money comes off this line first (the invoice refreshes itself),
+                // so the bill can be voided and the money is free credit again.
+                if ($credited > 0) {
+                    DB::table('receipt_allocations')->where('invoice_line_id', $sub->invoice_line_id)->delete();
+                }
                 $others = DB::table('invoice_line_items')->where('invoice_id', $sub->invoice_id)->where('id', '<>', $sub->invoice_line_id)->exists();
                 $voided = ! $others && DB::table('invoices')->where('id', $sub->invoice_id)->whereIn('status', ['OPEN', 'CLOSED'])
                     ->update(['status' => 'VOID', 'updated_at' => now()]) > 0;
                 $this->ledger->afterLinesChanged((string) $sub->invoice_id);
             }
             Audit::log(self::ENTITY.'.cancelled', self::ENTITY, $id, (string) $sub->academy_id, $actorUserId, $actorRole,
-                before: ['status' => $sub->status], after: ['note' => $note, 'invoice_voided' => $voided]);
+                before: ['status' => $sub->status], after: ['note' => $note, 'invoice_voided' => $voided, 'credited_minor' => $credited]);
+
+            return $credited;
         });
     }
 

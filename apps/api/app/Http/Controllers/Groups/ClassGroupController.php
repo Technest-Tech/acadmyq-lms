@@ -38,7 +38,7 @@ final class ClassGroupController extends Controller
     private const STATES = ['UPCOMING', 'RUNNING', 'FINISHED', 'ARCHIVED'];
 
     /** What the student pays — `student.set_price` to change, hidden from anyone who can't see money. */
-    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes', 'solo_billed_minutes'];
+    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes', 'solo_billed_minutes', 'two_month_price_minor'];
 
     /** What the teacher earns — `teacher.set_pay` to change; it or `payout.read` to see. */
     private const TEACHER_PAY_FIELDS = ['teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp', 'teacher_share_basis'];
@@ -353,11 +353,14 @@ final class ClassGroupController extends Controller
             'student_ids.*' => ['uuid'],
             'joined_on' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'allow_over_capacity' => ['sometimes', 'boolean'],
+            // A monthly group: pay one month or two at a time (default one).
+            'months_per_charge' => ['sometimes', 'integer', Rule::in([1, 2])],
         ]);
 
         $joinedOn = $data['joined_on'] ?? ClassGroups::localToday((string) $group->timezone);
         $added = $this->groups->addMembers($group, $data['student_ids'], $joinedOn,
-            (bool) ($data['allow_over_capacity'] ?? false), $this->ctx()->userId, $this->ctx()->role);
+            (bool) ($data['allow_over_capacity'] ?? false), $this->ctx()->userId, $this->ctx()->role,
+            monthsPerCharge: (int) ($data['months_per_charge'] ?? 1));
 
         return response()->json(['added' => count($added), 'group' => $this->detail($id)], 201);
     }
@@ -440,12 +443,14 @@ final class ClassGroupController extends Controller
         $data = $request->validate([
             'price_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
             'joined_on' => ['sometimes', 'date_format:Y-m-d'],
+            'months_per_charge' => ['sometimes', 'integer', Rule::in([1, 2])],
         ]);
         $pricing = array_key_exists('price_minor', $data);
-        if (! $pricing && ! isset($data['joined_on'])) {
+        $months = array_key_exists('months_per_charge', $data);
+        if (! $pricing && ! $months && ! isset($data['joined_on'])) {
             throw ValidationException::withMessages(['price_minor' => ['Nothing to change. / لا يوجد ما يتغير.']]);
         }
-        if ($pricing) {
+        if ($pricing || $months) {
             Gate::authorize('student.set_price');
         }
 
@@ -456,7 +461,18 @@ final class ClassGroupController extends Controller
         }
 
         // A refused date must not leave the price half-saved (a 422 commits the request's writes).
-        DB::transaction(function () use ($data, $pricing, $member, $group, $id, $studentId): void {
+        DB::transaction(function () use ($data, $pricing, $months, $member, $group, $id, $studentId): void {
+            // One month or two per payment: forward only, the next charge raised is the new kind.
+            if ($months && (int) $data['months_per_charge'] !== (int) ($member->months_per_charge ?? 1)) {
+                DB::table('class_group_members')->where('id', $member->id)->update([
+                    'months_per_charge' => (int) $data['months_per_charge'],
+                    'updated_at' => now(),
+                ]);
+                Audit::log('class_group.member_months_changed', 'class_group', $id, (string) $group->academy_id, $this->ctx()->userId, $this->ctx()->role,
+                    after: ['student_id' => $studentId, 'months_per_charge' => (int) $data['months_per_charge']],
+                    before: ['months_per_charge' => (int) ($member->months_per_charge ?? 1)]);
+            }
+
             if ($pricing) {
                 DB::table('class_group_members')->where('id', $member->id)->update([
                     'price_minor' => $data['price_minor'],
@@ -659,7 +675,7 @@ final class ClassGroupController extends Controller
             ->orderByRaw("case when m.status = 'ACTIVE' then 0 else 1 end")
             ->orderBy('st.full_name')
             ->get([
-                'm.id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.left_reason', 'm.price_minor',
+                'm.id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.left_reason', 'm.price_minor', 'm.months_per_charge',
                 'st.full_name', 'st.deleted_at as student_deleted_at', 'gu.full_name as guardian_name',
             ])
             ->map(fn ($m) => [
@@ -675,6 +691,7 @@ final class ClassGroupController extends Controller
                 'attendance' => $attendance[(string) $m->student_id] ?? null,
                 // The member's own price (null = the group's); hidden like the group's.
                 'price_minor' => $seesPrices && $m->price_minor !== null ? (int) $m->price_minor : null,
+                'months_per_charge' => (int) $m->months_per_charge,
                 'hour_month' => $m->status === 'ACTIVE' ? ($hours[(string) $m->student_id] ?? null) : null,
             ])->values();
 
@@ -731,6 +748,7 @@ final class ClassGroupController extends Controller
                 'charge_absent' => (bool) $g->charge_absent,
                 'prorate_join' => (bool) $g->prorate_join,
                 'month_minutes' => $g->month_minutes !== null ? (int) $g->month_minutes : null,
+                'two_month_price_minor' => isset($g->two_month_price_minor) ? (int) $g->two_month_price_minor : null,
                 'solo_billed_minutes' => $g->solo_billed_minutes !== null ? (int) $g->solo_billed_minutes : null,
             ] : null,
             'teacher_pay' => Gate::allows('teacher.set_pay') || Gate::allows('payout.read') ? [
@@ -798,6 +816,10 @@ final class ClassGroupController extends Controller
         if ($get('billing_mode') !== GroupBilling::MONTHLY && $get('month_minutes') !== null) {
             $data['month_minutes'] = null;
         }
+        // So does the two-month offer.
+        if ($get('billing_mode') !== GroupBilling::MONTHLY && $get('two_month_price_minor') !== null) {
+            $data['two_month_price_minor'] = null;
+        }
 
         $mode = $get('teacher_pay_mode');
         if (in_array($mode, ['PER_LESSON', 'PER_HOUR', 'PER_STUDENT'], true) && $get('teacher_pay_minor') === null) {
@@ -860,6 +882,8 @@ final class ClassGroupController extends Controller
             'prorate_join' => ['sometimes', 'boolean'],
             // MONTHLY only: the hours one month buys (null = the calendar month).
             'month_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:60000'],
+            // MONTHLY only: the two-month offer — what two months cost together (null = twice the month).
+            'two_month_price_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
             // A lone student's lesson counts this long against their hours (the teacher is paid the real length).
             'solo_billed_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:600'],
             'teacher_pay_mode' => ['sometimes', 'nullable', Rule::in(['PER_LESSON', 'PER_HOUR', 'PER_STUDENT', 'REVENUE_SHARE'])],

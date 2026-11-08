@@ -40,7 +40,8 @@ import {
 import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { hoursText, monthLessons } from "@/components/groups/group-format";
-import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
+import { MonthsChoice } from "@/components/groups/months-choice";
+import { addGroupMembers, listGroups, type GroupRow, type MonthsPerCharge } from "@/lib/groups-api";
 import { LevelSelect } from "@/components/levels/level-select";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { formatMoney } from "@/lib/money";
@@ -271,17 +272,22 @@ export function StudentForm({
   // A centre's private subscription (docs/centre-profile/01): its own object, sold in the same save
   // as `subscription:` — needs the pricing right and the subscriptions' manage code, nothing else.
   const subscriptionAvailable = centre && canPrice && can("package.manage");
-  const [billing, setBilling] = useState<Billing>(subscriptionAvailable ? "subscription" : centre && packagesAvailable ? "package" : "monthly");
+  // What the user picked; until then the form's own default (below, once we know about groups).
+  const [billingPick, setBilling] = useState<Billing | null>(null);
   // A centre enrols the student in their groups in the same save (docs/groups/01-ACCOUNTING.md,
   // "Centre mode"): the chosen groups, and the active ones to choose from.
   const groupsOn = centre && (session?.capabilities?.includes("groups") ?? false) && can("group.manage");
   // A centre student may take groups alone: the first tile is then "no private subscription".
   const groupsOnlyChoice = centre && groupsOn;
+  // A centre with groups starts on "no private subscription": a private block is only ever sold by
+  // picking it. Starting on it sold one to every group-only student whose tile nobody touched (lingo).
+  const billing: Billing =
+    billingPick ?? (groupsOnlyChoice ? "none" : subscriptionAvailable ? "subscription" : centre && packagesAvailable ? "package" : "monthly");
   const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
   // A centre's level / grade (docs/centre-profile, Phase 2.1) — optional, from the academy's list.
   const [levelId, setLevelId] = useState("");
   // Each group picked, from the day the student joins it.
-  const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string }[]>([]);
+  const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string; months: MonthsPerCharge }[]>([]);
   const groupIds = groupPicks.map((g) => g.id);
   // Set once the student exists but a group enrolment failed: the form stays open to say so.
   const [createdId, setCreatedId] = useState<string | null>(null);
@@ -301,7 +307,7 @@ export function StudentForm({
     const today = new Date().toISOString().split("T")[0] ?? "";
     // A class nobody has attended yet takes the student from its first lesson; else from today.
     const joinedOn = g.lessons?.held === 0 ? g.start_date : today < g.start_date ? g.start_date : today;
-    setGroupPicks((prev) => [...prev, { id, joinedOn }]);
+    setGroupPicks((prev) => [...prev, { id, joinedOn, months: 1 }]);
   }
 
   // Monthly — lessons of a length, priced by the hour or the lesson, or free. The same fields as
@@ -477,7 +483,7 @@ export function StudentForm({
       const failed: string[] = [];
       for (const pick of groupPicks) {
         try {
-          await addGroupMembers(pick.id, { student_ids: [res.studentId], joined_on: pick.joinedOn });
+          await addGroupMembers(pick.id, { student_ids: [res.studentId], joined_on: pick.joinedOn, ...(pick.months === 2 ? { months_per_charge: 2 as const } : {}) });
         } catch {
           failed.push(groupOptions?.find((g) => g.id === pick.id)?.name ?? pick.id);
         }
@@ -831,6 +837,14 @@ export function StudentForm({
                               data-testid={`group-sub-from-${pick.id}`}
                             />
                           </label>
+                          {pr?.billing_mode === "MONTHLY" && (
+                            <MonthsChoice
+                              pricing={pr}
+                              value={pick.months}
+                              onChange={(months) => setGroupPicks((prev) => prev.map((x) => (x.id === pick.id ? { ...x, months } : x)))}
+                              testId={`group-sub-months-${pick.id}`}
+                            />
+                          )}
                           <button type="button" onClick={() => setGroupPicks((prev) => prev.filter((x) => x.id !== pick.id))} className="text-muted-foreground hover:text-destructive text-xs">
                             {t("form.removeGroup")}
                           </button>

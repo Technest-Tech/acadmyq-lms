@@ -457,11 +457,11 @@ it('pays the unused part back out of the treasury, or keeps it, and a block clos
     expect(($this->sub)($id)->settlement)->toBe('CREDIT');
 });
 
-it('cancels a block sold by mistake — nothing counted, nothing paid — and voids its bill; otherwise refuses', function () {
+it('cancels a block sold by mistake — nothing counted — voids its bill and gives receipts back as credit; otherwise refuses', function () {
     $id = ($this->sell)()->assertCreated()->json('subscription.id');
     $invoiceId = ($this->sub)($id)->invoice_id;
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/subscriptions/{$id}/cancel", ['note' => 'typo'])->assertNoContent();
+    $this->postJson("/api/subscriptions/{$id}/cancel", ['note' => 'typo'])->assertOk()->assertJsonPath('credited_minor', 0);
     expect(($this->sub)($id)->status)->toBe('CANCELLED')->and(($this->row)('invoices', $invoiceId)->status)->toBe('VOID')
         ->and(($this->balance)())->toBe(['due' => 0, 'credit' => 0]);
     $this->getJson('/api/subscriptions?view=due')->assertOk()->assertJsonPath('meta.total', 0);
@@ -473,12 +473,31 @@ it('cancels a block sold by mistake — nothing counted, nothing paid — and vo
     $this->postJson("/api/subscriptions/{$used}/cancel")->assertStatus(422);
     $this->postJson("/api/subscriptions/{$used}/close", ['reason' => 'x'])->assertOk();
 
-    // Money on it: the same.
+    // Paid through a receipt (the family paid it with the group fee by mistake): it still goes, as a
+    // deleted group subscription does — the bill voids and the money is the family's again.
     $paid = ($this->sell)()->assertCreated()->json('subscription.id');
-    ($this->pay)(($this->sub)($paid)->invoice_id, 10000);
+    $paidInvoice = ($this->sub)($paid)->invoice_id;
+    ($this->pay)($paidInvoice, 10000);
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/subscriptions/{$paid}/cancel")->assertStatus(422);
-    expect(($this->sub)($paid)->status)->toBe('OPEN');
+    $this->getJson("/api/subscriptions/{$paid}")->assertOk()->assertJsonPath('subscription.deletable', true);
+    $before = ($this->balance)();
+    $this->postJson("/api/subscriptions/{$paid}/cancel")->assertOk()->assertJsonPath('credited_minor', 10000);
+    expect(($this->sub)($paid)->status)->toBe('CANCELLED')
+        ->and(($this->row)('invoices', $paidInvoice)->status)->toBe('VOID')
+        ->and(($this->row)('invoices', $paidInvoice)->amount_paid_minor)->toBe(0)
+        ->and(csTenant($this->academy, fn () => DB::table('receipt_allocations')->where('invoice_id', $paidInvoice)->count()))->toBe(0);
+    // The cancelled bill's 80000 is gone from what is due; the 10000 paid toward it now pays the
+    // other open block's bill (credit applies itself), so due drops by the whole bill.
+    expect(($this->balance)())->toBe(['due' => $before['due'] - 80000 + 10000 - 10000, 'credit' => 0]);
+
+    // Money that came in outside the receipts (a bill marked paid by hand): end and settle instead.
+    $hand = ($this->sell)()->assertCreated()->json('subscription.id');
+    $handInvoice = ($this->sub)($hand)->invoice_id;
+    csTenant($this->academy, fn () => DB::table('invoices')->where('id', $handInvoice)->update(['amount_paid_minor' => 5000]));
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/subscriptions/{$hand}")->assertOk()->assertJsonPath('subscription.deletable', false);
+    $this->postJson("/api/subscriptions/{$hand}/cancel")->assertStatus(422);
+    expect(($this->sub)($hand)->status)->toBe('OPEN');
 });
 
 // ── Pay first ────────────────────────────────────────────────────────────────
@@ -503,7 +522,7 @@ it('holds a sale while the last block of the subject is unpaid under pay-first, 
     // Paid: the next sale is free.
     ($this->pay)($first->json('invoice_id'), 10000);
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/subscriptions/{$sold->json('subscription.id')}/cancel")->assertNoContent();
+    $this->postJson("/api/subscriptions/{$sold->json('subscription.id')}/cancel")->assertOk();
     ($this->sell)()->assertCreated();
 });
 

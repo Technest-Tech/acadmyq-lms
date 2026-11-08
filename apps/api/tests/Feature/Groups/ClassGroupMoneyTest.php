@@ -863,3 +863,94 @@ it('only a group manager takes a student off a lesson', function () {
     Sanctum::actingAs($this->teacherUser);
     $this->postJson("/api/group-lessons/{$lesson->id}/students/{$this->kids['Adam']}/remove")->assertForbidden();
 });
+
+// ── One month or two (lingo 2026-11-08: "the two-month offer") ───────────────
+
+it('two months: one charge at the offer covers next month too, then the next pair', function () {
+    $groupId = moneyGroup($this, ['two_month_price_minor' => 80000]);
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/groups/{$groupId}")->assertOk()->assertJsonPath('group.pricing.two_month_price_minor', 80000);
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-01', 'months_per_charge' => 2])->assertCreated();
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Bassel']], 'joined_on' => '2026-06-01'])->assertCreated();
+
+    $adam = fn () => groupLines($this, $groupId)->where('student_id', $this->kids['Adam'])->values();
+    expect($adam())->toHaveCount(1);
+    expect((int) $adam()[0]->amount_minor)->toBe(80000)
+        ->and((int) $adam()[0]->group_months)->toBe(2)
+        ->and($adam()[0]->description)->toBe('English A1 — June–July 2026');
+    // A one-month sibling is billed as before.
+    expect(groupLines($this, $groupId)->where('student_id', $this->kids['Bassel'])->pluck('amount_minor')->map(fn ($a) => (int) $a)->all())->toBe([45000]);
+    $member = collect($this->getJson("/api/groups/{$groupId}")->json('group.members'))->firstWhere('student_id', $this->kids['Adam']);
+    expect($member['months_per_charge'])->toBe(2);
+
+    // July is paid for: nothing new for Adam, Bassel's July is raised. Still charged on the board in July.
+    Carbon::setTestNow('2026-07-01 03:00:00');
+    (new RollSessionWindowJob(onlyAcademyId: $this->academy))->handle(app(SessionGenerator::class));
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    expect($adam())->toHaveCount(1)
+        ->and(groupLines($this, $groupId)->where('student_id', $this->kids['Bassel']))->toHaveCount(2);
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson("/api/group-members?student_id={$this->kids['Adam']}")->assertOk()->json('members'))->first();
+    expect($row['months_per_charge'])->toBe(2)->and($row['charge']['billed_minor'])->toBe(80000);
+
+    // August opens the next pair.
+    Carbon::setTestNow('2026-08-01 03:00:00');
+    (new RollSessionWindowJob(onlyAcademyId: $this->academy))->handle(app(SessionGenerator::class));
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    expect($adam()->pluck('description')->all())->toBe(['English A1 — June–July 2026', 'English A1 — August–September 2026']);
+});
+
+it('two months: twice the month with no offer, twice the member’s own price, and a late joiner pays the first month in part', function () {
+    $groupId = moneyGroup($this);
+    Sanctum::actingAs($this->owner);
+    // Joins Wed 17 June: 4 of June's 9 lessons left, July whole → 45000 × (4/9 + 1) = 65000.
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Dina']], 'joined_on' => '2026-06-17', 'months_per_charge' => 2])->assertCreated();
+    $line = groupLines($this, $groupId)->first();
+    expect((int) $line->amount_minor)->toBe(65000)->and($line->description)->toBe('English A1 — June–July 2026 (4/9)');
+
+    expect(GroupBilling::chargeTerms((object) ['price_minor' => 45000, 'two_month_price_minor' => null], (object) ['months_per_charge' => 2, 'price_minor' => null]))->toBe([2, 90000])
+        ->and(GroupBilling::chargeTerms((object) ['price_minor' => 45000, 'two_month_price_minor' => 80000], (object) ['months_per_charge' => 2, 'price_minor' => 30000]))->toBe([2, 60000])
+        ->and(GroupBilling::chargeTerms((object) ['price_minor' => 45000, 'two_month_price_minor' => 80000], (object) ['months_per_charge' => 1, 'price_minor' => null]))->toBe([1, 45000]);
+});
+
+it('two months: switching a member is forward only, not the teacher’s to do, and a group ending next month bills one', function () {
+    $groupId = moneyGroup($this, ['two_month_price_minor' => 80000, 'end_date' => '2026-07-31', 'student_ids' => [$this->kids['Adam']]]);
+    Sanctum::actingAs($this->teacherUser);
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['months_per_charge' => 2])->assertForbidden();
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['months_per_charge' => 3])->assertStatus(422);
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['months_per_charge' => 2])->assertOk();
+    // June's charge stays as it was.
+    expect(groupLines($this, $groupId)->pluck('amount_minor')->map(fn ($a) => (int) $a)->all())->toBe([45000]);
+
+    Carbon::setTestNow('2026-07-01 03:00:00');
+    (new RollSessionWindowJob(onlyAcademyId: $this->academy))->handle(app(SessionGenerator::class));
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    // July is the group's last month: a single month, not the pair.
+    $july = groupLines($this, $groupId)->last();
+    expect((int) $july->amount_minor)->toBe(45000)->and($july->group_months)->toBeNull();
+});
+
+it('two months, by hours: each charge buys twice the hours at the offer', function () {
+    // 2 hours a month (Mon + Wed, an hour each); two months = 4 hours for 50000.
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'two_month_price_minor' => 50000]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-01', 'months_per_charge' => 2])->assertCreated();
+
+    $lines = groupLines($this, $groupId);
+    expect($lines)->toHaveCount(1);
+    expect((int) $lines[0]->amount_minor)->toBe(50000)
+        ->and((int) $lines[0]->group_minutes)->toBe(240)
+        ->and((int) $lines[0]->group_months)->toBe(2)
+        ->and($lines[0]->description)->toBe('English A1 — payment 1, 2 months (4 h)');
+
+    // Three hours held: still inside the four bought.
+    foreach (['2026-06-01', '2026-06-03', '2026-06-08'] as $d) {
+        heldLesson($this, $groupId, $d);
+    }
+    expect(groupLines($this, $groupId))->toHaveCount(1);
+    // The fourth uses them up: the next pair is raised.
+    heldLesson($this, $groupId, '2026-06-10');
+    expect(groupLines($this, $groupId))->toHaveCount(2);
+    expect(groupLines($this, $groupId)->last()->description)->toBe('English A1 — payment 2, 2 months (4 h)');
+});

@@ -181,13 +181,18 @@ final class ClassGroups
      * @param  list<string>  $studentIds
      * @return list<string> the ids added
      */
-    public function addMembers(object $group, array $studentIds, string $joinedOn, bool $allowOverCapacity, string $actorUserId, string $actorRole, ?string $movedFromGroup = null): array
+    public function addMembers(object $group, array $studentIds, string $joinedOn, bool $allowOverCapacity, string $actorUserId, string $actorRole, ?string $movedFromGroup = null, ?int $monthsPerCharge = null): array
     {
-        return DB::transaction(fn (): array => $this->insertMembers($group, $studentIds, $joinedOn, $allowOverCapacity, $actorUserId, $actorRole, $movedFromGroup));
+        return DB::transaction(fn (): array => $this->insertMembers($group, $studentIds, $joinedOn, $allowOverCapacity, $actorUserId, $actorRole, $movedFromGroup, $monthsPerCharge));
     }
 
-    /** @return list<string> */
-    private function insertMembers(object $group, array $studentIds, string $joinedOn, bool $allowOverCapacity, string $actorUserId, string $actorRole, ?string $movedFromGroup): array
+    /**
+     * `$monthsPerCharge`: a monthly member pays one month or two at a time (GroupBilling::chargeTerms);
+     * null = one, or what the member paid by in the group they were moved from.
+     *
+     * @return list<string>
+     */
+    private function insertMembers(object $group, array $studentIds, string $joinedOn, bool $allowOverCapacity, string $actorUserId, string $actorRole, ?string $movedFromGroup, ?int $monthsPerCharge = null): array
     {
         $studentIds = array_values(array_unique($studentIds));
         if ($studentIds === []) {
@@ -226,6 +231,9 @@ final class ClassGroups
         }
 
         foreach ($studentIds as $studentId) {
+            $months = $monthsPerCharge ?? ($movedFromGroup !== null ? (int) (DB::table('class_group_members')
+                ->where('group_id', $movedFromGroup)->where('student_id', $studentId)
+                ->orderByDesc('joined_on')->orderByDesc('created_at')->value('months_per_charge') ?? 1) : 1);
             DB::table('class_group_members')->insert([
                 'id' => (string) Str::uuid(),
                 'academy_id' => (string) $group->academy_id,
@@ -233,12 +241,13 @@ final class ClassGroups
                 'student_id' => $studentId,
                 'joined_on' => $joinedOn,
                 'status' => 'ACTIVE',
+                'months_per_charge' => $months === 2 ? 2 : 1,
                 'added_by' => $this->userOrNull($actorUserId),
             ]);
         }
 
         Audit::log('class_group.members_added', 'class_group', (string) $group->id, (string) $group->academy_id, $actorUserId, $actorRole,
-            after: ['student_ids' => $studentIds, 'joined_on' => $joinedOn]);
+            after: ['student_ids' => $studentIds, 'joined_on' => $joinedOn] + ($monthsPerCharge === 2 ? ['months_per_charge' => 2] : []));
 
         // Joining is what a MONTHLY or COURSE group bills on (a moved member already paid this month
         // in the group they came from). Read fresh: the caller's copy may predate a price edit.

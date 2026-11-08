@@ -41,7 +41,8 @@ import {
 } from "@/lib/api";
 import { fetchRoster } from "@/lib/roster";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
-import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
+import { MonthsChoice } from "@/components/groups/months-choice";
+import { addGroupMembers, listGroups, type GroupRow, type MonthsPerCharge } from "@/lib/groups-api";
 import { sellSubscription } from "@/lib/subscriptions-api";
 import { cn } from "@/lib/utils";
 
@@ -154,10 +155,12 @@ export function EnrollmentWizard({
   const [billing, setBilling] = useState<"monthly" | "package">("monthly");
   const onPackage = !centre && packagesAvailable && billing === "package";
   // A centre: the private subscription is optional — groups alone are a valid enrolment.
-  const [withSubscription, setWithSubscription] = useState(true);
+  // Where groups can be joined, "no private subscription" is the start: a block is sold only by picking it.
+  const [subscriptionPick, setWithSubscription] = useState<boolean | null>(null);
+  const withSubscription = subscriptionPick ?? !groupsOn;
   const [studentLinks, setStudentLinks] = useState<SubjectLink[]>([]);
   const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
-  const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string }[]>([]);
+  const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string; months: MonthsPerCharge }[]>([]);
   const groupIds = groupPicks.map((g) => g.id);
   // The subject can be the teacher picked on the schedule step, even before the link is saved.
   const [teacherId, setTeacherId] = useState(currentTeacherId ?? "");
@@ -193,7 +196,7 @@ export function EnrollmentWizard({
     const today = todayLocal();
     // A class nobody has attended yet takes the student from its first lesson; else from today.
     const joinedOn = g.lessons?.held === 0 ? g.start_date : today < g.start_date ? g.start_date : today;
-    setGroupPicks((prev) => [...prev, { id, joinedOn }]);
+    setGroupPicks((prev) => [...prev, { id, joinedOn, months: 1 }]);
   }
   const [step, setStep] = useState(0);
   // The timetable's own start date. It lives on THIS step because the schedule is saved before
@@ -277,7 +280,7 @@ export function EnrollmentWizard({
           await sellSubscription({ student_id: studentId, ...subscriptionDraft.toPayload() });
         }
         for (const pick of groupPicks) {
-          await addGroupMembers(pick.id, { student_ids: [studentId], joined_on: pick.joinedOn });
+          await addGroupMembers(pick.id, { student_ids: [studentId], joined_on: pick.joinedOn, ...(pick.months === 2 ? { months_per_charge: 2 as const } : {}) });
         }
         await updateStudent(studentId, { status: "REGULAR" });
         onCompleted({ packageOpened: onSubscription });
@@ -466,6 +469,14 @@ export function EnrollmentWizard({
                             data-testid={`enroll-group-sub-from-${pick.id}`}
                           />
                         </label>
+                        {g?.pricing?.billing_mode === "MONTHLY" && (
+                          <MonthsChoice
+                            pricing={g.pricing}
+                            value={pick.months}
+                            onChange={(months) => setGroupPicks((prev) => prev.map((x) => (x.id === pick.id ? { ...x, months } : x)))}
+                            testId={`enroll-group-sub-months-${pick.id}`}
+                          />
+                        )}
                         <button type="button" onClick={() => setGroupPicks((prev) => prev.filter((x) => x.id !== pick.id))} className="text-muted-foreground hover:text-destructive text-xs">
                           {t("form.removeGroup")}
                         </button>

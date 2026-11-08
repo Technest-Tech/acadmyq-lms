@@ -25,6 +25,10 @@ use Illuminate\Support\Facades\DB;
  *               only when the group says so (`charge_absent`); an excused one never.
  *   COURSE      one line per enrolment, for the whole level.
  *
+ * A MONTHLY member pays one month or two at a time (`months_per_charge`): a two-month charge covers
+ * the next calendar month too (or buys twice the hours), priced at the group's two-month offer
+ * (`two_month_price_minor`, else twice the month) — see {@see chargeTerms}.
+ *
  * A member's own `price_minor` beats the group's. A group with no price bills nothing. Trial
  * students are never billed (as Invoicing). None of this runs for an academy without `invoicing`.
  * Prices are snapshots: changing one never rewrites a line already raised.
@@ -59,6 +63,28 @@ final class GroupBilling
     public static function priced(object $group): bool
     {
         return $group->price_minor !== null && $group->currency !== null;
+    }
+
+    /**
+     * One MONTHLY charge for this member: how many months it buys (1 or 2) and what it costs. A
+     * member's own price is per month (two months = twice it); otherwise two months cost the group's
+     * offer, or twice its month when it has none.
+     *
+     * @return array{0: int, 1: int} [months, price_minor]
+     */
+    public static function chargeTerms(object $group, object $member): array
+    {
+        $months = (int) ($member->months_per_charge ?? 1) === 2 ? 2 : 1;
+        if ($member->price_minor !== null) {
+            return [$months, $months * (int) $member->price_minor];
+        }
+        if ($months === 2) {
+            $offer = $group->two_month_price_minor ?? null;
+
+            return [2, $offer !== null ? (int) $offer : 2 * (int) $group->price_minor];
+        }
+
+        return [1, (int) $group->price_minor];
     }
 
     /** Does this MONTHLY group sell its month as hours rather than as the calendar month? */
@@ -141,8 +167,14 @@ final class GroupBilling
         $label = Carbon::create($year, $month, 1)->locale('en')->translatedFormat('F Y');
         $payFirst = RenewalPolicy::payingFirst((string) $group->academy_id, $members->pluck('student_id')->map(fn ($id) => (string) $id)->unique()->values()->all());
 
+        $previousMonth = Carbon::create($year, $month, 1)->subMonth()->format('Y-m-d');
+        $nextMonthStart = Carbon::create($year, $month, 1)->addMonth()->format('Y-m-d');
         foreach ($members as $m) {
             if ($skipBilledInGroup !== null && $this->hasMonthlyLine($skipBilledInGroup, (string) $m->student_id, $monthStart)) {
+                continue;
+            }
+            // Last month's charge bought two months: this one is paid for already.
+            if ($this->coveredByTwoMonths((string) $group->id, (string) $m->student_id, $previousMonth)) {
                 continue;
             }
 
@@ -156,15 +188,23 @@ final class GroupBilling
                 continue;
             }
 
-            $price = $m->price_minor !== null ? (int) $m->price_minor : (int) $group->price_minor;
+            [$months, $price] = self::chargeTerms($group, $m);
+            // Two months only where the group still runs next month (and the member stays in it).
+            if ($months === 2 && (($groupEnd !== null && $groupEnd < $nextMonthStart)
+                || ($m->left_on !== null && Carbon::parse($m->left_on)->format('Y-m-d') <= $nextMonthStart))) {
+                [$months, $price] = self::chargeTerms($group, (object) ['months_per_charge' => 1, 'price_minor' => $m->price_minor]);
+            }
             $joined = Carbon::parse($m->joined_on)->format('Y-m-d');
-            $description = "{$group->name} — {$label}";
+            $description = $months === 2
+                ? "{$group->name} — ".Carbon::create($year, $month, 1)->locale('en')->translatedFormat('F').'–'.Carbon::create($year, $month, 1)->addMonth()->locale('en')->translatedFormat('F Y')
+                : "{$group->name} — {$label}";
 
             if ($group->prorate_join && $joined > $monthStart && $joined > $groupStart) {
                 $remaining = count(array_filter($lessonDates, fn ($d) => $d >= $joined));
                 $total = count($lessonDates);
                 if ($remaining < $total) {
-                    $price = (int) round($price * $remaining / $total);
+                    // Only the joining month is pro-rated; a two-month charge's second month is whole.
+                    $price = (int) round($price * ($remaining / $total + $months - 1) / $months);
                     $description .= " ({$remaining}/{$total})";
                 }
             }
@@ -173,6 +213,7 @@ final class GroupBilling
                 'class_group_id' => (string) $group->id,
                 'group_charge' => self::MONTHLY,
                 'group_period' => $monthStart,
+                'group_months' => $months === 2 ? 2 : null,
                 'description' => $description,
                 'amount_minor' => $price,
                 'session_date' => $monthStart,
@@ -236,7 +277,8 @@ final class GroupBilling
         foreach ($members as $studentId => $rows) {
             $state = $this->hourState($rows, $lessons, $bought[$studentId] ?? null, $from);
             $latest = $rows->sortByDesc(fn ($m) => Carbon::parse($m->joined_on)->format('Y-m-d'))->first();
-            $price = $latest->price_minor !== null ? (int) $latest->price_minor : (int) $group->price_minor;
+            [$chargeMonths, $price] = self::chargeTerms($group, $latest);
+            $chargeMinutes = $minutes * $chargeMonths;
             $paid = $state['bought_minutes'];
             $cycle = $state['months'];
 
@@ -262,8 +304,11 @@ final class GroupBilling
                     'group_charge' => self::MONTHLY,
                     'group_period' => $on,
                     'group_cycle' => $cycle,
-                    'group_minutes' => $minutes,
-                    'description' => "{$group->name} — month {$cycle} ({$hours} h)",
+                    'group_minutes' => $chargeMinutes,
+                    'group_months' => $chargeMonths === 2 ? 2 : null,
+                    'description' => $chargeMonths === 2
+                        ? "{$group->name} — payment {$cycle}, 2 months (".self::hoursText($chargeMinutes).' h)'
+                        : "{$group->name} — month {$cycle} ({$hours} h)",
                     'amount_minor' => $price,
                     'session_date' => $on,
                 ]);
@@ -272,7 +317,7 @@ final class GroupBilling
                 }
 
                 $added++;
-                $paid += $minutes;
+                $paid += $chargeMinutes;
                 $months[$date->format('Y-m')] = [(int) $date->year, (int) $date->month];
             }
         }
@@ -786,7 +831,7 @@ final class GroupBilling
             ->whereNotIn('st.status', [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED])
             ->when($studentIds !== null, fn ($q) => $q->whereIn('m.student_id', $studentIds))
             ->orderBy('m.joined_on')
-            ->get(['m.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.price_minor', 'm.carried_minutes']);
+            ->get(['m.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.price_minor', 'm.carried_minutes', 'm.months_per_charge']);
     }
 
     /** Remember the earliest charge pay-first held back for this member. */
@@ -797,6 +842,21 @@ final class GroupBilling
               where group_id = ? and student_id = ? and status = 'ACTIVE'",
             [$date, $date, $groupId, $studentId],
         );
+    }
+
+    /** Did this member's charge for `$monthStart`'s month buy two calendar months? */
+    private function coveredByTwoMonths(string $groupId, string $studentId, string $monthStart): bool
+    {
+        return DB::table('invoice_line_items as li')
+            ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->where('li.class_group_id', $groupId)
+            ->where('li.student_id', $studentId)
+            ->where('li.group_charge', self::MONTHLY)
+            ->whereNull('li.group_cycle')
+            ->where('li.group_months', 2)
+            ->where('li.group_period', $monthStart)
+            ->where('i.status', '<>', 'VOID')
+            ->exists();
     }
 
     private function hasMonthlyLine(string $groupId, string $studentId, string $monthStart): bool

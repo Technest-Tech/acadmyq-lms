@@ -293,6 +293,7 @@ final class Invoicing implements BillingHook
             'group_period' => $fields['group_period'],
             'group_cycle' => $fields['group_cycle'] ?? null,
             'group_minutes' => $fields['group_minutes'] ?? null,
+            'group_months' => $fields['group_months'] ?? null,
             'created_at' => now(),
         ]);
 

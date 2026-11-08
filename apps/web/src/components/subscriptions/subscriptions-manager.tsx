@@ -279,6 +279,7 @@ export function SubscriptionsManager({ view: initialView = "open" }: { view?: Su
 /** Void a block opened by mistake — its bill line goes with it (POST /subscriptions/{id}/cancel). */
 export function CancelSubscriptionModal({ row, onClose, onDone }: { row: SubscriptionRow; onClose: () => void; onDone: (message: string) => void }) {
   const t = useTranslations("subscriptions.cancel");
+  const locale = useLocale();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -286,8 +287,9 @@ export function CancelSubscriptionModal({ row, onClose, onDone }: { row: Subscri
     setBusy(true);
     setError(null);
     try {
-      await cancelSubscription(row.id);
-      onDone(t("done"));
+      const res = await cancelSubscription(row.id);
+      const credited = res?.credited_minor ?? 0;
+      onDone(credited > 0 ? t("doneCredited", { amount: formatMoney({ amount: credited, currency: row.currency }, locale) }) : t("done"));
     } catch (err) {
       setError(apiErrorMessage(err, t("failed")));
       setBusy(false);
@@ -313,6 +315,11 @@ export function CancelSubscriptionModal({ row, onClose, onDone }: { row: Subscri
       }
     >
       <p className="text-muted-foreground text-sm">{t("hint")}</p>
+      {row.invoice_paid_minor > 0 && (
+        <p className="text-sm font-medium text-amber-700 dark:text-amber-300" data-testid="subscription-cancel-credit">
+          {t("paidBack", { amount: formatMoney({ amount: row.invoice_paid_minor, currency: row.currency }, locale) })}
+        </p>
+      )}
       {error && <AlertBanner variant="error" message={error} />}
     </Modal>
   );

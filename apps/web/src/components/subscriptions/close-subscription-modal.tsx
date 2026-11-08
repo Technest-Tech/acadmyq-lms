@@ -183,8 +183,9 @@ function CloseBody({ row, onClose, onDone }: { row: SubscriptionRow; onClose: ()
     setBusy(true);
     setError(null);
     try {
-      await cancelSubscription(row.id, reason.trim() || undefined);
-      onDone(t("cancelled"));
+      const res = await cancelSubscription(row.id, reason.trim() || undefined);
+      const credited = res?.credited_minor ?? 0;
+      onDone(credited > 0 ? t("cancelledCredited", { amount: formatMoney({ amount: credited, currency: row.currency }, locale) }) : t("cancelled"));
     } catch (err) {
       setError(apiErrorMessage(err, t("cancelFailed")));
       setBusy(false);

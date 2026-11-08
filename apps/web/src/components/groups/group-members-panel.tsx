@@ -8,6 +8,7 @@ import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fromMinor, toMinor } from "@/components/groups/group-form";
 import { fieldClass, hoursText, percent, todayIn } from "@/components/groups/group-format";
+import { MonthsChoice } from "@/components/groups/months-choice";
 import { PersonAvatar, SectionCard, SoftBadge, rateTone } from "@/components/groups/group-look";
 import { StudentPicker } from "@/components/groups/student-picker";
 import { AlertBanner } from "@/components/ui/alert";
@@ -22,6 +23,7 @@ import {
   type GroupDetail,
   type GroupMember,
   type GroupRow,
+  type MonthsPerCharge,
 } from "@/lib/groups-api";
 import { useCapability, useModernLook } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
@@ -102,6 +104,7 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
             {m.price_minor !== null && group.pricing?.currency
               ? ` · ${t("members.ownPrice", { price: formatMoney({ amount: m.price_minor, currency: group.pricing.currency }, locale) })}`
               : ""}
+            {m.months_per_charge === 2 ? ` · ${t("months.everyTwo")}` : ""}
           </p>
           {m.hour_month && m.hour_month.months > 0 && (
             <p className="text-muted-foreground mt-0.5 text-xs" data-testid={`hour-month-${m.student_id}`}>
@@ -356,6 +359,9 @@ export function AddMembersForm({
     return today < group.start_date ? group.start_date : today;
   });
   const [overCapacity, setOverCapacity] = useState(false);
+  // A monthly group: the picked students pay one month or two at a time.
+  const monthly = group.pricing?.billing_mode === "MONTHLY";
+  const [months, setMonths] = useState<MonthsPerCharge>(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -384,6 +390,7 @@ export function AddMembersForm({
         student_ids: [...picked],
         joined_on: joinedOn,
         allow_over_capacity: over && overCapacity ? true : undefined,
+        ...(monthly && months === 2 ? { months_per_charge: 2 as const } : {}),
       });
       onSaved(res.group, res.added);
     } catch (err) {
@@ -404,6 +411,13 @@ export function AddMembersForm({
         <input className={fieldClass} type="date" value={joinedOn} min={joinFloor} onChange={(e) => setJoinedOn(e.target.value)} />
         <span className="text-muted-foreground block text-xs">{t("members.joinedOnHint")}</span>
       </label>
+
+      {monthly && (
+        <div className="space-y-1.5">
+          <span className="block text-sm font-medium">{t("months.label")}</span>
+          <MonthsChoice pricing={group.pricing} value={months} onChange={setMonths} testId="add-members-months" />
+        </div>
+      )}
 
       {over && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
@@ -529,14 +543,22 @@ export function MemberPriceForm({
 }) {
   const t = useTranslations("groups");
   const [price, setPrice] = useState(fromMinor(member.price_minor));
+  // A monthly group: one month or two per payment — changed here, forward only.
+  const monthly = group.pricing?.billing_mode === "MONTHLY";
+  const savedMonths: MonthsPerCharge = member.months_per_charge === 2 ? 2 : 1;
+  const [months, setMonths] = useState<MonthsPerCharge>(savedMonths);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function submit(value: number | null) {
+  // `value` undefined = leave the price as it is (only the months changed).
+  async function submit(value: number | null | undefined) {
     setBusy(true);
     setError(null);
     try {
-      const res = await updateGroupMember(group.id, member.student_id, { price_minor: value });
+      const res = await updateGroupMember(group.id, member.student_id, {
+        ...(value !== undefined ? { price_minor: value } : {}),
+        ...(monthly && months !== savedMonths ? { months_per_charge: months } : {}),
+      });
       onSaved(res.group);
     } catch (err) {
       setError(apiErrorMessage(err, t("members.priceFailed")));
@@ -552,6 +574,13 @@ export function MemberPriceForm({
         <span className="text-sm font-medium">{t("members.price", { currency: group.pricing?.currency ?? "" })}</span>
         <input className={fieldClass} inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value)} placeholder={fromMinor(group.pricing?.price_minor)} data-testid="member-price" />
       </label>
+      {monthly && (
+        <div className="space-y-1.5">
+          <span className="block text-sm font-medium">{t("months.label")}</span>
+          <MonthsChoice pricing={group.pricing} value={months} onChange={setMonths} disabled={busy} testId="member-months" />
+          <span className="text-muted-foreground block text-xs">{t("months.forwardHint")}</span>
+        </div>
+      )}
       <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
         <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
           {t("form.cancel")}
@@ -561,7 +590,12 @@ export function MemberPriceForm({
             {t("members.useGroupPrice")}
           </Button>
         )}
-        <Button type="button" disabled={busy || toMinor(price) === null} onClick={() => void submit(toMinor(price))}>
+        <Button
+          type="button"
+          disabled={busy || (price.trim() === "" ? months === savedMonths : toMinor(price) === null)}
+          onClick={() => void submit(price.trim() === "" ? undefined : (toMinor(price) ?? undefined))}
+          data-testid="member-price-save"
+        >
           {t("members.savePrice")}
         </Button>
       </div>

@@ -531,9 +531,53 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     const user = userEvent.setup();
     renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
     await fillActiveStudent(user);
-    // Starts on the subscription; the group list sits above it.
-    expect(screen.getByLabelText(enMessages.packages.form.lessons)).toBeInTheDocument();
+    // Starts on "no private subscription": nothing private is sold unless picked (lingo sold blocks
+    // to group-only students whose tile nobody touched).
     expect(await screen.findByTestId("group-subs")).toBeInTheDocument();
+    expect(screen.queryByLabelText(enMessages.packages.form.lessons)).not.toBeInTheDocument();
+    // Picking the private tile brings the block's fields; the group list stays above them.
+    await user.click(screen.getByTestId("billing-package"));
+    expect(screen.getByLabelText(enMessages.packages.form.lessons)).toBeInTheDocument();
+    expect(screen.getByTestId("group-subs")).toBeInTheDocument();
+  });
+
+  it("lets a centre's student pay a monthly group two months at a time", async () => {
+    centreGroups();
+    groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1" });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
+    await fillActiveStudent(user);
+    const pick = await screen.findByTestId("group-subs-pick");
+    await waitFor(() => expect(within(pick).getAllByRole("option").length).toBeGreaterThan(2));
+    await user.selectOptions(pick, "g1");
+    await user.selectOptions(screen.getByTestId("group-subs-pick"), "g2");
+    // Only the monthly priced group asks; it names both prices (450 a month, 900 for two).
+    expect(screen.queryByTestId("group-sub-months-g2")).not.toBeInTheDocument();
+    expect(screen.getByTestId("group-sub-months-g1-2")).toHaveTextContent(enMessages.groups.months.two);
+    await user.click(screen.getByTestId("group-sub-months-g1-2"));
+    await user.click(screen.getByTestId("submit-student"));
+    await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledTimes(2));
+    expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g1", expect.objectContaining({ months_per_charge: 2 }));
+    expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", expect.not.objectContaining({ months_per_charge: expect.anything() }));
+  });
+
+  it("never sells a centre's group-only student a private subscription nobody picked", async () => {
+    centreGroups();
+    groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1" });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "centre"], extraPermissions: ["group.manage"] });
+    await fillActiveStudent(user);
+    const pick = await screen.findByTestId("group-subs-pick");
+    await waitFor(() => expect(within(pick).getAllByRole("option").length).toBeGreaterThan(1));
+    await user.selectOptions(pick, within(pick).getAllByRole("option")[1]!.getAttribute("value")!);
+    await user.click(screen.getByTestId("submit-student"));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalled());
+    const sent = vi.mocked(api.createStudent).mock.calls[0]?.[0];
+    expect(sent).not.toHaveProperty("subscription");
+    expect(sent).not.toHaveProperty("package");
+    expect(groupsApi.addGroupMembers).toHaveBeenCalled();
   });
 
   it("creates an active student straight onto a lesson package in one save", async () => {

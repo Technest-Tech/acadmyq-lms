@@ -184,9 +184,9 @@ final class CentreSubscriptionController extends Controller
         $data = $request->validate(['note' => ['sometimes', 'nullable', 'string', 'max:500']]);
         $ctx = app(AuthContext::class);
 
-        $this->subscriptions->cancel($id, $data['note'] ?? null, $ctx->userId, $ctx->role);
+        $credited = $this->subscriptions->cancel($id, $data['note'] ?? null, $ctx->userId, $ctx->role);
 
-        return response()->json(null, 204);
+        return response()->json(['credited_minor' => $credited]);
     }
 
     /** POST /subscriptions/{id}/remind { kind: PAYMENT|FINISHED, locale? } */

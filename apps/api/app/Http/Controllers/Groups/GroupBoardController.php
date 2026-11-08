@@ -162,7 +162,7 @@ final class GroupBoardController extends Controller
         }
 
         $rows = $query->limit(2000)->get([
-            'm.id', 'm.group_id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.left_reason', 'm.price_minor', 'm.carried_minutes',
+            'm.id', 'm.group_id', 'm.student_id', 'm.joined_on', 'm.left_on', 'm.status', 'm.left_reason', 'm.price_minor', 'm.carried_minutes', 'm.months_per_charge',
             'st.full_name', 'st.deleted_at as student_deleted_at', 'gu.full_name as guardian_name',
             'g.name as group_name', 'g.level as group_level', 'g.teacher_id', 'g.timezone',
             'te.full_name as teacher_name',
@@ -207,6 +207,7 @@ final class GroupBoardController extends Controller
                 'left_on' => $r->left_on !== null ? Carbon::parse($r->left_on)->format('Y-m-d') : null,
                 'status' => (string) $r->status,
                 'left_reason' => $r->left_reason,
+                'months_per_charge' => (int) ($r->months_per_charge ?? 1),
                 'deletable' => $groupsService !== null && $r->status === 'ACTIVE' ? $groupsService->undoRefusal($r) === null : null,
                 'attendance' => $a + ['rate' => $rate],
                 'recent' => $marks,
@@ -611,17 +612,25 @@ final class GroupBoardController extends Controller
         $from = Carbon::now($tz)->startOfMonth()->format('Y-m-d');
         $to = Carbon::now($tz)->endOfMonth()->format('Y-m-d');
 
+        // What is owed is the line less what receipts paid toward it: a centre's bills never close
+        // (they stay OPEN when paid), so the bill's status alone called every paid charge late.
         $out = [];
         foreach (DB::table('invoice_line_items as li')
             ->join('invoices as inv', 'inv.id', '=', 'li.invoice_id')
             ->whereIn('li.class_group_id', $groupIds)
-            ->whereBetween('li.group_period', [$from, $to])
-            ->get(['li.class_group_id', 'li.student_id', 'li.amount_minor', 'li.currency', 'inv.status']) as $l) {
+            // A two-month charge raised last month is this month's too.
+            ->where(fn ($q) => $q->whereBetween('li.group_period', [$from, $to])
+                ->orWhere(fn ($two) => $two->where('li.group_months', 2)
+                    ->whereBetween('li.group_period', [Carbon::parse($from)->subMonth()->format('Y-m-d'), Carbon::parse($from)->subDay()->format('Y-m-d')])))
+            ->where('inv.status', '<>', 'VOID')
+            ->selectRaw('(select coalesce(sum(ra.amount_minor), 0) from receipt_allocations ra where ra.invoice_line_id = li.id) as allocated_minor')
+            ->addSelect(['li.class_group_id', 'li.student_id', 'li.amount_minor', 'li.currency', 'inv.status'])
+            ->get() as $l) {
             $key = $l->class_group_id.'|'.$l->student_id;
             $out[$key] ??= ['currency' => (string) $l->currency, 'billed_minor' => 0, 'outstanding_minor' => 0];
             $out[$key]['billed_minor'] += (int) $l->amount_minor;
             if ($l->status !== 'PAID') {
-                $out[$key]['outstanding_minor'] += (int) $l->amount_minor;
+                $out[$key]['outstanding_minor'] += max(0, (int) $l->amount_minor - (int) $l->allocated_minor);
             }
         }
 

@@ -205,6 +205,9 @@ describe("EnrollmentWizard — a centre's pricing step (docs/centre-profile/01)"
     expect(screen.queryByTestId("enroll-billing-package")).not.toBeInTheDocument();
     expect(screen.queryByLabelText(enMessages.students.monthly.lessons)).not.toBeInTheDocument();
 
+    // Groups on: "no private subscription" is the start, so the block is picked on purpose.
+    expect(screen.queryByTestId("enroll-sub-subject")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("enroll-billing-subscription"));
     // The student's existing subject is the block's subject.
     const subject = screen.getByTestId("enroll-sub-subject") as HTMLSelectElement;
     await waitFor(() => expect(subject.value).toBe("t2::maths"));

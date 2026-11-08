@@ -243,6 +243,7 @@ final class CentreSubscriptionRows
                 'i.status as invoice_status', 'i.total_minor as invoice_total_minor', 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
                 'cu.full_name as closed_by_name', 'ou.full_name as opened_by_name'])
             ->selectRaw('('.$this->usedSql().') as lessons_used')
+            ->selectRaw('(select coalesce(sum(ra.amount_minor), 0) from receipt_allocations ra where ra.invoice_line_id = cs.invoice_line_id) as receipts_paid_minor')
             ->selectRaw("({$outsideOf}) as outside_count")
             ->selectRaw("(select x.id from ({$renewed}) x limit 1) as renewed_by")
             ->selectRaw("(select count(*) from sessions up where up.student_id = cs.student_id and up.status in ('SCHEDULED','RESCHEDULED') and up.hidden_at is null and up.scheduled_at_utc >= now() and ".str_replace('{a}', 'up', $ofSubject).') as upcoming_lesson_count')
@@ -332,7 +333,9 @@ final class CentreSubscriptionRows
                 'outside_count' => (int) $r->outside_count,
                 'renewed' => $r->renewed_by !== null,
                 'renewal_held' => isset($payFirst[(string) $r->student_id]) && $r->renewed_by === null && $r->status !== 'CANCELLED' && $outstanding > 0,
-                'deletable' => $r->status === 'OPEN' && $used === 0 && $paid === 0,
+                // Sold by mistake: nothing counted, and anything paid came through receipts (it goes
+                // back to the family as credit, as a deleted group subscription's does).
+                'deletable' => $r->status === 'OPEN' && $used === 0 && $paid <= (int) $r->receipts_paid_minor,
                 'reminders_sent' => (int) $r->reminders_sent,
                 'last_reminded_at' => $r->last_reminded_at !== null ? Carbon::parse($r->last_reminded_at)->utc()->toIso8601String() : null,
                 'opened_by_name' => $r->opened_by_name,

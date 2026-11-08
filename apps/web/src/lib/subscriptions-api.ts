@@ -232,8 +232,11 @@ export function closeSubscription(id: string, input: CloseInput): Promise<CloseR
   return apiFetch(`/api/subscriptions/${id}/close`, { method: "POST", body: JSON.stringify(input) });
 }
 
-/** Only while nothing was counted and nothing paid; voids the bill line. */
-export function cancelSubscription(id: string, note?: string): Promise<void> {
+/**
+ * A block opened by mistake: only while no lesson was counted on it. Voids its bill; what was paid
+ * toward it through receipts comes back as the family's credit (`credited_minor`).
+ */
+export function cancelSubscription(id: string, note?: string): Promise<{ credited_minor: number }> {
   return apiFetch(`/api/subscriptions/${id}/cancel`, { method: "POST", body: JSON.stringify({ note: note || undefined }) });
 }
 
