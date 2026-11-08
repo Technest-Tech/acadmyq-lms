@@ -1,6 +1,9 @@
-import { FinancePaymentsScreen } from "./screen";
+import { redirect } from "next/navigation";
 
-/** Super Admin → Finance → Payments: every unit of money received, as one ledger. */
-export default function AdminFinancePaymentsPage() {
-  return <FinancePaymentsScreen />;
+/**
+ * /admin/finance/payments retired: Billing, subscriptions and the finance book became ONE section on 2026-11-08 — Super Admin →
+ * Accounts. The redirect keeps old links and bookmarks working.
+ */
+export default function RetiredPage() {
+  redirect("/admin/accounts/payments");
 }

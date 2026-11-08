@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import {
+  ApiError,
   exitAcademy as apiExitAcademy,
   getMe,
   logout as apiLogout,
@@ -46,6 +47,24 @@ export function useAuth(): AuthValue {
  * re-reads it (a revoked role disappears without a re-login, §3.7). A failed fetch means
  * no valid session → the consumer redirects to /login.
  */
+/**
+ * Read the session, giving a failure that is NOT a 401 one more chance.
+ *
+ * A 401 is a real answer: there is no session. Anything else — a dropped connection, a timeout, a
+ * 5xx — is the line, not the session, and treating it as "signed out" bounced people who had just
+ * signed in straight back to the sign-in form (the "I have to log in twice" report: on a jittery
+ * line the panel's first /auth/me right after a sign-in is exactly the request that fails).
+ */
+async function readSession(): Promise<Session> {
+  try {
+    return await getMe();
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) throw err;
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    return getMe();
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
@@ -53,7 +72,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refresh = useCallback(async () => {
     try {
-      const me = await getMe();
+      const me = await readSession();
       // Before the session lands, so the first number the shell renders is already in its digits.
       setLatinDigits(me.academy?.profile === "CENTRE");
       setSession(me);

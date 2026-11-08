@@ -273,8 +273,6 @@
     "studentReports": "Student Reports",
     "studentReportReviews": "Student Report Reviews",
     "myPayroll": "My Payroll",
-    "billing": "Billing & Subscriptions",
-    "plans": "Plans",
     "financialStats": "Financial Statistics",
     "audit": "Audit Log",
     "certificates": "Certificates",
@@ -285,7 +283,7 @@
     "adminVideo": "Video Ops",
     "adminLms": "Course Platform",
     "demoRequests": "Demo requests",
-    "adminFinance": "Finance",
+    "adminFinance": "Accounts",
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "academyRoles": "Roles & Permissions",
@@ -442,9 +440,12 @@
         "whatsapp": "WhatsApp",
         "video": "Video",
         "settings": "Settings",
-        "payments": "Payments",
+        "payments": "Payment gateway",
         "overview": "Overview",
-        "modules": "Modules & features"
+        "modules": "Modules & features",
+        "subscription": "Subscription & money",
+        "features": "Features",
+        "connections": "Connections"
       },
       "videoCardTitle": "Video settings & rooms",
       "videoCardHint": "Tier, room limits, recordings and room logs live in Video Ops for this client.",
@@ -698,11 +699,21 @@
         "suspendReasonLabel": "Reason",
         "suspendReasonHint": "Shown on the client's row and in the audit trail.",
         "reactivateTitle": "Reactivate {name}?",
-        "reactivateBody": "Sign-in and automations resume immediately."
+        "reactivateBody": "Sign-in and automations resume immediately.",
+        "since": "Client since {date}",
+        "alertOpenBilling": "Open subscription",
+        "alertOpenModules": "Open modules",
+        "profile": {
+          "QURAN": "Quran academy",
+          "CENTRE": "Centre"
+        },
+        "modernLook": "Modern look",
+        "more": "More actions",
+        "whatsapp": "Owner's WhatsApp"
       },
       "kpi": {
         "revenue": "Revenue",
-        "revenueNone": "Nothing billed yet",
+        "revenueNone": "No agreement yet",
         "revenuePaid": "{count} paid modules",
         "revenueTrial": "On trial — not billed yet",
         "modules": "Modules",
@@ -721,7 +732,18 @@
         "renewalOverdue": "{module} renewal was {days} days ago",
         "trialEnds": "{module} trial ends in {days} days",
         "trialEndsToday": "{module} trial ends today",
-        "trialEnded": "{module} trial ended {days} days ago"
+        "trialEnded": "{module} trial ended {days} days ago",
+        "modulesMore": "{count} more can be added",
+        "unpaid": "Owes",
+        "unpaidNone": "Nothing owed",
+        "unpaidOpen": "{count} open bills",
+        "unpaidOverdue": "{amount} late",
+        "lessons": "{count} lessons this month",
+        "lastLogin": "Last sign-in",
+        "lastLoginNever": "Not yet",
+        "lastLoginStale": "{days} days without a sign-in",
+        "lastLoginFresh": "Using the system",
+        "unpaidNext": "Next payment {date}"
       },
       "overview": {
         "attentionTitle": "Needs attention",
@@ -737,7 +759,15 @@
           "noOwner": "No owner login yet — nobody can sign in to this client.",
           "noAddress": "No address yet — set a subdomain so the client gets its own sign-in page.",
           "featuresOff": "{count} features are switched off for this client.",
-          "waDisconnected": "WhatsApp is not connected — automated messages are not being sent."
+          "waDisconnected": "WhatsApp is not connected — automated messages are not being sent.",
+          "renewalOverdue": "{module} renewal is {days} days overdue — check Billing.",
+          "renewalSoon": "{module} renews in {days} days.",
+          "noLogin": "Nobody at this client has signed in yet.",
+          "inactive": "Nobody at this client has signed in for {days} days.",
+          "unpaidOverdue": "{count} overdue bills totalling {amount}",
+          "paymentLate": "Late payments: {amount}",
+          "paymentSoon": "A payment of {amount} is due in {days} days.",
+          "noAgreement": "Runs paid modules with no agreement — nobody will remind it to pay."
         },
         "modulesTitle": "Modules",
         "modulesHint": "What this client holds, and what each module costs.",
@@ -768,21 +798,29 @@
         "linkVideoOps": "Video rooms & logs",
         "linkLmsOps": "Course platform oversight",
         "linkWaOps": "WhatsApp operations",
-        "linkBilling": "Bills & payment proofs"
+        "linkBilling": "Bills & payment proofs",
+        "phone": "Phone",
+        "profile": "School type"
       },
       "sections": {
         "modules": "Modules & features",
         "modulesHint": "Everything this client is sold, and the switches that shape it. This is the only place a module is enabled, priced, paused or removed.",
         "billing": "Billing",
         "billingHint": "What this client is charged, its bills, and the payment proofs it sends in.",
-        "payments": "Payments",
-        "paymentsHint": "How this client collects money from its own students.",
+        "payments": "Payment gateway",
+        "paymentsHint": "How this client collects from its own students (XPay). Your bills to them live under Billing.",
         "whatsapp": "WhatsApp",
         "whatsappHint": "The client's WhatsApp connection, API keys and staff group alerts.",
         "video": "Video",
         "videoHint": "The client's video classroom — rooms, recordings and limits.",
         "settings": "Settings",
-        "settingsHint": "Identity, owner login, addresses — and the one irreversible action."
+        "settingsHint": "Identity, owner login, addresses — and the one irreversible action.",
+        "subscription": "Subscription & money",
+        "subscriptionHint": "What this client holds and pays per module, your bills to it and its payment proofs.",
+        "features": "Features",
+        "featuresHint": "Every feature of its modules is on. The opt-in extras stay off until you switch them on.",
+        "connections": "Connections",
+        "connectionsHint": "The client's WhatsApp, the payment gateway it collects from its students with, and its domains."
       },
       "settings": {
         "generalHint": "The client's name, brand and platform address.",
@@ -795,7 +833,21 @@
         "WHATSAPP": "Automated messages and the WhatsApp API",
         "LMS": "Course site, learners and digital products"
       },
-      "loadingProfile": "Loading client…"
+      "loadingProfile": "Loading client…",
+      "usage": {
+        "title": "Usage",
+        "hint": "Is the client actually using the system?",
+        "lastLogin": "Last sign-in",
+        "never": "Nobody has signed in yet",
+        "lessons": "Lessons recorded this month",
+        "unpaid": "Unpaid bills",
+        "unpaidNone": "Nothing owed",
+        "unpaidCount": "{count} bills",
+        "overdue": "{count} overdue",
+        "noAgreement": "No agreement",
+        "overdueAmount": "{amount} late",
+        "nextDue": "Next payment {date}"
+      }
     },
     "new": {
       "back": "All clients",
@@ -844,7 +896,146 @@
         "maxLearners": "Max learners",
         "maxStorageGb": "Media storage (GB)"
       },
-      "optIn": "opt-in"
+      "optIn": "opt-in",
+      "group": {
+        "optIn": "Opt-in extras",
+        "optInHint": "Off until you switch them on for this client.",
+        "teaching": "Teaching & follow-up",
+        "money": "Money",
+        "team": "Team & admin",
+        "other": "Other"
+      }
+    },
+    "roster": {
+      "tiles": {
+        "ALL": "All clients",
+        "ACTIVE": "Active",
+        "TRIAL": "Trial",
+        "SUSPENDED": "Suspended",
+        "ATTENTION": "Needs follow-up",
+        "attentionHint": "Overdue renewal, trial ending, overdue bills, or nobody signing in"
+      },
+      "sort": {
+        "label": "Sort",
+        "ATTENTION": "Most urgent first",
+        "NEWEST": "Newest",
+        "REVENUE": "Highest revenue",
+        "STUDENTS": "Most students",
+        "NAME": "Name"
+      },
+      "columns": {
+        "client": "Client",
+        "modules": "Modules",
+        "state": "State",
+        "revenue": "Revenue",
+        "students": "Students"
+      },
+      "clock": {
+        "suspended": "Suspended",
+        "suspendedReason": "Suspended · {reason}",
+        "paused": "{module} paused",
+        "trialEnded": "{module} trial ended {days} days ago",
+        "trialToday": "{module} trial ends today",
+        "trialSoon": "{module} trial ends in {days} days",
+        "trialUntil": "{module} trial until {date}",
+        "renewalOverdue": "Payment {days} days late",
+        "renewalToday": "Payment due today",
+        "renewalSoon": "Payment due in {days} days",
+        "renewsOn": "Next payment {date}",
+        "noModules": "No modules",
+        "unpaidOverdue": "{amount} late",
+        "inactive": "No sign-in for {days} days",
+        "neverLoggedIn": "Nobody has signed in yet"
+      },
+      "trialTag": "Trial",
+      "teachers": "{count} teachers",
+      "shown": "{shown} of {total} clients",
+      "noOwner": "No owner login",
+      "lessons": "{count} lessons this month"
+    },
+    "create": {
+      "title": "New client",
+      "subtitle": "Three steps: the client, the school's owner, then the subscription.",
+      "steps": {
+        "client": "Client",
+        "owner": "Owner",
+        "plan": "Subscription"
+      },
+      "kind": {
+        "title": "Client type",
+        "MANAGEMENT": "Academy management system",
+        "MANAGEMENTHint": "Students, lessons, invoices and payroll; WhatsApp can be added.",
+        "LMS": "Course platform",
+        "LMSHint": "Sells its courses on a site of its own.",
+        "WHATSAPP": "WhatsApp only",
+        "WHATSAPPHint": "Automated messages over the API, no login."
+      },
+      "school": {
+        "title": "School type",
+        "QURAN": "Quran academy",
+        "QURANHint": "One-to-one lessons, hour packages, lesson reports.",
+        "CENTRE": "Learning centre",
+        "CENTREHint": "Languages and subjects: groups, lesson subscriptions, receipts."
+      },
+      "name": "Client name",
+      "namePlaceholder": "e.g. Al-Noor Academy",
+      "subdomain": "Address",
+      "subdomainHint": "The client signs in at {host}",
+      "logo": "Logo URL",
+      "optional": "optional",
+      "ownerTitle": "The school's owner",
+      "ownerHint": "Who you will talk to, and their first login.",
+      "ownerName": "Name",
+      "ownerPhone": "WhatsApp number",
+      "ownerPhoneHint": "With the country code, e.g. +20 100 123 4567",
+      "ownerEmail": "Sign-in email",
+      "password": "Password",
+      "passwordHint": "At least 8 characters. Copy it and send it to the client.",
+      "generate": "Generate",
+      "copy": "Copy",
+      "copied": "Copied",
+      "show": "Show",
+      "hide": "Hide",
+      "planTitle": "Subscription",
+      "planHint": "What this client pays, and when it starts.",
+      "price": "{module} price",
+      "interval": {
+        "MONTHLY": "Monthly",
+        "YEARLY": "Yearly"
+      },
+      "per": {
+        "MONTHLY": "/mo",
+        "YEARLY": "/yr"
+      },
+      "addWhatsapp": "Add WhatsApp",
+      "addWhatsappHint": "Automated messages and reminders to students and parents.",
+      "startTitle": "Start",
+      "startTrial": "Free trial",
+      "startTrialHint": "Billing starts when the trial ends.",
+      "startPaid": "Paid from today",
+      "startPaidHint": "The first period starts today.",
+      "trialDays": "Trial length",
+      "days": "days",
+      "modernTitle": "Modern look",
+      "modernHint": "The new design of the client's panel from day one.",
+      "modernCentre": "A centre always uses the modern look.",
+      "summaryTitle": "Summary",
+      "summaryNone": "Not set yet",
+      "summaryFree": "Free",
+      "summaryTrial": "{days}-day trial, then {price}",
+      "summaryPaid": "{price} from today",
+      "summaryNoLogin": "No login",
+      "next": "Next",
+      "back": "Back",
+      "create": "Create client",
+      "creating": "Creating…",
+      "errors": {
+        "required": "Required",
+        "email": "Invalid email",
+        "password": "At least 8 characters",
+        "phone": "Invalid number",
+        "price": "Invalid price"
+      }
     }
   },
   "header": {
@@ -867,7 +1058,7 @@
     "email": "Email",
     "password": "Password",
     "loading": "Loading…",
-    "invalidCredentials": "These credentials do not match our records.",
+    "invalidCredentials": "Incorrect email or password.",
     "serverError": "Something went wrong. Please try again.",
     "welcomeBack": "Welcome back",
     "signInSubtitle": "Enter your credentials to access your dashboard",
@@ -911,7 +1102,9 @@
     "feature3": "Arabic and English, laid out right to left and left to right",
     "trustedBy": "Trusted by academies across the region",
     "poweredBy": "Powered by Acadmyq",
-    "cardSubtitle": "Sign in to continue to your academy’s workspace"
+    "cardSubtitle": "Sign in to continue to your academy’s workspace",
+    "needHelp": "Trouble signing in?",
+    "whatsappUs": "Message us on WhatsApp"
   },
   "roles": {
     "SUPER_ADMIN": "Platform Admin",
@@ -3645,8 +3838,11 @@
     "lockedByOffice": "The administration recorded this lesson — only they can change it.",
     "save": "Save",
     "sendWhatsapp": "Send WhatsApp",
+    "deleteLesson": "Delete lesson",
     "reportCard": "Report card",
     "whatsappSoon": "WhatsApp sending is coming soon",
+    "teacherPaid": "Teacher: {share}",
+    "colReason": "Reason",
     "awaitingApproval": "Awaiting approval",
     "awaitingApprovalHint": "A cancellation was requested and is awaiting the owner’s approval.",
     "follow": {
@@ -3751,7 +3947,7 @@
       },
       "chargeStudent": "Charge the student",
       "chargeStudentHint": "Bill the parent the full session price (e.g. a late-cancel fee).",
-      "payTeacher": "Pay the teacher",
+      "payTeacher": "Pay the teacher?",
       "payTeacherHint": "Still count this session toward the teacher's payout.",
       "reason": "Reason",
       "reasonPlaceholder": "Why is this class cancelled?",
@@ -3761,7 +3957,14 @@
       "no": "No",
       "confirm": "Apply",
       "cancel": "Cancel",
-      "defaultVerdict": "The lesson is recorded with the standard verdict: the student is not charged and the teacher is not paid. Charging is decided by whoever holds cancelled-lesson billing."
+      "defaultVerdict": "The lesson is recorded with the standard verdict: the student is not charged and the teacher is not paid. Charging is decided by whoever holds cancelled-lesson billing.",
+      "payTeacherShareHint": "How much of this lesson counts towards the teacher's pay.",
+      "share": {
+        "0": "No",
+        "25": "Quarter",
+        "50": "Half",
+        "100": "Full lesson"
+      }
     },
     "markedSent": "Marked as sent on WhatsApp.",
     "history": "Report history",
@@ -4166,7 +4369,8 @@
       },
       "groups": "Group classes — groups, members, timetable & attendance",
       "accounting": "Accounting — numbered receipts, partial payments & collection sheets",
-      "modern_look": "Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy's own colours"
+      "modern_look": "Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy's own colours",
+      "centre": "Centre mode — lesson subscriptions, groups first, any student on a manual lesson, salary blocks"
     }
   },
   "adminDashboard": {
@@ -4190,7 +4394,7 @@
     "systemActor": "System",
     "manageAcademies": "Manage clients",
     "managePlans": "Pricing →",
-    "manageBilling": "Manage billing",
+    "manageBilling": "Open Accounts",
     "mrr": "Monthly revenue",
     "mrrSub": "Recurring across active academies",
     "outstanding": "Outstanding",
@@ -4202,7 +4406,7 @@
     "endingSoonTitle": "Subscriptions ending soon",
     "noEndingSoon": "No subscriptions or trials ending soon.",
     "kindTrial": "Trial",
-    "kindRenewal": "Renewal",
+    "kindRenewal": "Payment",
     "overdueBy": "{count, plural, one {# day overdue} other {# days overdue}}",
     "endsToday": "Ends today",
     "inDays": "{count, plural, one {in # day} other {in # days}}",
@@ -4212,7 +4416,45 @@
     "moduleDistribution": "Modules in use",
     "noModules": "No modules sold yet",
     "moduleClients": "{count} clients",
-    "onTrial": "{count} on trial"
+    "onTrial": "{count} on trial",
+    "modern": {
+      "hero": {
+        "greeting": "{greeting}, {name}",
+        "subtitle": "Here's your platform today.",
+        "newClient": "New client",
+        "billing": "Accounts"
+      },
+      "kpi": {
+        "clients": "Clients",
+        "newClients": "+{count} in 30 days",
+        "students": "Students",
+        "teachers": "{count, plural, one {{n} teacher} other {{n} teachers}}",
+        "mrr": "Monthly revenue",
+        "mrrOther": "+ {rest}",
+        "outstanding": "Late",
+        "reviews": "{count, plural, one {{n} proof to review} other {{n} proofs to review}}",
+        "owing": "{count, plural, =0 {Nobody late} one {{n} client late} other {{n} clients late}}"
+      },
+      "status": {
+        "title": "Clients by status",
+        "unit": "clients",
+        "empty": "No clients yet."
+      },
+      "income": {
+        "title": "Your income",
+        "period": "Last 6 months",
+        "thisMonth": "this month",
+        "empty": "Nothing recorded in the income book yet.",
+        "open": "Income book"
+      },
+      "modules": {
+        "plans": "Prices"
+      },
+      "ends": {
+        "overdueBy": "{count, plural, one {{n} day overdue} other {{n} days overdue}}",
+        "inDays": "{count, plural, one {in {n} day} other {in {n} days}}"
+      }
+    }
   },
   "roleEditor": {
     "title": "Roles & Permissions",
@@ -4247,19 +4489,10 @@
     "tab": {
       "flags": "Feature flags",
       "general": "General",
-      "payment": "Payment",
       "roles": "Roles & permissions",
       "departments": "Staff departments"
     },
     "generalHeading": "Email & notifications",
-    "payment": {
-      "heading": "Receiving methods",
-      "hint": "Where academies pay their subscription. Shown on each academy's public bill page.",
-      "instapay": "InstaPay",
-      "instapayHandle": "InstaPay handle / address",
-      "vodafone": "Vodafone Cash",
-      "vodafoneNumber": "Vodafone Cash number"
-    },
     "flagsHint": "Turning a flag off disables that capability across every academy, even if their plan grants it.",
     "noFlags": "No feature flags defined.",
     "enabled": "On",
@@ -4270,37 +4503,6 @@
       "smtp_port": "SMTP port",
       "smtp_username": "SMTP username",
       "smtp_from_name": "Email from-name"
-    }
-  },
-  "billing": {
-    "title": "Billing & Revenue",
-    "subtitle": "Recurring revenue across the platform, grouped by currency (no FX).",
-    "combinedTitle": "Billing & Subscriptions",
-    "combinedSubtitle": "Platform revenue, academy subscriptions, trials and payment-proof review.",
-    "noPermission": "You don't have permission to view billing.",
-    "loadError": "Could not load the billing overview. Please try again.",
-    "mrrHeading": "Monthly recurring revenue",
-    "mrr": "MRR",
-    "perMonth": "/ month",
-    "noRevenue": "No active paid academies yet.",
-    "count": {
-      "total": "Academies",
-      "active": "Active",
-      "trial": "Trial",
-      "suspended": "Suspended"
-    },
-    "academiesHeading": "Per-academy billing",
-    "colAcademy": "Academy",
-    "colPlan": "Plan",
-    "colStatus": "Status",
-    "colAddOns": "Add-ons",
-    "colMonthly": "Monthly",
-    "colBillingDay": "Billing day",
-    "empty": "No academies yet.",
-    "status": {
-      "ACTIVE": "Active",
-      "TRIAL": "Trial",
-      "SUSPENDED": "Suspended"
     }
   },
   "platformUsers": {
@@ -4358,79 +4560,6 @@
       "ACCOUNTANT": "Accountant",
       "CUSTOMER_SERVICE": "Customer service"
     }
-  },
-  "planAdmin": {
-    "title": "Pricing",
-    "subtitle": "Default price per module. Each client's own price is set on its profile.",
-    "noPermission": "You don't have permission to manage plans.",
-    "loadError": "Could not load the plan catalog. Please try again.",
-    "toggleError": "Could not update the plan. Please try again.",
-    "perMonth": "/ month",
-    "freeTrial": "5-day free trial",
-    "maxStudents": "Max students",
-    "maxTeachers": "Max teachers",
-    "capabilities": "Included features",
-    "unlimited": "Unlimited",
-    "active": "Active",
-    "inactive": "Inactive",
-    "activate": "Activate plan",
-    "deactivate": "Deactivate plan",
-    "noPlans": "No plans defined yet.",
-    "planColumn": "Plan",
-    "comparison": "Plan comparison",
-    "limitsSection": "Limits",
-    "capabilitiesSection": "Features",
-    "academiesCount": "{count, plural, =0 {No academies} one {# academy} other {# academies}}",
-    "statPlans": "Plans",
-    "statActive": "{count} active",
-    "statAcademies": "Academies",
-    "statTrialActive": "{active} active · {trial} trial",
-    "statMrr": "Est. monthly revenue",
-    "statMrrHint": "From subscribed academies",
-    "statMrrMore": "+{count} more {count, plural, one {currency} other {currencies}}",
-    "statTopPlan": "Most popular",
-    "statNoAcademies": "No subscriptions yet",
-    "addOnsTab": "Add-ons",
-    "addOnsTitle": "Add-on catalog",
-    "addOnCode": "Code",
-    "addOnName": "Name",
-    "addOnFeature": "Unlocks feature",
-    "addOnPrice": "Price",
-    "noAddOns": "No add-ons defined yet.",
-    "form": {
-      "newPlan": "New plan",
-      "editPlan": "Edit plan",
-      "newAddOn": "New add-on",
-      "editAddOn": "Edit add-on",
-      "module": "Module",
-      "moduleManagement": "Management",
-      "moduleVideo": "Video",
-      "moduleWhatsapp": "WhatsApp",
-      "moduleCrm": "CRM",
-      "code": "Code",
-      "name": "Name",
-      "price": "Price",
-      "currency": "Currency",
-      "capabilities": "Features",
-      "limits": "Limits",
-      "limitsHint": "Leave blank for unlimited.",
-      "unlimited": "Unlimited",
-      "flags": "Feature toggles",
-      "flagsHint": "On unless turned off — a plan only ever removes a feature.",
-      "active": "Active",
-      "featureKey": "Feature key",
-      "save": "Save",
-      "saving": "Saving…",
-      "cancel": "Cancel"
-    },
-    "modulePricing": "Module defaults",
-    "modulePricingHint": "These only pre-fill the form when a module is sold. Changing them never reprices an existing client.",
-    "defaultPrice": "Default price",
-    "currency": "Currency",
-    "currentDefault": "Now {amount}",
-    "noDefault": "No default",
-    "savePricing": "Save defaults",
-    "saved": "Saved"
   },
   "staff": {
     "title": "Team & permissions",
@@ -4988,7 +5117,11 @@
         "APPROVED": "Approved",
         "REJECTED": "Rejected"
       }
-    }
+    },
+    "paymentDue": "Platform subscription due: {amount} — on {date}",
+    "paymentLate": "Platform subscription overdue: {amount}",
+    "pay": "Pay now",
+    "proofPending": "We received your subscription payment proof and are reviewing it."
   },
   "academyAutomation": {
     "title": "WhatsApp Automation",
@@ -5011,60 +5144,6 @@
     "needToken": "Add a Wasender token to enable.",
     "saved": "Saved.",
     "log": "Recent sends"
-  },
-  "adminSubscriptions": {
-    "title": "Subscriptions",
-    "subtitle": "Academy plans, trials, outstanding bills and payment-proof review.",
-    "loadError": "Couldn't load subscriptions.",
-    "noPermission": "You don't have access to this page.",
-    "none": "No academies yet.",
-    "kpi": {
-      "academies": "Academies",
-      "trials": "On trial",
-      "outstanding": "With outstanding",
-      "proofs": "Proofs to review"
-    },
-    "proofs": {
-      "title": "Payment proofs to review",
-      "none": "No pending payment proofs.",
-      "view": "View",
-      "approve": "Approve",
-      "reject": "Reject",
-      "approved": "Payment approved.",
-      "rejected": "Submission rejected."
-    },
-    "table": {
-      "title": "Academy subscriptions"
-    },
-    "col": {
-      "academy": "Academy",
-      "plan": "Plan",
-      "status": "Status",
-      "renewal": "Trial ends / Renews",
-      "cost": "Monthly",
-      "outstanding": "Outstanding",
-      "actions": "Actions"
-    },
-    "trialDaysLeft": "Trial · {days}d left",
-    "trialExpired": "Trial expired",
-    "daysLeft": "{days}d left",
-    "expired": "Expired",
-    "noDate": "—",
-    "status": {
-      "ACTIVE": "Active",
-      "TRIAL": "Trial",
-      "SUSPENDED": "Suspended"
-    },
-    "action": {
-      "extend": "Extend +5d",
-      "activate": "Activate",
-      "suspend": "Deactivate",
-      "reactivate": "Reactivate"
-    },
-    "extended": "Trial extended.",
-    "activated": "Subscription activated.",
-    "suspended": "Academy deactivated.",
-    "reactivated": "Academy reactivated."
   },
   "adminVideo": {
     "title": "Video Oversight",
@@ -9367,7 +9446,7 @@
     }
   },
   "finance": {
-    "title": "Finance",
+    "title": "Accounts",
     "subtitle": "Your own income book — what clients agreed to pay, and what actually came in.",
     "tabs": {
       "overview": "Overview",
@@ -9396,8 +9475,9 @@
       "VIDEO_PLATFORM": "Video platform",
       "WHATSAPP_SERVICE": "WhatsApp service",
       "CUSTOM_WORK": "Custom work",
-      "HOSTING": "Hosting & domains",
-      "OTHER": "Other"
+      "HOSTING": "Support & server",
+      "OTHER": "Other",
+      "SUPPORT": "Support"
     },
     "kind": {
       "ONE_TIME": "One-time sale",
@@ -9406,12 +9486,14 @@
     "interval": {
       "MONTHLY": "Monthly",
       "QUARTERLY": "Quarterly",
-      "YEARLY": "Yearly"
+      "YEARLY": "Yearly",
+      "SEMI_ANNUAL": "Every 6 months"
     },
     "intervalShort": {
       "MONTHLY": "month",
-      "QUARTERLY": "quarter",
-      "YEARLY": "year"
+      "QUARTERLY": "3 months",
+      "YEARLY": "year",
+      "SEMI_ANNUAL": "6 months"
     },
     "dealStatus": {
       "ACTIVE": "Active",
@@ -9494,7 +9576,7 @@
       }
     },
     "deal": {
-      "back": "All deals",
+      "back": "Back to the account",
       "notFound": "This deal no longer exists.",
       "error": "Couldn't load the deal.",
       "tiles": {
@@ -11777,5 +11859,220 @@
     "stepReminders": "Lesson reminders",
     "stepAbsence": "Absence alert",
     "noAccess": "You don't have access to this page."
+  },
+  "accounts": {
+    "title": "Accounts",
+    "subtitle": "All your clients' money in one place: who pays how, who owes what, and when.",
+    "newExternal": "New client (off our servers)",
+    "noPermission": "Accounts is for the platform admin only.",
+    "loadError": "Could not load Accounts.",
+    "retry": "Retry",
+    "tabs": {
+      "label": "Accounts",
+      "dues": "Dues",
+      "contracts": "Contracts",
+      "payments": "Payments",
+      "settings": "Settings"
+    },
+    "dues": {
+      "waGreeting": "Hello {name} 👋\nA reminder of your subscription dues:",
+      "waLink": "Pay and upload the transfer proof here: {url}",
+      "lines": "{title} × {n}",
+      "daysLate": "{count, plural, one {{n} day late} other {{n} days late}}",
+      "dueToday": "Due today",
+      "inDays": "{count, plural, one {Tomorrow} other {In {n} days}}",
+      "received": "Received",
+      "remind": "Remind",
+      "remindersOff": "WhatsApp reminders are not on yet — pick the number they are sent from.",
+      "remindersSetup": "Set up",
+      "kpi": {
+        "collected": "Collected this month",
+        "late": "Late",
+        "lateClients": "{count, plural, =0 {Nobody late} one {{n} client} other {{n} clients}}",
+        "upcoming": "Due in 30 days",
+        "runRate": "Subscriptions / month",
+        "perYear": "{amount} a year"
+      },
+      "nothing": "Nothing is due right now. All good 👌",
+      "proofs": "{count, plural, one {{n} payment proof waiting for you} other {{n} payment proofs waiting for you}}",
+      "late": "Late",
+      "lateHint": "Longest late first — today's calls.",
+      "week": "Due this week",
+      "month": "Due this month",
+      "trials": "Trials ending",
+      "trialsHint": "The moment to agree a price.",
+      "trialEnded": "Trial ended",
+      "trialLeft": "{count, plural, =0 {Last day} one {{n} day left} other {{n} days left}}",
+      "setAgreement": "Set agreement",
+      "unagreed": "Paying clients with no agreement",
+      "unagreedHint": "They run paid modules but have no agreement in Accounts, so nobody will remind them to pay.",
+      "modulesAt": "Modules priced at {amount} {per}",
+      "per": {
+        "MONTHLY": "a month",
+        "YEARLY": "a year"
+      }
+    },
+    "contracts": {
+      "subtitle": "Every paying client, one row: the agreement, what it pays, the next payment, what is late.",
+      "columns": {
+        "client": "Client",
+        "agreement": "Agreement",
+        "pays": "Pays",
+        "next": "Next payment",
+        "late": "Late",
+        "received": "Received"
+      },
+      "hosted": "On our servers",
+      "external": "Off our servers",
+      "noAgreement": "No agreement yet",
+      "off": "{pct}% off",
+      "search": "Search by name or phone…",
+      "empty": "No clients in Accounts yet.",
+      "filters": {
+        "plan": "Agreement",
+        "where": "Runs on",
+        "late": "Late",
+        "lateOnly": "Late only"
+      },
+      "export": {
+        "file": "contracts",
+        "sheet": "Contracts"
+      },
+      "back": "All contracts",
+      "notFound": "This account no longer exists."
+    },
+    "agreement": {
+      "newTitle": "New client off our servers",
+      "changeTitle": "Change {name}'s agreement",
+      "title": "{name}'s agreement",
+      "hint": "Pick how this client pays; the system works out the dates and reminds you both.",
+      "save": "Save agreement",
+      "saved": "Agreement saved.",
+      "clientName": "Client name",
+      "clientPhone": "Phone (WhatsApp)",
+      "clientPhoneHint": "Reminders go to this number.",
+      "planLabel": "How does it pay?",
+      "plan": {
+        "MONTHLY": "Monthly",
+        "QUARTERLY": "Every 3 months",
+        "SEMI_ANNUAL": "Every 6 months",
+        "YEARLY": "Yearly",
+        "ONE_TIME_SUPPORT": "One payment + yearly support",
+        "OUTRIGHT": "Bought the whole system",
+        "CUSTOM": "Custom"
+      },
+      "planHint": {
+        "MONTHLY": "A fixed amount every month",
+        "QUARTERLY": "Every 3 months, discounted if you like",
+        "SEMI_ANNUAL": "Every 6 months, discounted if you like",
+        "YEARLY": "Once a year, discounted",
+        "ONE_TIME_SUPPORT": "Pays for the system once, then support and server every year",
+        "OUTRIGHT": "Their own copy on their servers; support optional"
+      },
+      "pricePerMonth": "Amount per month",
+      "monthlyPrice": "Monthly price (before discount)",
+      "discount": "Discount %",
+      "firstDue": "First payment on",
+      "instead": "instead of {list} — saves {saved}",
+      "systemPrice": "System price",
+      "systemPriceHint": "Paying in installments? Open “Installments” below.",
+      "purchaseOn": "Purchase date",
+      "installments": "Installments",
+      "withSupport": "With yearly support",
+      "hostingPrice": "Support & server per year",
+      "supportPrice": "Support per year",
+      "supportFrom": "First renewal on",
+      "paidNow": "Paid something now (down payment / first cycle)",
+      "activate": "Start the paid period now (ends the trial)",
+      "preview": "Next payments",
+      "changeNote": "The old agreement stops at the new one's first payment; anything due before that stays owed until paid.",
+      "line": {
+        "MONTHLY": "Monthly subscription",
+        "QUARTERLY": "Subscription every 3 months",
+        "SEMI_ANNUAL": "Subscription every 6 months",
+        "YEARLY": "Yearly subscription",
+        "purchase": "System purchase",
+        "hosting": "Yearly support & server",
+        "support": "Yearly support"
+      },
+      "errors": {
+        "name": "Enter the client's name.",
+        "price": "Enter the price.",
+        "oneTime": "Enter the system price (or the installments).",
+        "support": "Enter the yearly support amount.",
+        "paidNow": "Enter the amount paid."
+      }
+    },
+    "panel": {
+      "receiveHint": "From {name} — pays the oldest dues first; any extra counts as paid ahead.",
+      "owedNow": "Owed now: {amount}",
+      "title": "Agreement & money",
+      "emptyHint": "How this client pays, what it owes and when.",
+      "empty": "No agreement with this client yet, so nobody will remind it to pay.",
+      "setAgreement": "Set agreement",
+      "pays": "Pays",
+      "noRecurring": "No recurring payment",
+      "discount": "{pct}% off (instead of {list})",
+      "purchase": "{title}: {total} — {left} left",
+      "next": "Next payment",
+      "allPaid": "Nothing due",
+      "late": "Late",
+      "received": "Received from it: {amount}",
+      "changeAgreement": "Change agreement",
+      "copyLink": "Copy pay link",
+      "linkCopied": "Pay link copied.",
+      "sendWhatsapp": "Remind on WhatsApp",
+      "extraSale": "Extra work",
+      "proofs": "Proofs waiting for you",
+      "dues": "Dates",
+      "duesHint": "What it owes, oldest first.",
+      "lines": "Agreement lines",
+      "linesHint": "Each line and its money — open one to edit installments or delete a payment.",
+      "endsOn": "stops {date}",
+      "left": "{amount} left",
+      "details": "Details",
+      "payments": "Payments",
+      "waGreeting": "Hello {name} 👋\nA reminder of your subscription dues:",
+      "waNothing": "Nothing due this week.",
+      "waLink": "Pay and upload the transfer proof here: {url}"
+    },
+    "proofs": {
+      "amountRequired": "Enter the amount that arrived.",
+      "approved": "Payment recorded.",
+      "rejected": "Proof rejected.",
+      "view": "View screenshot",
+      "confirmAmount": "Amount ({currency})",
+      "approve": "Approve",
+      "reject": "Reject"
+    },
+    "settings": {
+      "subtitle": "Reminders, where clients pay, and default prices.",
+      "saved": "Saved.",
+      "testSent": "Test message sent — check WhatsApp.",
+      "testFailed": "The message did not go out. Make sure the sending number is connected.",
+      "reminders": "Payment reminders",
+      "remindersHint": "A WhatsApp message to the client before a payment and when it is late, and a digest to you every morning at 9.",
+      "remindersOn": "Reminders on",
+      "sender": "Send from",
+      "noSenders": "No client has a connected WhatsApp. Make yourself a WhatsApp-only client and connect it by QR.",
+      "senderHint": "Any client of ours with a connected WhatsApp — usually your own WhatsApp-only client.",
+      "pickSender": "Pick…",
+      "ownerPhone": "Your phone (morning digest)",
+      "ownerPhoneHint": "Every morning: who is late, who pays this week, proofs waiting.",
+      "rule1": "A week before a payment: one message.",
+      "rule2": "The day before (or on the day): another.",
+      "rule3": "Once late: on day 1, then every week (five at most).",
+      "rule4": "Being late never pauses a client by itself — pausing is your call, from its page.",
+      "save": "Save",
+      "test": "Send me a test",
+      "payTo": "Where clients pay",
+      "payToHint": "Shown to the client on its pay link.",
+      "instapayHandle": "InstaPay address",
+      "vodafoneNumber": "Vodafone Cash number",
+      "prices": "Default prices",
+      "pricesHint": "The agreement form's starting price per module — each client's price is set in its agreement.",
+      "perMonth": "Price per month",
+      "currency": "Currency"
+    }
   }
 }

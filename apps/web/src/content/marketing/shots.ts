@@ -1,4 +1,4 @@
-import type { HeroImage, Shot } from "./types";
+import type { Photo, Shot } from "./types";
 
 /**
  * The registry of real product screenshots the marketing pages show.
@@ -53,26 +53,28 @@ export function shot(key: ShotKey, alt: string, caption: string): Shot {
 }
 
 /**
- * The homepage hero image — the one picture on the site that is NOT a capture of a running screen.
+ * The stock photographs (Unsplash licence: free for commercial use, no attribution required). Each
+ * was downloaded once from images.unsplash.com, cropped and encoded to webp by hand
+ * (`cwebp -q 78 -m 6`), so the site never hot-links a third party. They show PEOPLE AND PLACES only;
+ * nothing here pretends to be a screen of the product.
  *
- * A real capture cannot lead this page. The screen a visitor would recognise as "a course site on
- * Acadmyq" belongs to a client, and every client site is full of that client's own courses, covers
- * and instructor photographs — material we do not own and must not put on our advertising. So the
- * hero is a drawn example instead: a fictional academy, generated cover art, no real course and no
- * real person. Everything BELOW the hero stays a genuine capture, taken against the demo tenants.
- *
- * It ships with its own window frame and its own soft shadow already drawn, and with the flat
- * ground behind them knocked out to transparency — which is why `HeroImage` is a separate type from
- * `Shot` and the page renders it bare, with no `ProductShot` border, no second shadow and no
- * caption. Framing a frame looks like a mistake.
+ *   quran   — photo-1542816417-0983c9c9ad53   a navy mushaf with gold ornament
+ *   student — photo-1610484826917-0f101a7bf7f4 a boy with headphones at a laptop
+ *   group   — photo-1588196749597-9ff075ee6b5b a video class on a laptop, a mug beside it
+ *   parent  — photo-1609220136736-443140cffec6 a father carrying his two children
+ *   chaos   — photo-1586473219010-2ffc57b0d282 a man covered in sticky notes
  */
-const HERO_IMAGE = {
-  src: "/marketing/hero-course-site.webp",
-  width: 1586,
-  height: 992,
+const PHOTOS = {
+  quran: { src: "/marketing/photos/quran.webp", width: 960, height: 720 },
+  student: { src: "/marketing/photos/student.webp", width: 960, height: 720 },
+  group: { src: "/marketing/photos/group.webp", width: 960, height: 720 },
+  parent: { src: "/marketing/photos/parent.webp", width: 1200, height: 800 },
+  chaos: { src: "/marketing/photos/chaos.webp", width: 880, height: 1100 },
 } as const;
 
-/** Build the homepage hero image. `alt` describes the example site it draws. */
-export function heroImage(alt: string): HeroImage {
-  return { ...HERO_IMAGE, alt };
+export type PhotoKey = keyof typeof PHOTOS;
+
+/** Build a `Photo` for one registered picture. `alt` describes what is in it. */
+export function photo(key: PhotoKey, alt: string): Photo {
+  return { ...PHOTOS[key], alt };
 }

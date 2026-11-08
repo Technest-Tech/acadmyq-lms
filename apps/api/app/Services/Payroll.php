@@ -1075,7 +1075,7 @@ final class Payroll implements PayoutHook
         $lines = DB::table('payout_line_items as li')
             ->join('sessions as se', 'se.id', '=', 'li.session_id')
             ->where('li.payout_id', $payoutId)
-            ->get(['li.id', 'li.amount_minor', 'se.id as session_id', 'se.student_id', 'se.duration_minutes', 'se.status', 'se.bill_override', 'se.teacher_override',
+            ->get(['li.id', 'li.amount_minor', 'se.id as session_id', 'se.student_id', 'se.duration_minutes', 'se.status', 'se.bill_override', 'se.teacher_override', 'se.teacher_pay_share_bp',
                 // Undone on a sealed statement and marked again: its pay now lives on the later line.
                 DB::raw('exists (select 1 from payout_line_items later where later.session_id = li.session_id and later.created_at > li.created_at) as paid_later')]);
 
@@ -1088,6 +1088,7 @@ final class Payroll implements PayoutHook
                     'id' => $line->session_id,
                     'student_id' => $line->student_id,
                     'duration_minutes' => $line->duration_minutes,
+                    'teacher_pay_share_bp' => $line->teacher_pay_share_bp,
                 ])
                 : 0;
             $delta = $fresh - (int) $line->amount_minor;
@@ -1209,11 +1210,19 @@ final class Payroll implements PayoutHook
             $studentId ??= $row?->student_id;
         }
 
-        return $this->lessonPayMinor(
+        $full = $this->lessonPayMinor(
             $teacher,
             $studentId !== null ? (string) $studentId : null,
             (int) ($durationMinutes ?? 0),
         );
+
+        // A cancelled lesson paid at a quarter or a half (sessions.teacher_pay_share_bp); NULL is
+        // the whole lesson. Read from the row when the caller's object does not carry it.
+        $shareBp = property_exists($session, 'teacher_pay_share_bp')
+            ? $session->teacher_pay_share_bp
+            : DB::table('sessions')->where('id', $session->id)->value('teacher_pay_share_bp');
+
+        return $shareBp === null ? $full : (int) round($full * (int) $shareBp / 10000);
     }
 
     /** Set an open statement's fixed salary to `$base`, moving the net by the difference. */

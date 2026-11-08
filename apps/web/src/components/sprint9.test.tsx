@@ -8,7 +8,8 @@ vi.mock("next/navigation", () => ({
 }));
 
 import { AuditLogScreen } from "@/app/(app)/audit/screen";
-import { PlanAdminScreen } from "@/app/(app)/admin/plans/screen";
+import { AccountsSettingsScreen } from "@/app/(app)/admin/accounts/settings/screen";
+import { ToastProvider } from "@/components/ui/toast";
 import { AppShell } from "@/components/app-shell";
 import {
   actorInitials,
@@ -41,7 +42,7 @@ describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
     expect(keys).not.toContain("plans");
   });
 
-  it("shows a Super Admin the pricing page + audit", () => {
+  it("shows a Super Admin audit, and pricing only inside Accounts", () => {
     render(
       withAuth(
         makeSession("SUPER_ADMIN"),
@@ -51,7 +52,8 @@ describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
       ),
     );
     const keys = navKeys();
-    expect(keys).toContain("plans");
+    // Default prices live in Accounts → Settings since 2026-11-08; no separate pricing page.
+    expect(keys).not.toContain("plans");
     expect(keys).toContain("audit");
   });
 
@@ -75,9 +77,16 @@ describe("Sprint 9 — plan gating, audit & nav (AC-9.5/9.6/9.11)", () => {
   });
 
   it("gates the pricing screen on platform.manage (Owner sees a no-permission notice)", () => {
-    render(withAuth(makeSession("ACADEMY_OWNER"), <PlanAdminScreen />));
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER"),
+        <ToastProvider>
+          <AccountsSettingsScreen />
+        </ToastProvider>,
+      ),
+    );
     expect(
-      screen.getByText(arMessages.planAdmin.noPermission),
+      screen.getByText(arMessages.accounts.noPermission),
     ).toBeInTheDocument();
   });
 

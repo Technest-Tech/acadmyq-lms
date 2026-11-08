@@ -2,19 +2,18 @@
 
 declare(strict_types=1);
 
+use App\Jobs\AccountsDailyJob;
 use App\Jobs\AutoDeductUnreportedSessionsJob;
 use App\Jobs\BillGroupMonthsJob;
 use App\Jobs\CloseMonthlyInvoicesJob;
 use App\Jobs\CloseMonthlyPayoutsJob;
 use App\Jobs\ExpireAcademyTrialsJob;
 use App\Jobs\FlagOverdueReportsJob;
-use App\Jobs\GenerateAcademyInvoicesJob;
 use App\Jobs\LessonReminderJob;
 use App\Jobs\MonthlyStudentBillingJob;
 use App\Jobs\OpenFixedSalaryPayoutsJob;
 use App\Jobs\PurgeExpiredRecordingsJob;
 use App\Jobs\RollSessionWindowJob;
-use App\Jobs\SendAcademyBillRemindersJob;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -105,18 +104,12 @@ Schedule::job(new AutoDeductUnreportedSessionsJob)->hourlyAt(30)->name('auto-ded
 Schedule::job(new ExpireAcademyTrialsJob)->dailyAt('00:15')->name('expire-academy-trials')->withoutOverlapping();
 
 /*
-| Monthly academy-bill generation (Platform↔Academy billing). On the 1st of each month, for every
-| active paid subscription whose period has elapsed, issue the period's platform bill and roll the
-| window forward. Idempotent (one bill per academy per period); each academy runs in its own context.
+| Accounts morning (Super Admin → Accounts). Rolls every active subscription in the owner's book up
+| to today — a cycle that started overnight is owed and every renewal date is current — then sends
+| the money reminders over WhatsApp: the client a week before, the day before and weekly once late;
+| the owner one digest. Replaces the monthly platform-bill run and its reminder sweep. Idempotent.
 */
-Schedule::job(new GenerateAcademyInvoicesJob)->monthlyOn(1, '02:00')->name('generate-academy-invoices')->withoutOverlapping();
-
-/*
-| Daily academy-bill reminders (Platform↔Academy billing). Flips lapsed bills to OVERDUE and nudges
-| the owner over WhatsApp (Wasender when a token is set, else a wa.me deep link logged for manual
-| follow-up). Idempotent per bill per day via the send-log dedupe key.
-*/
-Schedule::job(new SendAcademyBillRemindersJob)->dailyAt('09:00')->name('academy-bill-reminders')->withoutOverlapping();
+Schedule::job(new AccountsDailyJob)->dailyAt('09:00')->name('accounts-daily')->withoutOverlapping();
 
 /*
 | Type 1 automation — monthly student billing over WhatsApp. On the 3rd of each month (after last

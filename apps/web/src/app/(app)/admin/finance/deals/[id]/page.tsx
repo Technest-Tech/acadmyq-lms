@@ -1,11 +1,7 @@
-import { FinanceDealScreen } from "./screen";
+import { redirect } from "next/navigation";
 
-export default async function AdminFinanceDealPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+/** /admin/finance/deals/[id] moved to /admin/accounts/deals/[id] (Accounts, 2026-11-08). */
+export default async function RetiredDealPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-
-  return <FinanceDealScreen dealId={id} />;
+  redirect(`/admin/accounts/deals/${id}`);
 }

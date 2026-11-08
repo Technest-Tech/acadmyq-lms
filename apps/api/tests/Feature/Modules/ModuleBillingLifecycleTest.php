@@ -5,9 +5,7 @@ declare(strict_types=1);
 use App\Jobs\ExpireAcademyTrialsJob;
 use App\Services\AcademyBilling;
 use App\Services\ModuleBilling;
-use App\Support\AuthContext;
 use App\Support\Entitlement;
-use App\Support\Tenancy;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -302,31 +300,6 @@ it('lists every client with its module chips in the directory (SUPER_ADMIN only)
     $this->getJson('/api/admin/clients')->assertForbidden();
 });
 
-it('stamps a consolidated bill with its per-module breakdown (M-BILL-1)', function () {
-    $academyId = $this->createAcademy();
-
-    Sanctum::actingAs($this->admin);
-    $this->postJson("/api/admin/clients/{$academyId}/modules/management/subscription", [
-        'mode' => 'active', 'price_minor' => 30000,
-    ])->assertCreated();
-    $this->postJson("/api/admin/clients/{$academyId}/modules/video/subscription", [
-        'mode' => 'active', 'price_minor' => 20000,
-    ])->assertCreated();
-
-    $res = $this->postJson("/api/admin/academies/{$academyId}/bills/generate")->assertOk();
-    $billId = $res->json('billId');
-
-    $this->enterAcademyAsSuperAdmin($academyId);
-    $bill = DB::table('academy_invoices')->where('id', $billId)->first();
-    expect((int) $bill->total_minor)->toBe(50000); // one consolidated total…
-
-    $breakdown = collect(json_decode((string) $bill->module_breakdown, true))->keyBy('module');
-    expect($breakdown->has('MANAGEMENT'))->toBeTrue(); // …with a line per module
-    expect($breakdown->has('VIDEO'))->toBeTrue();
-    expect((int) $breakdown['MANAGEMENT']['total_minor'])->toBe(30000);
-    expect((int) $breakdown['VIDEO']['total_minor'])->toBe(20000);
-});
-
 it('provisions a WhatsApp-only external client: no login, WHATSAPP sub, sends gated by lifecycle (M-CLI-2)', function () {
     $waPlan = mbPlan('WHATSAPP', ['whatsapp.automation'], [], 25000);
     // The type catalog must exist (external clients borrow a type); DemoAcademySeeder seeds one.
@@ -362,38 +335,6 @@ it('provisions a WhatsApp-only external client: no login, WHATSAPP sub, sends ga
     expect(mbResolve($clientId)['capabilities'])->not->toContain('whatsapp.automation');
     $this->asSuperAdmin();
     expect(DB::table('academies')->where('id', $clientId)->value('status'))->toBe('SUSPENDED');
-});
-
-it('rolls the billing period on the PRIMARY module sub and mirrors it (R5a — no legacy writer left)', function () {
-    $mgmtPlan = mbPlan('MANAGEMENT', ['invoicing'], [], 30000);
-    $academyId = $this->createAcademy(overrides: ['plan_id' => $mgmtPlan, 'status' => 'ACTIVE']);
-
-    Sanctum::actingAs($this->admin);
-    $this->postJson("/api/admin/clients/{$academyId}/modules/management/subscription", [
-        'plan_id' => $mgmtPlan, 'mode' => 'active',
-    ])->assertCreated();
-
-    // Lapse the current period, then roll: the elapsed period is billed and the window advances
-    // ON THE MODULE SUB, with the legacy row following as its mirror.
-    $this->enterAcademyAsSuperAdmin($academyId);
-    DB::table('module_subscriptions')->where('academy_id', $academyId)->where('module', 'MANAGEMENT')->update([
-        'current_period_start' => now()->subMonth()->subDay(),
-        'current_period_end' => now()->subDay(),
-    ]);
-    Tenancy::withContext(new AuthContext(
-        userId: (string) $this->admin->id, academyId: $academyId, role: 'SUPER_ADMIN', permissions: [],
-    ), function () use ($academyId) {
-        $billId = app(AcademyBilling::class)->rollAndBill($academyId);
-        expect($billId)->not->toBeNull();
-    });
-
-    $sub = mbSub($academyId, 'MANAGEMENT');
-    expect(Carbon::parse($sub->current_period_end)->isFuture())->toBeTrue();
-
-    $this->enterAcademyAsSuperAdmin($academyId);
-    $legacy = DB::table('academy_subscriptions')->where('academy_id', $academyId)->where('status', '<>', 'ENDED')->first();
-    expect((string) $legacy->current_period_end)->toBe((string) $sub->current_period_end);
-    expect(DB::table('academy_invoices')->where('academy_id', $academyId)->count())->toBe(1);
 });
 
 it('plan CRUD carries the module (create + edit)', function () {

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useMemo, useState } from "react";
 import { AdminPageHeader } from "@/components/admin/page-header";
-import { FinanceTabs } from "@/components/finance/finance-tabs";
+import { AccountsTabs } from "@/components/finance/accounts-tabs";
 import {
   errorMessage,
   formatDay,
@@ -84,7 +84,7 @@ export function FinancePaymentsScreen() {
           <div className="min-w-0">
             <p className="truncate font-medium">{row.client_name}</p>
             <Link
-              href={`/admin/finance/deals/${row.deal_id}`}
+              href={`/admin/accounts/deals/${row.deal_id}`}
               onClick={(e) => e.stopPropagation()}
               className="text-muted-foreground hover:text-primary block truncate text-xs"
             >
@@ -151,7 +151,7 @@ export function FinancePaymentsScreen() {
   return (
     <div className="space-y-5">
       <AdminPageHeader title={t("title")} subtitle={t("payments.subtitle")} />
-      <FinanceTabs />
+      <AccountsTabs />
 
       <section className="bg-card overflow-hidden rounded-2xl border p-4 shadow-sm">
         <DataTable<FinanceLedgerRow>

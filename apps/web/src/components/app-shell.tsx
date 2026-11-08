@@ -16,7 +16,6 @@ import {
   ChevronDown,
   ClipboardCheck,
   ClipboardList,
-  CreditCard,
   Eye,
   Gauge,
   FileCheck2,
@@ -37,7 +36,6 @@ import {
   MonitorPlay,
   Newspaper,
   NotebookPen,
-  Package,
   PanelLeftClose,
   PanelLeftOpen,
   Layers,
@@ -107,7 +105,6 @@ type NavKey =
   | "adminHome"
   | "clients"
   | "users"
-  | "plans"
   | "staffDepartments"
   | "adminAutomation"
   | "adminVideo"
@@ -146,7 +143,6 @@ type NavKey =
   | "studentReports"
   | "studentReportReviews"
   | "certificates"
-  | "billing"
   | "invoices"
   | "accounting"
   | "accountingOverview"
@@ -278,7 +274,6 @@ const CENTRE_ORDER: readonly NavKey[] = [
   "discountsAwards",
   "myPayroll",
   "financialStats",
-  "billing",
 ];
 
 /**
@@ -361,6 +356,8 @@ const CENTRE_BOTTOM_NAV: readonly NavKey[] = [
 
 /** The same phone bar for a Quran academy in the modern look: its day is lessons, not groups. */
 const MODERN_BOTTOM_NAV: readonly NavKey[] = ["dashboard", "attendance", "students", "schedule", "myPayroll"];
+/** The platform Super Admin's phone bar: the overview, the clients, the money in and out. */
+const PLATFORM_BOTTOM_NAV: readonly NavKey[] = ["adminHome", "clients", "adminFinance"];
 
 /** Items whose label a centre reads differently (`nav.<key>Centre`). */
 const CENTRE_LABEL_KEYS = new Set<NavKey>([
@@ -721,13 +718,6 @@ const NAV: ReadonlyArray<{
     href: "/financial-statistics",
     group: "financial",
   },
-  {
-    key: "billing",
-    icon: CreditCard,
-    permission: "academy_billing.manage",
-    href: "/admin/billing",
-    group: "financial",
-  },
 
   // ── Platform (Super Admin) ──────────────────────────────────────────────
   {
@@ -749,13 +739,6 @@ const NAV: ReadonlyArray<{
     icon: Users,
     permission: "user.read_platform",
     href: "/admin/users",
-    group: "platform",
-  },
-  {
-    key: "plans",
-    icon: Package,
-    permission: "plan.manage",
-    href: "/admin/plans",
     group: "platform",
   },
   {
@@ -794,10 +777,11 @@ const NAV: ReadonlyArray<{
     group: "platform",
   },
   {
+    // Accounts: billing, subscriptions and the owner's book as ONE section (2026-11-08).
     key: "adminFinance",
     icon: Coins,
     permission: "platform.manage",
-    href: "/admin/finance",
+    href: "/admin/accounts",
     group: "platform",
   },
 
@@ -861,9 +845,7 @@ const NAV: ReadonlyArray<{
 const PLATFORM_NAV: readonly NavKey[] = [
   "adminHome", // Overview
   "clients", // THE hub — roster, client pages, wizard
-  "billing", // money only: proof review, dues, MRR per module
-  "adminFinance", // the owner's OWN income book — deals, installments, payments (an island)
-  "plans", // catalog, one tab per module + add-ons
+  "adminFinance", // Accounts — every client's agreement, dues, proofs, payments, reminders, prices
   "adminVideo", // Video Ops (platform-wide health/usage)
   "adminLms", // Course Platform Ops (LMS clients, usage, per-client controls)
   "adminAutomation", // WhatsApp Ops (gateway health/activity)
@@ -1051,7 +1033,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // The workspace's LOOK, apart from its shape: a centre always wears the modern design, a Quran academy
   // only once a Super Admin switched `modern_look` on for it, and then with its own sidebar, its own
   // order and its own words. Everything below that only paints keys on this, never on `centreShape`.
-  const modernLook = centreShape || (capabilities?.includes("modern_look") ?? false);
+  // The platform Super Admin's own panel (no academy entered) wears it too, in the navy and gold.
+  // Entering an academy shows that academy as its owner sees it.
+  const platformView = session?.role === "SUPER_ADMIN" && session.academyId === null;
+  const modernLook = centreShape || platformView || (capabilities?.includes("modern_look") ?? false);
   const workspaceLook: WorkspaceLook = centreShape ? "centre" : modernLook ? "modern" : "classic";
   // The groups section's shape (GROUPS_SHAPE_*): a centre's always, a modern Quran academy's once it
   // teaches groups. Without groups a Quran academy's الجدول stays its calendar.
@@ -1477,7 +1462,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     .toUpperCase();
 
   // `/dashboard`, `/admin` and `/lms` are exact-match only — otherwise `/admin` would greedily
-  // claim the `/admin/plans` and `/admin/staff-departments` routes via startsWith, and the LMS
+  // claim the `/admin/accounts` and `/admin/staff-departments` routes via startsWith, and the LMS
   // home would claim every `/lms/*` workspace page.
   const isExactOnly = (href: string) =>
     href === "/dashboard" ||
@@ -1896,7 +1881,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <img
                   src="/logo.png"
                   alt="Acadmyq"
-                  className="size-8 shrink-0 object-contain"
+                  className={cn(
+                    "shrink-0 object-contain",
+                    modernLook ? "size-10 rounded-xl bg-white p-1" : "size-8",
+                  )}
                 />
               )}
               {!collapsed && (
@@ -2081,7 +2069,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* A centre's phone header names the academy; its desktop header opens on the search. */}
             {modernLook && (
               <>
-                <Link href="/dashboard" className="order-1 flex min-w-0 flex-1 items-center justify-center gap-2 md:hidden">
+                <Link href={isPlatformAdmin ? "/admin" : "/dashboard"} className="order-1 flex min-w-0 flex-1 items-center justify-center gap-2 md:hidden">
                   {academyLogo && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={academyLogo} alt="" className="size-8 shrink-0 rounded-lg bg-white object-contain p-0.5" />
@@ -2319,13 +2307,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               data-testid="bottom-nav"
               className="bg-card border-border flex shrink-0 items-stretch gap-1 border-t px-2 pt-1.5 pb-[calc(0.375rem+env(safe-area-inset-bottom))] md:hidden"
             >
-              {(centreShape ? CENTRE_BOTTOM_NAV : MODERN_BOTTOM_NAV).map((key) => items.find((item) => item.key === key))
+              {(centreShape ? CENTRE_BOTTOM_NAV : isPlatformAdmin ? PLATFORM_BOTTOM_NAV : MODERN_BOTTOM_NAV).map((key) => items.find((item) => item.key === key))
                 .filter((item) => item !== undefined)
                 .slice(0, 4)
                 .map((item) => {
                   const Icon = item.icon;
+                  // A home is only itself: every /admin page sits under the overview's /admin.
                   const active =
-                    item.href === "/dashboard"
+                    item.href === "/dashboard" || item.href === "/admin"
                       ? pathname === item.href
                       : pathname === item.href || pathname.startsWith(`${item.href}/`);
                   const waiting =

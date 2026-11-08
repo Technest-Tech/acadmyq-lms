@@ -15,21 +15,26 @@ import type { ProductInterest } from "./site";
 /** Lucide icon names the marketing pages may render. Widening this is a one-line change. */
 export type IconName =
   | "Award"
+  | "BellRing"
   | "BookOpen"
   | "CalendarDays"
   | "CircleCheck"
   | "ClipboardCheck"
+  | "Contact"
   | "CreditCard"
   | "FileText"
   | "Files"
   | "Globe"
   | "GraduationCap"
+  | "HandCoins"
   | "History"
   | "KeyRound"
   | "Languages"
   | "LayoutDashboard"
   | "ListChecks"
   | "Lock"
+  | "Megaphone"
+  | "MessageCircle"
   | "Palette"
   | "PlayCircle"
   | "Receipt"
@@ -38,8 +43,10 @@ export type IconName =
   | "Smartphone"
   | "Sparkles"
   | "TrendingUp"
+  | "TriangleAlert"
   | "UserCog"
   | "Users"
+  | "Video"
   | "Wallet";
 
 /** A real screenshot of the product. `src` is a file under `public/marketing/`. */
@@ -52,21 +59,6 @@ export interface Shot {
   alt: string;
   /** Printed under the image. One line; says what the reader is looking at. */
   caption: string;
-}
-
-/**
- * The drawn example that leads the homepage — see `heroImage` in `shots.ts` for why it is drawn.
- *
- * No `caption`: the picture is an illustration, and a caption under it could only either lie about
- * what it is or apologise for it. The line that has to be true is `alt`, and it says "an example".
- */
-export interface HeroImage {
-  src: string;
-  /** Intrinsic pixel size — reserved by the layout so nothing shifts on load. */
-  width: number;
-  height: number;
-  /** Describes the example site the picture draws, for a reader who cannot see it. */
-  alt: string;
 }
 
 export interface Feature {
@@ -101,40 +93,193 @@ export interface Hero {
   points: string[];
 }
 
-/** A product band on the homepage: heading, a screenshot, a few capabilities, one link out. */
-export interface ProductBand {
-  eyebrow: string;
-  title: string;
-  body: string;
-  bullets: string[];
-  cta: Cta;
-  shot: Shot;
-}
-
 export interface SectionHead {
   eyebrow: string;
   title: string;
   body?: string;
 }
 
-export interface HomeContent {
-  hero: Hero;
-  /** The one wide picture directly under the hero — a drawn example of a course site, not a capture. */
-  heroImage: HeroImage;
-  products: {
-    head: SectionHead;
-    course: ProductBand;
-    management: ProductBand;
+/**
+ * A stock photograph (Unsplash licence, files under `public/marketing/photos/`). Used only for
+ * PEOPLE AND PLACES: who the product is for and what their day looks like. A photograph never
+ * stands in for a screen of the product; those are drawn (`HeroDemo`, `FeatureTiles`) or captured.
+ */
+export interface Photo {
+  src: string;
+  width: number;
+  height: number;
+  alt: string;
+}
+
+/** One kind of academy the homepage speaks to, with its photograph. */
+export interface AudienceCard {
+  photo: Photo;
+  tag: string;
+  title: string;
+  body: string;
+  points: string[];
+}
+
+/** A step of "a day in your academy": when it happens, what the system does. */
+export interface DayStep {
+  icon: IconName;
+  time: string;
+  title: string;
+  body: string;
+}
+
+/** One billable module on the homepage's modules grid. */
+export interface ModuleCard {
+  icon: IconName;
+  name: string;
+  /** "The core" for management, "add-on" for the rest. */
+  tag: string;
+  body: string;
+  points: string[];
+  cta?: Cta;
+}
+
+/** A lesson as the drawn dashboard shows it. */
+export type DemoLessonState = "done" | "live" | "next";
+
+/**
+ * Every word drawn INSIDE the hero's product picture. The picture is markup, not an image, so it is
+ * translated like the rest of the page and stays sharp; the figures in it are sample data, and the
+ * picture's `alt` says it is an example.
+ */
+export interface HeroDemo {
+  alt: string;
+  url: string;
+  academy: string;
+  nav: string[];
+  hello: string;
+  helloSub: string;
+  kpis: { label: string; value: string; delta: string }[];
+  chartTitle: string;
+  chartMonths: string[];
+  todayTitle: string;
+  lessons: { time: string; who: string; teacher: string; state: DemoLessonState }[];
+  states: Record<DemoLessonState, string>;
+  whatsapp: { app: string; text: string; time: string };
+  payment: { title: string; body: string };
+  marked: { title: string; body: string };
+}
+
+export type DemoAttendance = "present" | "absent" | "pending";
+
+/** The small drawn screens inside the feature grid. Same rule as `HeroDemo`: sample data. */
+export interface FeatureTiles {
+  schedule: FeatureTile & {
+    demo: {
+      days: string[];
+      /** `day` indexes `days`; `row` is the hour band (0–2). */
+      blocks: { day: number; row: number; label: string; tone: "navy" | "gold" | "sky" }[];
+      rows: { name: string; time: string; state: DemoAttendance }[];
+      states: Record<DemoAttendance, string>;
+    };
   };
-  shared: {
+  whatsapp: FeatureTile & {
+    demo: {
+      contact: string;
+      status: string;
+      messages: { text: string; time: string }[];
+    };
+  };
+  money: FeatureTile & {
+    demo: {
+      title: string;
+      number: string;
+      lines: { label: string; value: string }[];
+      totalLabel: string;
+      total: string;
+      duesTitle: string;
+      dues: { name: string; value: string; late: boolean }[];
+      lateLabel: string;
+    };
+  };
+  portal: FeatureTile & {
+    demo: {
+      greeting: string;
+      child: string;
+      nextLabel: string;
+      next: string;
+      balanceLabel: string;
+      balance: string;
+      lessonsTitle: string;
+      lessons: { date: string; state: string }[];
+      pay: string;
+    };
+  };
+  payroll: FeatureTile & {
+    demo: {
+      teacher: string;
+      month: string;
+      lines: { label: string; value: string }[];
+      totalLabel: string;
+      total: string;
+      types: string[];
+    };
+  };
+  reports: FeatureTile & {
+    demo: {
+      title: string;
+      student: string;
+      rows: { label: string; stars: number }[];
+      note: string;
+    };
+  };
+}
+
+export interface FeatureTile {
+  tag: string;
+  title: string;
+  body: string;
+}
+
+export interface HomeContent {
+  hero: Hero & {
+    /** The pill above the headline: what this is, in a few words. */
+    badge: string;
+  };
+  heroDemo: HeroDemo;
+  /** The academy types strip directly under the hero. */
+  builtFor: { label: string; items: string[] };
+  audiences: {
+    head: SectionHead;
+    items: AudienceCard[];
+  };
+  problem: {
+    head: SectionHead;
+    photo: Photo;
+    beforeTitle: string;
+    afterTitle: string;
+    pairs: { before: string; after: string }[];
+  };
+  features: {
+    head: SectionHead;
+    tiles: FeatureTiles;
+    more: { title: string; body: string; items: string[] };
+  };
+  day: {
+    head: SectionHead;
+    steps: DayStep[];
+  };
+  modules: {
+    head: SectionHead;
+    items: ModuleCard[];
+  };
+  foundation: {
     head: SectionHead;
     items: Feature[];
+  };
+  faq: {
+    head: SectionHead;
+    items: QA[];
   };
   close: {
     title: string;
     body: string;
-    primary: Cta;
-    secondary: Cta;
+    points: string[];
   };
 }
 
@@ -275,6 +420,8 @@ export interface MarketingContent {
     primaryLabel: string;
     /** The keyboard-only link that jumps past the header straight to the page content. */
     skipToContent: string;
+    /** The homepage's feature grid (`/#features`). */
+    features: string;
     coursePlatform: string;
     academyManagement: string;
     pricing: string;
@@ -295,7 +442,7 @@ export interface MarketingContent {
     /** "© {year} Acadmyq." is assembled at render time; the year is never written down here. */
     emailLabel: string;
     phoneLabel: string;
-    noContactNote: string;
+    whatsappLabel: string;
   };
   meta: {
     home: PageMeta;

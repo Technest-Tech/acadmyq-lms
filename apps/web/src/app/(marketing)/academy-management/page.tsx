@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { HeroDemoPicture } from "@/components/marketing/demo-visuals";
 import { ProductPage } from "@/components/marketing/product-page";
 import { marketing, ROUTES } from "@/content/marketing";
 import { pageMetadata } from "../page-meta";
@@ -23,5 +24,13 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function AcademyManagementPage() {
   const { locale, t } = await marketing();
 
-  return <ProductPage page={t.academyManagement} t={t} locale={locale} />;
+  return (
+    <ProductPage
+      page={t.academyManagement}
+      t={t}
+      locale={locale}
+      product="ACADEMY_MANAGEMENT"
+      heroVisual={<HeroDemoPicture demo={t.home.heroDemo} floating={false} />}
+    />
+  );
 }

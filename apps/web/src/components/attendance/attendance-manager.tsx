@@ -16,6 +16,7 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  Trash2,
   Undo2,
   UserCheck,
   Users,
@@ -49,7 +50,8 @@ import { RescheduleModal } from "@/components/attendance/reschedule-modal";
 import { RevertOutcomeDialog } from "@/components/attendance/revert-outcome-dialog";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
-import { useCapability, useOnlineLessons } from "@/lib/capabilities";
+import { DeleteLessonDialog } from "@/components/teachers/teacher-lessons";
+import { useCapability, useCentreLook, useOnlineLessons } from "@/lib/capabilities";
 import { actorLabel, DoneByCell, useTeamActorsState } from "@/components/team/done-by";
 import {
   addDays,
@@ -70,6 +72,7 @@ import {
   type DaySession,
   type TeacherRow,
 } from "@/lib/api";
+import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { fetchRoster } from "@/lib/roster";
 import { type ExcelColumn, exportRowsToExcel } from "@/lib/export-excel";
 import { cn } from "@/lib/utils";
@@ -195,6 +198,8 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const tSched = useTranslations("scheduling");
   const tDt = useTranslations("datatable");
   const tDone = useTranslations("doneBy");
+  const tHolidays = useTranslations("holidays");
+  const tBilling = useTranslations("attendance.cancelBilling");
   const locale = useLocale();
   const { session: auth, can } = useAuth();
   const isTeacher = auth?.role === "TEACHER";
@@ -207,6 +212,10 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   // Owners and teachers alike may log a one-off class the timetable never produced; the API
   // confines a teacher to their own roster.
   const canCreateClass = can("session.create");
+  // Delete a lesson outright (a hidden no-money tombstone server-side). Quran academies only, as on
+  // the student timetable: a centre's lessons belong to its subscriptions. Never a trial's lesson.
+  const isCentreProfile = useCentreLook();
+  const canDelete = can("session.delete") && !isCentreProfile;
   // "Following": a supervisor saying they are on this lesson. The click is measured on the
   // Supervision page and silences the WhatsApp not-marked reminder for the lesson.
   // The control belongs to the Supervision feature: an academy with it switched off (a learning
@@ -267,6 +276,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const [selected, setSelected] = useState<Selected>(null);
   const [rescheduling, setRescheduling] = useState<DaySession | null>(null);
   const [reverting, setReverting] = useState<DaySession | null>(null);
+  const [deleting, setDeleting] = useState<DaySession | null>(null);
   const [creating, setCreating] = useState(false);
   // Optimistic status overrides: updated immediately when attendance is recorded so
   // the row reflects the new status before the next full reload.
@@ -285,6 +295,35 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
     if ((override ?? s.status) === "SCHEDULED") return { name: null, teacher: false };
     if (override) return { name: auth?.user.fullName ?? null, teacher: false };
     return { name: s.done_by_name ?? null, teacher: !!s.done_by_teacher };
+  };
+  /**
+   * Why the lesson ended as it did: the reason typed when the cancellation or absence was
+   * recorded, or while a teacher's cancel waits for approval, the reason on the request. A mark
+   * made on this page shows its reason after the popup closes and the list reloads; until then a
+   * row put back to pending shows none.
+   */
+  /**
+   * What a cancelled or free lesson still earns the teacher, as the office decided when recording
+   * it ("half a lesson"). Null for every lesson that pays by its status alone, and for a row just
+   * re-marked on this page, until the reload brings the new decision.
+   */
+  const teacherShareOf = (s: DaySession): string | null => {
+    if (statusOverrides[s.id] || !s.teacher_override) return null;
+    if (!["CANCELLED_BY_STUDENT", "CANCELLED_BY_TEACHER", "FREE"].includes(s.status)) return null;
+    const percent = s.teacher_pay_share_bp == null ? 100 : Math.round(s.teacher_pay_share_bp / 100);
+    return t("teacherPaid", { share: tBilling(`share.${percent}`) });
+  };
+  const reasonOf = (s: DaySession): string | null => {
+    const shown = statusOverrides[s.id] ?? s.status;
+    const raw =
+      shown === "SCHEDULED"
+        ? s.pending_cancel_type
+          ? s.pending_cancel_reason
+          : null
+        : s.status_reason;
+    const text = raw?.trim();
+    if (!text) return null;
+    return text === HOLIDAY_REASON ? tHolidays("badge") : text;
   };
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -478,7 +517,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   }, [filteredSessions]);
 
   /** Columns in the desktop table — the Teacher and Done-by columns are owner-only. */
-  const colCount = 5 + (isTeacher ? 0 : 2);
+  const colCount = 6 + (isTeacher ? 0 : 2);
 
   const hasActiveFilters = !!(teacherId || status || trialOnly || search || doneBy);
 
@@ -527,6 +566,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
           value: (s) => `${s.duration_minutes} ${t("min")}`,
         },
         { header: t("status"), value: (s) => tSched(`status.${s.status}`) },
+        { header: t("colReason"), value: (s) => reasonOf(s) ?? "", width: 30 },
         ...(!isTeacher
           ? [
               {
@@ -1144,6 +1184,9 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                         <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
                           {t("status")}
                         </th>
+                        <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
+                          {t("colReason")}
+                        </th>
                         {!isTeacher && (
                           <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
                             {tDone("col")}
@@ -1246,6 +1289,14 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                 <td className="px-5 py-3.5">
                                   <div className="flex flex-wrap items-center gap-1.5">
                                     <StatusBadge status={displayStatus} />
+                                    {teacherShareOf(s) && (
+                                      <span
+                                        data-testid="teacher-share-chip"
+                                        className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                      >
+                                        {teacherShareOf(s)}
+                                      </span>
+                                    )}
                                     {s.teacher_joined_at && (
                                       <TeacherEnteredChip at={s.teacher_joined_at} timeFmt={timeFmt} />
                                     )}
@@ -1260,6 +1311,14 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                       </span>
                                     )}
                                   </div>
+                                </td>
+
+                                {/* Reason the cancellation / absence was recorded with */}
+                                <td
+                                  className="text-muted-foreground max-w-56 px-5 py-3.5 text-xs leading-relaxed"
+                                  data-testid="row-reason"
+                                >
+                                  {reasonOf(s) ?? "—"}
                                 </td>
 
                                 {/* Done by (owner only) */}
@@ -1344,6 +1403,23 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                           {t("revert.action")}
                                         </Button>
                                       )}
+                                    {canDelete && !isTrial && (
+                                      <Button
+                                        type="button"
+                                        size="xs"
+                                        variant="outline"
+                                        data-testid="row-delete"
+                                        aria-label={t("deleteLesson")}
+                                        title={t("deleteLesson")}
+                                        className="text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive gap-1.5"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDeleting(s);
+                                        }}
+                                      >
+                                        <Trash2 className="size-3.5" />
+                                      </Button>
+                                    )}
                                     <Button
                                       type="button"
                                       size="xs"
@@ -1419,6 +1495,14 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                   {" · "}
                                   {s.duration_minutes} {t("min")}
                                 </p>
+                                {reasonOf(s) && (
+                                  <p
+                                    className="text-muted-foreground mt-1 text-xs leading-relaxed"
+                                    data-testid="row-reason"
+                                  >
+                                    <span className="font-medium">{t("colReason")}:</span> {reasonOf(s)}
+                                  </p>
+                                )}
                                 {!isTeacher && doneByOf(s).name && (
                                   <div className="text-muted-foreground mt-1 flex min-w-0 items-center gap-1 text-xs">
                                     <span className="shrink-0">{tDone("col")}:</span>
@@ -1428,6 +1512,14 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                               </div>
                               <div className="flex shrink-0 flex-col items-end gap-1">
                                 <StatusBadge status={displayStatus} className="shrink-0" />
+                                {teacherShareOf(s) && (
+                                  <span
+                                    data-testid="teacher-share-chip"
+                                    className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300"
+                                  >
+                                    {teacherShareOf(s)}
+                                  </span>
+                                )}
                                 {s.teacher_joined_at && (
                                   <TeacherEnteredChip at={s.teacher_joined_at} timeFmt={timeFmt} />
                                 )}
@@ -1510,6 +1602,23 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                     {t("revert.action")}
                                   </Button>
                                 )}
+                              {canDelete && !isTrial && (
+                                <Button
+                                  type="button"
+                                  size="xs"
+                                  variant="outline"
+                                  data-testid="row-delete"
+                                  aria-label={t("deleteLesson")}
+                                  title={t("deleteLesson")}
+                                  className="text-muted-foreground hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive gap-1.5"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeleting(s);
+                                  }}
+                                >
+                                  <Trash2 className="size-3.5" />
+                                </Button>
+                              )}
                               <Button
                                 type="button"
                                 size="xs"
@@ -1594,6 +1703,20 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
             // both of which read from the reloaded rows.
             void load();
             // A lesson back on the pending pile may well be an overdue one again.
+            overdue.reload();
+          }}
+        />
+      )}
+
+      {/* Delete a lesson outright: its bill line and salary line come off, and it leaves every list. */}
+      {deleting !== null && (
+        <DeleteLessonDialog
+          session={{ ...deleting, status: (statusOverrides[deleting.id] ?? deleting.status) as typeof deleting.status }}
+          when={`${dayStampFmt.format(new Date(deleting.scheduled_at_utc))} · ${timeFmt.format(new Date(deleting.scheduled_at_utc))}`}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setDeleting(null);
+            void load();
             overdue.reload();
           }}
         />

@@ -204,54 +204,50 @@ function ModuleFeatures({
         )}
       </div>
 
-      <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {Object.entries(capabilities).map(([key, featureLabel]) => {
-          const on = !disabled.includes(key);
-
-          return (
-            <li key={key}>
-              <label
-                className={cn(
-                  "flex items-center justify-between gap-3 rounded-lg border px-3 py-2.5 transition-colors",
-                  on ? "bg-card hover:bg-muted/30" : "bg-muted/40",
-                  canManage ? "cursor-pointer" : "cursor-default opacity-70",
-                )}
-              >
-                <span className="min-w-0">
-                  <span
-                    className={cn(
-                      "block truncate text-sm font-medium",
-                      !on && "text-muted-foreground",
-                    )}
-                  >
-                    {labels.capability(key, featureLabel)}
-                  </span>
-                  <code className="text-muted-foreground/60 block truncate font-mono text-[10px]">
-                    {key}
-                    {optIn.includes(key) && (
-                      <span className="ms-1.5 rounded bg-sky-500/10 px-1 font-sans font-semibold text-sky-700 dark:text-sky-300">
-                        {t("optIn")}
+      <div className="space-y-4">
+        {groupFeatures(Object.keys(capabilities), optIn).map(({ group, keys }) => (
+          <section key={group} data-testid={`feature-group-${group}`}>
+            <div className="mb-2 flex flex-wrap items-baseline gap-x-2">
+              <h4 className="text-foreground/85 text-xs font-bold">{t(`group.${group}`)}</h4>
+              {group === "optIn" && <p className="text-muted-foreground text-xs">{t("group.optInHint")}</p>}
+            </div>
+            <ul className="grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {keys.map((key) => {
+                const on = !disabled.includes(key);
+                return (
+                  <li key={key}>
+                    <label
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5 transition-colors",
+                        on ? "bg-card hover:bg-muted/30" : "bg-muted/40",
+                        group === "optIn" && on && "border-primary/30 bg-primary/[0.04]",
+                        canManage ? "cursor-pointer" : "cursor-default opacity-70",
+                      )}
+                      title={key}
+                    >
+                      <span className={cn("min-w-0 text-sm leading-snug font-medium", !on && "text-muted-foreground")}>
+                        {labels.capability(key, capabilities[key] ?? key)}
                       </span>
-                    )}
-                  </code>
-                </span>
-                <Switch
-                  checked={on}
-                  disabled={!canManage}
-                  data-testid={`feature-${key}`}
-                  onChange={(e) =>
-                    setDisabled((prev) =>
-                      e.target.checked
-                        ? prev.filter((k) => k !== key)
-                        : [...prev, key],
-                    )
-                  }
-                />
-              </label>
-            </li>
-          );
-        })}
-      </ul>
+                      <Switch
+                        checked={on}
+                        disabled={!canManage}
+                        data-testid={`feature-${key}`}
+                        onChange={(e) =>
+                          setDisabled((prev) =>
+                            e.target.checked
+                              ? prev.filter((k) => k !== key)
+                              : [...prev, key],
+                          )
+                        }
+                      />
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))}
+      </div>
 
       {Object.keys(limitKeys).length > 0 && (
         <div className="mt-4">
@@ -280,6 +276,36 @@ function ModuleFeatures({
       )}
     </div>
   );
+}
+
+/**
+ * Which shelf a feature sits on, so nineteen switches read as four short lists: the opt-in extras
+ * first (they are the ones a Super Admin actually decides per client), then by the job a feature
+ * does. A key not listed here — one just added on the server — lands under "other".
+ */
+const FEATURE_GROUP: Record<string, "teaching" | "money" | "team"> = {
+  trials: "teaching",
+  supervision: "teaching",
+  packages: "teaching",
+  groups: "teaching",
+  teacher_quality: "teaching",
+  student_reports: "teaching",
+  report_card: "teaching",
+  "report_field.custom": "teaching",
+  certificates: "teaching",
+  invoicing: "money",
+  payroll: "money",
+  financial_statistics: "money",
+  staff: "team",
+  custom_roles: "team",
+  crm: "team",
+  "audit.full": "team",
+};
+const GROUP_ORDER = ["optIn", "teaching", "money", "team", "other"] as const;
+
+function groupFeatures(keys: string[], optIn: string[]): { group: (typeof GROUP_ORDER)[number]; keys: string[] }[] {
+  const of = (key: string) => (optIn.includes(key) ? "optIn" : (FEATURE_GROUP[key] ?? "other"));
+  return GROUP_ORDER.map((group) => ({ group, keys: keys.filter((key) => of(key) === group) })).filter((g) => g.keys.length > 0);
 }
 
 /** Blank cap ⇒ the key is dropped ⇒ unlimited (limits fail open). */

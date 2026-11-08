@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Services;
 
-use App\Support\PublicInvoiceToken;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -12,7 +11,8 @@ use Illuminate\Support\Str;
 /**
  * Platform↔Academy subscription domain service. Owns the academy's SaaS subscription lifecycle
  * (trial window, activation, period, snapshot total cost) on the `academy_subscriptions` table —
- * the single writer of `total_cost_minor`.
+ * the single writer of `total_cost_minor`. The money itself — what a client owes and pays — is
+ * the accounts book's (FinanceLedger / PlatformAccounts); this class no longer issues bills.
  *
  * Every method assumes it runs INSIDE the target academy's tenant context (the caller wraps it in
  * AcademyController::inAcademyContext or a job's Tenancy::withContext) so the RLS `with check`
@@ -212,202 +212,6 @@ final class AcademyBilling
         }
 
         return ['expired' => true, 'suspended' => $suspend];
-    }
-
-    // ── Academy bills (Platform → Academy invoices) ──────────────────────────
-
-    /**
-     * Create the bill for a subscription period, idempotent on (academy, period). Returns the bill
-     * id (existing or new), or null when the academy has no subscription to bill.
-     */
-    public function generateInvoiceForPeriod(string $academyId, Carbon $start, Carbon $end): ?string
-    {
-        $sub = $this->currentSubscription($academyId);
-        if ($sub === null) {
-            return null;
-        }
-
-        $find = fn () => DB::table('academy_invoices')
-            ->where('academy_id', $academyId)
-            ->whereDate('period_start', $start->toDateString())
-            ->whereDate('period_end', $end->toDateString())
-            ->value('id');
-
-        $existing = $find();
-        if ($existing !== null) {
-            return (string) $existing;
-        }
-
-        // R3 (M-BILL-1): snapshot the per-module composition of this consolidated bill from the
-        // client's live module subs (trials contribute nothing — they aren't billed). Legacy-only
-        // academies (no module subs) leave it null.
-        $breakdown = DB::table('module_subscriptions')
-            ->where('academy_id', $academyId)
-            ->where('status', 'ACTIVE')
-            ->where('is_trial', false)
-            ->where('currency', $sub->currency)
-            ->orderBy('module')
-            ->get(['module', 'total_cost_minor', 'currency'])
-            ->map(fn (object $m): array => [
-                'module' => (string) $m->module,
-                'total_minor' => (int) $m->total_cost_minor,
-                'currency' => (string) $m->currency,
-            ])
-            ->all();
-
-        $now = now();
-        DB::table('academy_invoices')->insertOrIgnore([
-            'id' => (string) Str::uuid(),
-            'academy_id' => $academyId,
-            'subscription_id' => $sub->id,
-            'period_start' => $start->toDateString(),
-            'period_end' => $end->toDateString(),
-            'status' => 'OPEN',
-            'currency' => $sub->currency,
-            'subtotal_minor' => (int) $sub->total_cost_minor,
-            'total_minor' => (int) $sub->total_cost_minor,
-            'module_breakdown' => $breakdown === [] ? null : json_encode($breakdown),
-            'due_date' => $now->copy()->addDays((int) config('billing.due_days', 7))->toDateString(),
-            'public_token' => PublicInvoiceToken::forAcademyId($academyId),
-            'created_at' => $now,
-            'updated_at' => $now,
-        ]);
-
-        // insertOrIgnore may have lost a race; re-read the canonical row id either way.
-        $id = $find();
-
-        return $id !== null ? (string) $id : null;
-    }
-
-    /** Generate the bill for the subscription's CURRENT period (manual Super Admin action). */
-    public function generateCurrentBill(string $academyId): ?string
-    {
-        $sub = $this->ensureSubscription($academyId);
-        if ($sub->is_trial) {
-            return null; // a trial isn't billed
-        }
-
-        $start = $sub->current_period_start !== null
-            ? Carbon::parse($sub->current_period_start)
-            : now()->startOfDay();
-        $end = $sub->current_period_end !== null
-            ? Carbon::parse($sub->current_period_end)
-            : ($sub->billing_interval === 'YEARLY' ? $start->copy()->addYear() : $start->copy()->addMonth());
-
-        return $this->generateInvoiceForPeriod($academyId, $start, $end);
-    }
-
-    /**
-     * Scheduled helper: ensure the current period is billed and roll the window forward once the
-     * period has elapsed. Idempotent (period unique index). Returns the billed period's id or null.
-     *
-     * R5a: for a module-engine client the billing period lives on the PRIMARY module sub — the
-     * roll writes through ModuleBilling (which mirrors the legacy row), so `academy_subscriptions`
-     * has NO writer left outside the engine's own mirror. The direct legacy write below survives
-     * only for engine-untouched academies (dual-read era; removed with the R5b drops).
-     */
-    public function rollAndBill(string $academyId): ?string
-    {
-        $engine = app(ModuleBilling::class);
-        $primaryModule = null;
-        $sub = null;
-
-        if ($engine->all($academyId)->isNotEmpty()) {
-            $primaryModule = $engine->primaryModule($academyId);
-            $sub = $engine->current($academyId, $primaryModule);
-        } else {
-            $sub = $this->currentSubscription($academyId);
-        }
-
-        if ($sub === null || $sub->is_trial || $sub->status !== 'ACTIVE') {
-            return null;
-        }
-
-        $rollPeriod = function (Carbon $start, Carbon $end) use ($academyId, $engine, $primaryModule, $sub): void {
-            if ($primaryModule !== null) {
-                $engine->setFields($academyId, $primaryModule, [
-                    'current_period_start' => $start,
-                    'current_period_end' => $end,
-                ]);
-            } else {
-                DB::table('academy_subscriptions')->where('id', $sub->id)->update([
-                    'current_period_start' => $start,
-                    'current_period_end' => $end,
-                    'updated_at' => now(),
-                ]);
-            }
-        };
-
-        // Open a first period for a paid subscription that has none yet.
-        if ($sub->current_period_start === null || $sub->current_period_end === null) {
-            $start = now();
-            $end = $sub->billing_interval === 'YEARLY' ? $start->copy()->addYear() : $start->copy()->addMonth();
-            $rollPeriod($start, $end);
-
-            return $this->generateInvoiceForPeriod($academyId, $start, $end);
-        }
-
-        $start = Carbon::parse($sub->current_period_start);
-        $end = Carbon::parse($sub->current_period_end);
-
-        // Period still running — make sure its bill exists, don't roll yet.
-        if ($end->isFuture()) {
-            return $this->generateInvoiceForPeriod($academyId, $start, $end);
-        }
-
-        // Period elapsed: bill it, then advance one interval.
-        $billId = $this->generateInvoiceForPeriod($academyId, $start, $end);
-        $newEnd = $sub->billing_interval === 'YEARLY' ? $end->copy()->addYear() : $end->copy()->addMonth();
-        $rollPeriod($end, $newEnd);
-
-        return $billId;
-    }
-
-    /** Mark a bill fully paid (Super Admin or an approved payment submission). */
-    public function markBillPaid(string $billId, string $method, ?string $reason): void
-    {
-        DB::table('academy_invoices')->where('id', $billId)->update([
-            'status' => 'PAID',
-            'payment_method' => $method,
-            'payment_reason' => $reason,
-            'amount_paid_minor' => DB::raw('total_minor'),
-            'paid_at' => now(),
-            'updated_at' => now(),
-        ]);
-    }
-
-    /** Set a bill's status directly (OPEN / OVERDUE / VOID / PAID). */
-    public function setBillStatus(string $billId, string $status): void
-    {
-        DB::table('academy_invoices')->where('id', $billId)->update([
-            'status' => $status,
-            'paid_at' => $status === 'PAID' ? now() : null,
-            'updated_at' => now(),
-        ]);
-    }
-
-    /** Flip OPEN bills past their due date to OVERDUE for the current academy. Returns the count. */
-    public function markOverdue(string $academyId): int
-    {
-        return DB::table('academy_invoices')
-            ->where('academy_id', $academyId)
-            ->where('status', 'OPEN')
-            ->whereDate('due_date', '<', now()->toDateString())
-            ->update(['status' => 'OVERDUE', 'updated_at' => now()]);
-    }
-
-    /** The academy owner's contact phone (recipient of bill sends/reminders), if any. */
-    public function ownerPhone(string $academyId): ?string
-    {
-        $phone = DB::table('users as u')
-            ->join('user_roles as ur', 'ur.user_id', '=', 'u.id')
-            ->where('u.academy_id', $academyId)
-            ->where('ur.role', 'ACADEMY_OWNER')
-            ->whereNotNull('u.phone')
-            ->orderBy('u.created_at')
-            ->value('u.phone');
-
-        return $phone !== null ? (string) $phone : null;
     }
 
     private function currencyFor(?object $academy): string

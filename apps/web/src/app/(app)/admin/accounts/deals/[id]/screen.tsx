@@ -17,7 +17,8 @@ import { StatTile } from "@/components/admin/stat-tile";
 import { StatusChip } from "@/components/admin/status-chip";
 import { TableCard, TR_HEAD, Td, Th } from "@/components/admin/table";
 import { DealFormModal } from "@/components/finance/deal-form-modal";
-import { FinanceTabs } from "@/components/finance/finance-tabs";
+import { accountHref } from "@/components/finance/account-format";
+import { AccountsTabs } from "@/components/finance/accounts-tabs";
 import {
   DEAL_TONE,
   INSTALLMENT_TONE,
@@ -89,7 +90,7 @@ export function FinanceDealScreen({ dealId }: { dealId: string }) {
     try {
       await deleteFinanceDeal(dealId);
       toast.success(t("deal.deleted"));
-      router.push("/admin/finance/deals");
+      router.push(data?.client ? accountHref(data.client) : "/admin/accounts/contracts");
     } catch (e) {
       toast.error(errorMessage(e, t("form.errors.generic")));
       setBusy(false);
@@ -115,7 +116,7 @@ export function FinanceDealScreen({ dealId }: { dealId: string }) {
       <div className="space-y-5">
         <AdminPageHeader
           title={t("title")}
-          backHref="/admin/finance/deals"
+          backHref="/admin/accounts/contracts"
           backLabel={t("deal.back")}
         />
         <EmptyState
@@ -141,7 +142,7 @@ export function FinanceDealScreen({ dealId }: { dealId: string }) {
   return (
     <div className="space-y-5">
       <AdminPageHeader
-        backHref="/admin/finance/deals"
+        backHref={data?.client ? accountHref(data.client) : "/admin/accounts/contracts"}
         backLabel={t("deal.back")}
         title={deal?.title ?? "…"}
         subtitle={
@@ -187,7 +188,7 @@ export function FinanceDealScreen({ dealId }: { dealId: string }) {
           ) : undefined
         }
       />
-      <FinanceTabs />
+      <AccountsTabs />
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <StatTile
@@ -412,7 +413,7 @@ export function FinanceDealScreen({ dealId }: { dealId: string }) {
               ) : null}
               {deal ? (
                 <Link
-                  href={`/admin/finance/deals?client=${deal.client_id}`}
+                  href={data?.client ? accountHref(data.client) : `/admin/accounts/${deal.client_id}`}
                   className="text-primary block pt-1 text-xs font-medium"
                 >
                   {t("clients.form.viewDeals")}

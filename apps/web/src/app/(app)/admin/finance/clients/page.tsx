@@ -1,6 +1,9 @@
-import { FinanceClientsScreen } from "./screen";
+import { redirect } from "next/navigation";
 
-/** Super Admin → Finance → Clients: who pays the owner. Not linked to platform accounts. */
-export default function AdminFinanceClientsPage() {
-  return <FinanceClientsScreen />;
+/**
+ * /admin/finance/clients retired: Billing, subscriptions and the finance book became ONE section on 2026-11-08 — Super Admin →
+ * Accounts. The redirect keeps old links and bookmarks working.
+ */
+export default function RetiredPage() {
+  redirect("/admin/accounts/contracts");
 }

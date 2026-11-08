@@ -23,6 +23,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   followSession: vi.fn(),
   listTeamActors: vi.fn(),
   getOverdueSessions: vi.fn(),
+  deleteSession: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -372,6 +373,37 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
     expect(chip).toHaveTextContent("Following");
     expect(chip).toHaveTextContent("Sara Supervisor");
     expect(screen.queryByTestId("row-follow")).not.toBeInTheDocument();
+  });
+
+  it("says how much of a cancelled lesson the teacher is paid", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [
+        { ...daySession, status: "CANCELLED_BY_STUDENT", teacher_override: true, teacher_pay_share_bp: 5000 },
+        { ...daySession, id: "se2", status: "CANCELLED_BY_STUDENT", teacher_override: false },
+      ],
+    });
+    renderManager(ownerSession());
+
+    const chips = await screen.findAllByTestId("teacher-share-chip");
+    expect(chips.every((c) => c.textContent === "Teacher: Half")).toBe(true);
+    // Desktop row + mobile card for the one paid lesson; nothing for the unpaid one.
+    expect(chips).toHaveLength(2);
+  });
+
+  it("shows the reason a lesson was cancelled in its own column", async () => {
+    vi.mocked(api.getSessionsByDay).mockResolvedValue({
+      sessions: [
+        { ...daySession, status: "CANCELLED_BY_STUDENT", status_reason: "Travelling" },
+        { ...daySession, id: "se2", pending_cancel_type: "teacher", pending_cancel_reason: "Teacher is ill" },
+        { ...daySession, id: "se3", status: "ATTENDED", status_reason: null },
+      ],
+    });
+    renderManager(ownerSession());
+
+    expect((await screen.findAllByRole("columnheader", { name: "Reason" })).length).toBe(1);
+    const reasons = (await screen.findAllByTestId("row-reason")).map((el) => el.textContent);
+    expect(reasons.some((r) => r?.includes("Travelling"))).toBe(true);
+    expect(reasons.some((r) => r?.includes("Teacher is ill"))).toBe(true);
   });
 
   it("shows the Following chip for a lesson somebody already follows, and no button without the capability", async () => {
@@ -845,6 +877,66 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
       expect(screen.queryByTestId("section-overdue-count")).not.toBeInTheDocument();
       await user.click(screen.getByTestId("section-overdue"));
       expect(await screen.findByTestId("overdue-clear")).toBeInTheDocument();
+    });
+  });
+
+  // Deleting a lesson outright (Quran academies): the server tombstones it with no money, so the
+  // row just leaves the list. Never offered on a trial's lesson, nor in a centre.
+  describe("deleting a lesson", () => {
+    const regular = { ...daySession, student_status: "ACTIVE" };
+    const deleter = (over: Partial<Session> = {}) =>
+      makeSession("ACADEMY_OWNER", {
+        permissions: ["session.read", "session.mark_attendance", "session.delete"],
+        ...over,
+      });
+
+    it("deletes the lesson after confirming and reloads the list", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.getSessionsByDay)
+        .mockResolvedValueOnce({ sessions: [regular] })
+        .mockResolvedValue({ sessions: [] });
+      vi.mocked(api.deleteSession).mockResolvedValue({ ok: true });
+      renderManager(deleter());
+
+      await user.click((await screen.findAllByTestId("row-delete"))[0]!);
+      await user.click(await screen.findByTestId("lesson-delete-confirm"));
+
+      await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("se1"));
+      await waitFor(() => expect(screen.queryAllByTestId("row-delete")).toHaveLength(0));
+    });
+
+    it("shows the refusal inside the dialog", async () => {
+      const user = userEvent.setup();
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [{ ...regular, status: "ATTENDED" as const }] });
+      vi.mocked(api.deleteSession).mockRejectedValue(new Error("This session's invoice is already closed."));
+      renderManager(deleter());
+
+      await user.click((await screen.findAllByTestId("row-delete"))[0]!);
+      await user.click(await screen.findByTestId("lesson-delete-confirm"));
+
+      expect(await screen.findByTestId("lesson-delete-error")).toHaveTextContent("already closed");
+    });
+
+    it("is not offered without session.delete", async () => {
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [regular] });
+      renderManager(ownerSession());
+      await screen.findByTestId("day-list");
+      expect(screen.queryByTestId("row-delete")).not.toBeInTheDocument();
+    });
+
+    it("is not offered on a trial's lesson", async () => {
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [daySession] });
+      renderManager(deleter());
+      await screen.findByTestId("day-list");
+      expect(screen.queryByTestId("row-delete")).not.toBeInTheDocument();
+    });
+
+    it("is not offered in a centre", async () => {
+      vi.mocked(api.getSessionsByDay).mockResolvedValue({ sessions: [regular] });
+      const base = deleter();
+      renderManager({ ...base, academy: { ...base.academy!, profile: "CENTRE" } });
+      await screen.findByTestId("day-list");
+      expect(screen.queryByTestId("row-delete")).not.toBeInTheDocument();
     });
   });
 });

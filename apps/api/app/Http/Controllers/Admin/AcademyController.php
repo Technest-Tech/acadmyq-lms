@@ -102,9 +102,10 @@ final class AcademyController extends Controller
 
         $academyId = (string) Str::uuid();
         $ownerEmail = strtolower((string) $data['email']);
-        // No name is collected at creation — default a display name from the email's local part
-        // (the owner can edit their profile later).
-        $ownerName = (string) Str::of($ownerEmail)->before('@')->trim() ?: $ownerEmail;
+        // The owner's name when the Super Admin typed one; otherwise a display name from the email's
+        // local part (the owner can edit their profile later).
+        $typedName = trim((string) ($data['owner_name'] ?? ''));
+        $ownerName = $typedName !== '' ? $typedName : ((string) Str::of($ownerEmail)->before('@')->trim() ?: $ownerEmail);
         $ownerId = (string) Str::uuid();
 
         // Seed-source template is read from the chosen type (data, not code: a new type seeds
@@ -154,6 +155,7 @@ final class AcademyController extends Controller
                     'academy_id' => $academyId,
                     'full_name' => $ownerName,
                     'email' => $ownerEmail,
+                    'phone' => ($data['owner_phone'] ?? null) ?: null,
                     'password' => Hash::make((string) $data['password']),
                     'is_active' => true,
                     'invited_at' => now(),
@@ -185,6 +187,7 @@ final class AcademyController extends Controller
                         $academyId,
                         $module,
                         trial: $trial,
+                        trialDays: $trial && isset($data['trial_days']) ? (int) $data['trial_days'] : null,
                         priceMinor: $pricing['price_minor'],
                         currency: $data['default_currency'],
                         interval: $pricing['billing_interval'],
@@ -206,6 +209,23 @@ final class AcademyController extends Controller
                         'enabled' => $preset['enabled'],
                         'disabled' => $preset['disabled'],
                         'source' => 'academy_profile_preset',
+                    ]);
+                }
+
+                // Opt-in features ticked on the create form (the modern look, say) join whatever the
+                // preset switched on — added to it, never replacing it.
+                $extra = array_values(array_map('strval', (array) ($data['enable_features'] ?? [])));
+                $management = $extra === [] ? null : $engine->current($academyId, 'MANAGEMENT');
+                if ($management !== null) {
+                    $ov = json_decode((string) ($management->overrides ?? ''), true);
+                    $ov = is_array($ov) ? $ov : [];
+                    $enabled = array_values(array_unique([...array_map('strval', (array) ($ov['enabled'] ?? [])), ...$extra]));
+                    $disabled = array_values(array_diff(array_map('strval', (array) ($ov['disabled'] ?? [])), $extra));
+                    $engine->setDisabledFeatures($academyId, 'MANAGEMENT', $disabled, $enabled);
+                    Audit::log('module_subscription.features', 'module_subscription', $management->id, $academyId, $ctx->userId, 'SUPER_ADMIN', after: [
+                        'module' => 'MANAGEMENT',
+                        'enabled' => $enabled,
+                        'source' => 'create_form',
                     ]);
                 }
             });
@@ -746,6 +766,16 @@ final class AcademyController extends Controller
             // creation transaction so a collision exercises the atomic rollback (TC-3.5).
             $rules['email'] = ['required', 'email', 'max:255'];
             $rules['password'] = ['required', 'string', 'min:8', 'max:255'];
+            $rules['owner_name'] = ['nullable', 'string', 'max:255'];
+            $rules['owner_phone'] = ['nullable', 'string', 'max:32', 'regex:/^\+?[0-9 ()-]{6,32}$/'];
+            // A trial's own length; without it the platform default (Settings) applies.
+            $rules['trial_days'] = ['nullable', 'integer', 'min:1', 'max:365'];
+            // Opt-in features of the management module switched on from day one.
+            $rules['enable_features'] = ['sometimes', 'array'];
+            $rules['enable_features.*'] = ['string', Rule::in(array_values(array_intersect(
+                FeatureCatalog::capabilitiesOfModule('MANAGEMENT'),
+                FeatureCatalog::OPT_IN_CAPABILITIES,
+            )))];
         }
 
         $data = $request->validate($rules);

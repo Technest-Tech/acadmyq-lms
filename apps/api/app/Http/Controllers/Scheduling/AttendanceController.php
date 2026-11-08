@@ -72,6 +72,9 @@ final class AttendanceController extends Controller
             // Per-cancellation billing decision (owner-only; ignored for non-cancel outcomes).
             'charge_student' => ['sometimes', 'boolean'],
             'pay_teacher' => ['sometimes', 'boolean'],
+            // How much of the lesson the teacher is paid when pay_teacher is true: a quarter, a
+            // half or the whole lesson (the default). Ignored when the teacher is not paid.
+            'teacher_pay_percent' => ['sometimes', 'nullable', 'integer', Rule::in([25, 50, 100])],
         ]);
 
         // An outcome the office recorded is final for the teacher: picking another card here would
@@ -112,7 +115,7 @@ final class AttendanceController extends Controller
         $billOverride = $overridable ? ($mayBill && (bool) ($data['charge_student'] ?? false)) : null;
         $teacherOverride = $overridable ? ($mayBill && (bool) ($data['pay_teacher'] ?? false)) : null;
 
-        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride);
+        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride, isset($data['teacher_pay_percent']) ? (int) $data['teacher_pay_percent'] * 100 : null);
 
         return response()->json([
             'status' => $result['status'],

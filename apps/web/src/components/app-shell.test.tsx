@@ -139,8 +139,11 @@ describe("AppShell role-aware navigation (AC-2.12 / TC-2.23)", () => {
 
     const keys = navKeys();
     expect(keys).toContain("clients");
-    expect(keys).toContain("plans");
-    expect(keys.indexOf("clients")).toBeLessThan(keys.indexOf("plans"));
+    expect(keys).toContain("audit");
+    expect(keys.indexOf("clients")).toBeLessThan(keys.indexOf("audit"));
+    // Billing, the finance book and pricing are one Accounts entry now — none of the old three.
+    expect(keys).not.toContain("plans");
+    expect(keys).not.toContain("billing");
     // Tenant-only items never leak onto the platform view.
     expect(keys).not.toContain("students");
     expect(keys).not.toContain("invoices");
@@ -812,5 +815,31 @@ describe("AppShell — the modern look for a Quran academy (`modern_look`)", () 
 
     expect(document.documentElement.dataset.look).toBe("modern");
     expect(document.documentElement.dataset.profile).toBe("centre");
+  });
+});
+
+describe("AppShell — the platform Super Admin's own panel in the modern look", () => {
+  it("wears the navy and gold design with the platform's phone bar", async () => {
+    renderShell("SUPER_ADMIN", {
+      permissions: ["academy.read", "academy_billing.manage", "platform.manage", "user.read_platform"],
+    });
+    await ready();
+
+    expect(document.documentElement.dataset.look).toBe("modern");
+    expect(document.documentElement.dataset.profile).toBeUndefined();
+    expect(screen.getByTestId("platform-nav")).toBeInTheDocument();
+    const keys = Array.from(screen.getByTestId("bottom-nav").querySelectorAll("[data-bottom-nav]")).map((el) =>
+      el.getAttribute("data-bottom-nav"),
+    );
+    expect(keys).toEqual(["adminHome", "clients", "adminFinance"]);
+  });
+
+  it("shows an entered academy as that academy looks, not in the platform's design", async () => {
+    document.documentElement.dataset.look = "modern";
+    renderShell("SUPER_ADMIN", { academyId: "academy-1", capabilities: ["invoicing"] });
+    await ready();
+
+    expect(document.documentElement.dataset.look).toBeUndefined();
+    expect(screen.queryByTestId("bottom-nav")).toBeNull();
   });
 });

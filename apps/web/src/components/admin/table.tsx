@@ -20,7 +20,7 @@ export function TableCard({
     <div
       data-testid={testId}
       className={cn(
-        "bg-card overflow-x-auto rounded-xl shadow-sm ring-1 ring-foreground/[0.06]",
+        "admin-surface bg-card overflow-x-auto rounded-xl shadow-sm ring-1 ring-foreground/[0.06]",
         className,
       )}
     >
@@ -40,7 +40,7 @@ export function Th({
   return (
     <th
       className={cn(
-        "text-muted-foreground px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide",
+        "admin-th text-muted-foreground px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide",
         className,
       )}
     >

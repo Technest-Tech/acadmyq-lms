@@ -5,12 +5,11 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useSearchParams } from "next/navigation";
 import { useState } from "react";
+import { AuthCard, authInputClass } from "@/components/auth/auth-card";
 import { ctaClass } from "@/components/marketing/ui";
 import { ApiError, resetPassword } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const inputClass =
-  "border-input bg-background placeholder:text-muted-foreground/60 focus:border-primary focus:ring-primary/15 h-12 w-full rounded-xl border text-base shadow-xs outline-none transition-colors focus:ring-3 sm:text-sm";
 
 /** Consume a reset link: the token and email ride on the query string, the person types the rest. */
 export function ResetPasswordScreen() {
@@ -50,9 +49,9 @@ export function ResetPasswordScreen() {
   }
 
   return (
-    <div className="bg-card border-border rounded-2xl border p-6 shadow-sm sm:p-8" data-testid="reset-password">
+    <AuthCard testId="reset-password">
       <div className="mb-6 space-y-1.5">
-        <h1 className="text-xl font-bold">{t("resetTitle")}</h1>
+        <h1 className="text-2xl font-extrabold">{t("resetTitle")}</h1>
         {email && !done && (
           <p className="text-muted-foreground text-sm">{t("resetSubtitle", { email })}</p>
         )}
@@ -94,7 +93,7 @@ export function ResetPasswordScreen() {
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className={`${inputClass} ps-10 pe-11`}
+                className={`${authInputClass} ps-10 pe-11`}
               />
               <button
                 type="button"
@@ -124,7 +123,7 @@ export function ResetPasswordScreen() {
                 required
                 value={confirm}
                 onChange={(e) => setConfirm(e.target.value)}
-                className={`${inputClass} ps-10 pe-3.5`}
+                className={`${authInputClass} ps-10 pe-3.5`}
               />
             </div>
             {mismatch && <p className="text-destructive text-xs">{t("passwordMismatch")}</p>}
@@ -152,6 +151,6 @@ export function ResetPasswordScreen() {
           </button>
         </form>
       )}
-    </div>
+    </AuthCard>
   );
 }

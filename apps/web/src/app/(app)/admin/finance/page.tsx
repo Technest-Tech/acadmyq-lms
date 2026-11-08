@@ -1,11 +1,9 @@
-import { FinanceOverviewScreen } from "./screen";
+import { redirect } from "next/navigation";
 
 /**
- * Super Admin → Finance: the platform owner's OWN income book (deals, installments, payments).
- * Platform scoped (`platform.manage`); the finance_* tables force RLS on `app.is_super_admin()`,
- * so nothing here is reachable from any academy context. Deliberately unrelated to client
- * billing — this records what the owner was paid, not what the platform invoices.
+ * /admin/finance retired: Billing, subscriptions and the finance book became ONE section on 2026-11-08 — Super Admin →
+ * Accounts. The redirect keeps old links and bookmarks working.
  */
-export default function AdminFinancePage() {
-  return <FinanceOverviewScreen />;
+export default function RetiredPage() {
+  redirect("/admin/accounts");
 }

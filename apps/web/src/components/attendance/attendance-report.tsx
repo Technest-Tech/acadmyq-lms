@@ -295,6 +295,7 @@ export function AttendanceReport({
         override_timing: true,
         charge_student: values.charge_student,
         pay_teacher: values.pay_teacher,
+        teacher_pay_percent: values.pay_teacher ? values.teacher_pay_percent : undefined,
         reason: values.reason || undefined,
       });
       // An untouched form has nothing to say about a cancelled lesson — and may have required
@@ -323,6 +324,7 @@ export function AttendanceReport({
         override_timing: true,
         charge_student: values.charge_student,
         pay_teacher: values.pay_teacher,
+        teacher_pay_percent: values.pay_teacher ? values.teacher_pay_percent : undefined,
         reason: values.reason || undefined,
       });
       if (!structured || filledFields) await putSessionReport(sessionId, reportPayload());

@@ -578,3 +578,95 @@ html[data-look="modern"] [role="dialog"] select,
 html[data-look="modern"] [role="dialog"] textarea {
   background-color: var(--card);
 }
+
+/* ── The Super Admin's own kit (components/admin): the same band, cards, tiles and tables ─────── */
+/*
+ * The platform owner's panel wears the modern design too (app-shell `platformView`). Its screens are
+ * drawn with their own kit, ring-framed rather than bordered, so the rules above would pass them by;
+ * these hooks give them the band, the soft card and the dashboard's stat tile without a screen changing.
+ */
+html[data-look="modern"] .admin-page-header {
+  background: var(--hero-gradient);
+  border: 1px solid var(--hero-border);
+  border-radius: 1.25rem;
+  color: var(--hero-foreground);
+  padding: 1.125rem 1.5rem;
+}
+
+html[data-look="modern"] .admin-page-header__title {
+  font-size: 1.5rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+html[data-look="modern"] .admin-page-header__sub {
+  color: var(--hero-muted);
+}
+
+html[data-look="modern"] .admin-surface {
+  border-radius: 1.125rem;
+  box-shadow: 0 0 0 1px color-mix(in oklab, var(--border) 70%, transparent), var(--card-shadow);
+}
+
+html[data-look="modern"] .admin-stat {
+  padding: 1rem 1.125rem;
+}
+
+html[data-look="modern"] .admin-stat__label {
+  color: oklch(from var(--foreground) l c h / 85%);
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+html[data-look="modern"] .admin-stat__icon {
+  height: 2.75rem;
+  width: 2.75rem;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.875rem;
+  background: var(--color-violet-100);
+  color: var(--color-violet-700);
+}
+
+html[data-look="modern"] .admin-stat__icon svg {
+  height: 1.25rem;
+  width: 1.25rem;
+  color: inherit;
+}
+
+html.dark[data-look="modern"] .admin-stat__icon {
+  background: color-mix(in oklab, var(--color-violet-500) 15%, transparent);
+  color: var(--color-violet-300);
+}
+
+html[data-look="modern"] .admin-stat__value {
+  font-weight: 800;
+}
+
+/* The figure is written left to right, but in an Arabic page it sits under its label, at the start. */
+html[dir="rtl"][data-look="modern"] .admin-stat__value {
+  text-align: right;
+}
+
+html[data-look="modern"] .admin-th {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+html[data-look="modern"] .admin-section__title {
+  font-size: 1rem;
+  font-weight: 800;
+}
+
+html[data-look="modern"] .admin-section__icon:not([class*="destructive"]) {
+  background: var(--color-violet-100);
+  color: var(--color-violet-700);
+  border-radius: 0.75rem;
+}
+
+html.dark[data-look="modern"] .admin-section__icon:not([class*="destructive"]) {
+  background: color-mix(in oklab, var(--color-violet-500) 15%, transparent);
+  color: var(--color-violet-300);
+}

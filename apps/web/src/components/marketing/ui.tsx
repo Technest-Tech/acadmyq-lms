@@ -1,20 +1,26 @@
 import {
   Award,
+  Check,
+  BellRing,
   BookOpen,
   CalendarDays,
   CircleCheck,
   ClipboardCheck,
+  Contact,
   CreditCard,
   FileText,
   Files,
   Globe,
   GraduationCap,
+  HandCoins,
   History,
   KeyRound,
   Languages,
   LayoutDashboard,
   ListChecks,
   Lock,
+  Megaphone,
+  MessageCircle,
   Palette,
   PlayCircle,
   Receipt,
@@ -23,8 +29,10 @@ import {
   Smartphone,
   Sparkles,
   TrendingUp,
+  TriangleAlert,
   UserCog,
   Users,
+  Video,
   Wallet,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -44,21 +52,26 @@ import { cn } from "@/lib/utils";
 
 const ICONS: Record<IconName, LucideIcon> = {
   Award,
+  BellRing,
   BookOpen,
   CalendarDays,
   CircleCheck,
   ClipboardCheck,
+  Contact,
   CreditCard,
   FileText,
   Files,
   Globe,
   GraduationCap,
+  HandCoins,
   History,
   KeyRound,
   Languages,
   LayoutDashboard,
   ListChecks,
   Lock,
+  Megaphone,
+  MessageCircle,
   Palette,
   PlayCircle,
   Receipt,
@@ -67,8 +80,10 @@ const ICONS: Record<IconName, LucideIcon> = {
   Smartphone,
   Sparkles,
   TrendingUp,
+  TriangleAlert,
   UserCog,
   Users,
+  Video,
   Wallet,
 };
 
@@ -88,12 +103,21 @@ export function Icon({
 export function Container({
   children,
   className,
+  wide = false,
 }: {
   children: React.ReactNode;
   className?: string;
+  /** The hero drawing and the feature grid get a little more room than running text. */
+  wide?: boolean;
 }) {
   return (
-    <div className={cn("mx-auto w-full max-w-6xl px-5 sm:px-8", className)}>
+    <div
+      className={cn(
+        "mx-auto w-full px-4 sm:px-8",
+        wide ? "max-w-7xl" : "max-w-6xl",
+        className,
+      )}
+    >
       {children}
     </div>
   );
@@ -108,35 +132,52 @@ export function Section({
   children: React.ReactNode;
   className?: string;
   id?: string;
-  /** `muted` is the alternating band; `ink` is the one deep brand ground. */
+  /** `muted` is the alternating cool band; `ink` is the deep navy brand ground with its lattice. */
   tone?: "default" | "muted" | "ink";
 }) {
   return (
     <section
       id={id}
       className={cn(
-        "py-16 sm:py-24",
-        tone === "muted" && "bg-muted/60 border-border border-y",
-        tone === "ink" && "bg-ink text-ink-foreground",
+        "relative py-16 sm:py-24",
+        tone === "muted" && "border-border border-y bg-[oklch(0.972_0.007_255)]",
+        tone === "ink" && "mk-ink overflow-hidden",
         // `scroll-mt` keeps an in-page anchor from landing under the sticky header.
         id && "scroll-mt-20",
         className,
       )}
     >
-      {children}
+      {tone === "ink" ? <div aria-hidden className="mk-lattice" /> : null}
+      <div className="relative">{children}</div>
     </section>
   );
 }
 
 /**
- * The small label above a section title. No uppercase and no letter-spacing anywhere on this site:
- * both are meaningless in Arabic and actively damage it (Arabic has no case, and tracking pulls
- * apart letters that are supposed to join). The mark before it does the work instead.
+ * The small label above a section title: a pill with a gold dot. No uppercase and no
+ * letter-spacing anywhere on this site — both are meaningless in Arabic and actively damage it
+ * (Arabic has no case, and tracking pulls apart letters that are supposed to join).
  */
-export function Eyebrow({ children }: { children: React.ReactNode }) {
+export function Eyebrow({
+  children,
+  onInk = false,
+  className,
+}: {
+  children: React.ReactNode;
+  onInk?: boolean;
+  className?: string;
+}) {
   return (
-    <p className="text-primary flex items-center gap-2 text-sm font-semibold">
-      <span aria-hidden className="bg-accent h-4 w-1 rounded-full" />
+    <p
+      className={cn(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-sm font-bold",
+        onInk
+          ? "text-gold border-white/15 bg-white/5"
+          : "text-primary border-primary/15 bg-primary/[0.05]",
+        className,
+      )}
+    >
+      <span aria-hidden className="bg-gold size-1.5 rounded-full" />
       {children}
     </p>
   );
@@ -146,23 +187,25 @@ export function SectionHeading({
   head,
   align = "start",
   onInk = false,
+  className,
 }: {
   head: SectionHead;
   align?: "start" | "center";
   onInk?: boolean;
+  className?: string;
 }) {
   return (
     <header
       className={cn(
         "max-w-2xl",
         align === "center" && "mx-auto text-center",
-        align === "center" && "[&>p:first-child]:justify-center",
+        className,
       )}
     >
-      <Eyebrow>{head.eyebrow}</Eyebrow>
+      <Eyebrow onInk={onInk}>{head.eyebrow}</Eyebrow>
       <h2
         className={cn(
-          "mt-3 text-3xl font-bold text-balance sm:text-4xl",
+          "mt-4 text-3xl leading-[1.25] font-extrabold text-balance sm:text-4xl lg:text-[2.6rem]",
           onInk && "text-ink-foreground",
         )}
       >
@@ -171,8 +214,8 @@ export function SectionHeading({
       {head.body ? (
         <p
           className={cn(
-            "text-muted-foreground mt-4 text-base leading-relaxed sm:text-lg",
-            onInk && "text-ink-foreground/75",
+            "mt-4 text-base leading-relaxed text-pretty sm:text-lg",
+            onInk ? "text-ink-foreground/75" : "text-muted-foreground",
           )}
         >
           {head.body}
@@ -183,21 +226,25 @@ export function SectionHeading({
 }
 
 const CTA_BASE =
-  "inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-base font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+  "inline-flex h-12 items-center justify-center gap-2 rounded-xl px-6 text-base font-bold transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring active:translate-y-px";
 
 export const ctaClass = {
-  primary: cn(CTA_BASE, "bg-primary text-primary-foreground hover:bg-primary/90"),
+  primary: cn(
+    CTA_BASE,
+    "bg-primary text-primary-foreground shadow-[0_10px_24px_-12px_oklch(0.42_0.1_262/0.7)] hover:bg-primary/90",
+  ),
   secondary: cn(
     CTA_BASE,
     "border-border bg-card text-foreground hover:bg-muted border",
   ),
+  /** The loudest button on a navy band: gold with dark ink on it. */
   onInk: cn(
     CTA_BASE,
-    "bg-ink-foreground text-ink hover:bg-ink-foreground/90",
+    "bg-gold text-gold-foreground shadow-[0_12px_28px_-12px_oklch(0.8_0.125_82/0.7)] hover:brightness-105 focus-visible:outline-gold",
   ),
   onInkGhost: cn(
     CTA_BASE,
-    "border-ink-foreground/25 text-ink-foreground hover:bg-ink-foreground/10 border",
+    "text-ink-foreground border border-white/20 bg-white/5 hover:bg-white/10 focus-visible:outline-gold",
   ),
 } as const;
 
@@ -235,19 +282,23 @@ export function CtaLink({
 export function CheckItem({
   children,
   onInk = false,
+  className,
 }: {
   children: React.ReactNode;
   onInk?: boolean;
+  className?: string;
 }) {
   return (
-    <li className="flex items-start gap-3">
-      <CircleCheck
+    <li className={cn("flex items-start gap-3", className)}>
+      <span
         aria-hidden
         className={cn(
-          "mt-0.5 size-5 shrink-0",
-          onInk ? "text-ink-foreground/70" : "text-primary",
+          "mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full",
+          onInk ? "bg-gold/15 text-gold" : "bg-primary/10 text-primary",
         )}
-      />
+      >
+        <Check className="size-3.5" strokeWidth={3} />
+      </span>
       <span
         className={cn(
           "leading-relaxed",
@@ -257,5 +308,30 @@ export function CheckItem({
         {children}
       </span>
     </li>
+  );
+}
+
+/** A square icon tile: navy on a soft navy wash, or gold on the ink band. */
+export function IconTile({
+  name,
+  onInk = false,
+  className,
+}: {
+  name: IconName;
+  onInk?: boolean;
+  className?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        "flex size-11 shrink-0 items-center justify-center rounded-xl",
+        onInk
+          ? "text-gold bg-white/[0.07] ring-1 ring-white/10"
+          : "text-primary bg-[linear-gradient(135deg,oklch(0.95_0.025_255),oklch(0.91_0.04_258))] ring-1 ring-[oklch(0.88_0.04_258)]",
+        className,
+      )}
+    >
+      <Icon name={name} className="size-5" />
+    </span>
   );
 }

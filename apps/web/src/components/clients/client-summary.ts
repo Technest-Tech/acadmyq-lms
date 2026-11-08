@@ -1,5 +1,6 @@
-import type { ClientDetail, ModuleCode, ModuleSubscription } from "@/lib/api";
+import type { AccountSummary, ClientDetail, ModuleCode, ModuleSubscription } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
+import { numeralLocale } from "@/lib/numerals";
 import { daysUntil } from "@/lib/time";
 
 /**
@@ -59,51 +60,76 @@ export function initials(name: string): string {
     .toUpperCase();
 }
 
-export interface RevenueBucket {
-  interval: "MONTHLY" | "YEARLY";
-  currency: string;
-  amount: number;
+/**
+ * What a client pays, in words, from its account: "EGP 1,000 / month", "EGP 10,200 / year (15% off)".
+ * Empty when it has no recurring line — the caller shows the agreement's name or a dash.
+ */
+export function agreementPrice(
+  account: Pick<AccountSummary, "recurring"> | null | undefined,
+  locale: string,
+  per: (interval: NonNullable<AccountSummary["recurring"]>["interval"]) => string,
+): string {
+  const r = account?.recurring;
+  if (!r) return "";
+  return `${formatMoney({ amount: r.amount_minor, currency: r.currency }, locale, { trimZeroDecimals: true })} / ${per(r.interval)}`;
+}
+
+/** The recurring price normalised to a month (for sorting by revenue). */
+export function monthlyOf(account: Pick<AccountSummary, "recurring"> | null | undefined): number {
+  const r = account?.recurring;
+  if (!r) return 0;
+  const months = { MONTHLY: 1, QUARTERLY: 3, SEMI_ANNUAL: 6, YEARLY: 12 }[r.interval] ?? 1;
+  return r.amount_minor / months;
+}
+
+/** What a module's clock needs — the client read's subscription and the roster's chip both carry it. */
+export type ModuleClock = Pick<
+  ModuleSubscription,
+  "module" | "is_trial" | "trial_end" | "current_period_end"
+> & { status: string };
+
+/**
+ * How urgent a clock is: an overdue renewal or an ended trial is critical, a trial in its last three
+ * days or a renewal inside the week wants a look, anything further off is just a date.
+ */
+export function clockTone(clock: UpcomingDate): "crit" | "warn" | "neutral" {
+  if (clock.days < 0) return "crit";
+  if (clock.trial ? clock.days <= 3 : clock.days <= 7) return "warn";
+  return "neutral";
 }
 
 /**
- * What the client is billed per currency AND interval — a yearly deal must never be added to a
- * monthly one as if they were the same number (the roster learned this the hard way).
+ * Modules no longer sold (the video platform was archived on 2026-10-20). A client that still holds
+ * one keeps seeing it, so it can be paused or ended; nobody can enable it anew.
  */
-export function revenueBuckets(modules: ModuleSubscription[]): RevenueBucket[] {
-  const buckets = new Map<string, RevenueBucket>();
-  for (const m of modules) {
-    if (m.status !== "ACTIVE" || m.is_trial) continue;
-    const key = `${m.billing_interval}|${m.currency}`;
-    const bucket = buckets.get(key) ?? {
-      interval: m.billing_interval,
-      currency: m.currency,
-      amount: 0,
-    };
-    bucket.amount += m.total_cost_minor;
-    buckets.set(key, bucket);
-  }
-  return [...buckets.values()].sort((a, b) =>
-    a.interval === b.interval
-      ? a.currency.localeCompare(b.currency)
-      : a.interval === "MONTHLY"
-        ? -1
-        : 1,
-  );
+export const RETIRED_MODULES: readonly ModuleCode[] = ["VIDEO"];
+
+/**
+ * The module rows a client page lists: what its type may hold (minus a retired module it does not
+ * hold), then anything it holds beyond its type — a hand-sold module must never be invisible.
+ */
+export function moduleSlots(allowed: readonly ModuleCode[], held: readonly ModuleCode[]): ModuleCode[] {
+  const slots = allowed.filter((code) => !RETIRED_MODULES.includes(code) || held.includes(code));
+  return [...slots, ...held.filter((code) => !slots.includes(code))];
 }
 
-/** "EGP 999/mo + EGP 12,000/yr", or "" when nothing is billed. */
-export function revenueLabel(
-  buckets: RevenueBucket[],
-  locale: string,
-  suffix: (interval: "MONTHLY" | "YEARLY") => string,
-): string {
-  return buckets
-    .map(
-      (b) =>
-        formatMoney({ amount: b.amount, currency: b.currency }, locale) +
-        suffix(b.interval),
-    )
-    .join(" + ");
+/** Nobody signing in for this long is the earliest sign a client is drifting away. */
+export const INACTIVE_AFTER_DAYS = 14;
+
+/** Whole days since a moment (0 today), or null without one. */
+export function daysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  return Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000));
+}
+
+/**
+ * Is the client drifting? Nobody signed in for INACTIVE_AFTER_DAYS — or nobody ever, once it has
+ * had three days to start. A client created yesterday is not "inactive", it is new.
+ */
+export function isInactive(lastLoginAt: string | null | undefined, createdAt: string): boolean {
+  const since = daysSince(lastLoginAt);
+  if (since === null) return (daysSince(createdAt) ?? 0) >= 3;
+  return since >= INACTIVE_AFTER_DAYS;
 }
 
 export interface UpcomingDate {
@@ -115,21 +141,29 @@ export interface UpcomingDate {
 }
 
 /**
- * The soonest clock on the client: a trial's end or a paid period's renewal, whichever comes
- * first across its live modules. Paused modules have no clock.
+ * The soonest clock on the client: a live module's trial end, or the next payment its account
+ * owes (late or not) — whichever comes first. The paid clock is the BOOK's (Accounts, 2026-11-08):
+ * module periods are no longer rolled or billed, so they are never read for a renewal date. A
+ * paying client with no agreement has no paid clock (Accounts → Dues lists it instead).
  */
 export function nextUpcoming(
-  modules: ModuleSubscription[],
+  modules: readonly ModuleClock[],
+  account?: Pick<AccountSummary, "next_due_on"> | null,
 ): UpcomingDate | null {
   let best: UpcomingDate | null = null;
   for (const m of modules) {
-    if (m.status !== "ACTIVE") continue;
-    const date = m.is_trial ? m.trial_end : m.current_period_end;
-    const days = daysUntil(date);
-    if (date === null || days === null) continue;
+    if (m.status !== "ACTIVE" || !m.is_trial) continue;
+    const days = daysUntil(m.trial_end);
+    if (m.trial_end === null || days === null) continue;
     if (best === null || days < best.days) {
-      best = { module: m.module, date, days, trial: m.is_trial };
+      best = { module: m.module, date: m.trial_end, days, trial: true };
     }
+  }
+  const due = account?.next_due_on ?? null;
+  const dueDays = daysUntil(due);
+  if (due !== null && dueDays !== null && (best === null || dueDays < best.days)) {
+    const primary = modules.find((m) => m.status === "ACTIVE" && !m.is_trial) ?? modules[0];
+    best = { module: primary?.module ?? "MANAGEMENT", date: due, days: dueDays, trial: false };
   }
   return best;
 }
@@ -179,7 +213,8 @@ export function fmtDate(
   locale: string,
 ): string {
   if (!iso) return "—";
-  return new Date(iso).toLocaleDateString(locale === "ar" ? "ar" : locale, {
+  // The workspace's digits, like every other number on the page.
+  return new Date(iso).toLocaleDateString(numeralLocale(locale), {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -188,15 +223,25 @@ export function fmtDate(
 
 export type ClientRecord = ClientDetail["client"];
 
-/** The sections of the client page; `?tab=` on the URL names one so links can land on it. */
-export type ClientTab =
-  | "overview"
-  | "modules"
-  | "billing"
-  | "payments"
-  | "whatsapp"
-  | "video"
-  | "settings";
+/**
+ * The sections of the client page; `?tab=` on the URL names one so links can land on it.
+ *
+ *   overview      what needs a decision, is it being used, the facts for a call
+ *   subscription  what it holds (modules, trials) and pays — its account in the book
+ *   features      the per-client switches, grouped by job, opt-in extras first
+ *   connections   WhatsApp, the payment gateway, the domains
+ *   settings      identity, owner login, danger zone
+ */
+export type ClientTab = "overview" | "subscription" | "features" | "connections" | "settings";
+
+/** The eight-tab page's names, so a bookmark or an old link still lands in the right place. */
+export const LEGACY_CLIENT_TABS: Record<string, ClientTab> = {
+  modules: "subscription",
+  billing: "subscription",
+  payments: "connections",
+  whatsapp: "connections",
+  video: "connections",
+};
 
 export function clientTabHref(clientId: string, tab: ClientTab): string {
   return tab === "overview"

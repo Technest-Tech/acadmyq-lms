@@ -38,10 +38,13 @@ export function DemoForm({
   t,
   locale,
   className,
+  defaultProduct = "UNDECIDED",
 }: {
   t: MarketingContent;
   locale: Locale;
   className?: string;
+  /** Which product is ticked when the form opens — the one the page around it is selling. */
+  defaultProduct?: ProductInterest;
 }) {
   const f = t.form;
   const pathname = usePathname();
@@ -50,7 +53,7 @@ export function DemoForm({
   const [status, setStatus] = useState<Status>("idle");
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<FieldName, string>>>({});
-  const [product, setProduct] = useState<ProductInterest>("COURSE_PLATFORM");
+  const [product, setProduct] = useState<ProductInterest>(defaultProduct);
 
   const id = (name: string) => `${uid}-${name}`;
   const errorId = (name: FieldName) => `${uid}-${name}-error`;
@@ -148,7 +151,7 @@ export function DemoForm({
           // `text-foreground` is not redundant: this card is dropped into the closing INK band on
           // the product pages, which sets a near-white text colour for the section. Without the
           // reset, every heading and label inside the white card inherits it and disappears.
-          "border-border bg-card text-foreground rounded-2xl border p-6 sm:p-8",
+          "mk-card text-foreground rounded-3xl p-6 sm:p-8",
           className,
         )}
       >
@@ -175,11 +178,11 @@ export function DemoForm({
   return (
     <div
       className={cn(
-        "border-border bg-card text-foreground rounded-2xl border p-6 sm:p-8",
+        "mk-card text-foreground rounded-3xl p-6 sm:p-8",
         className,
       )}
     >
-      <h3 className="text-xl font-bold">{f.title}</h3>
+      <h3 className="text-2xl font-extrabold">{f.title}</h3>
       <p className="text-muted-foreground mt-2 text-sm leading-relaxed">{f.body}</p>
 
       {/* aria-live so the message is announced when it appears, not only seen. */}

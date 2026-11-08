@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check } from "lucide-react";
 import { DemoForm } from "@/components/marketing/demo-form";
 import { Faq } from "@/components/marketing/faq";
 import { ProductShot } from "@/components/marketing/product-shot";
@@ -6,13 +6,14 @@ import {
   CheckItem,
   Container,
   CtaLink,
-  Icon,
+  IconTile,
   Section,
   SectionHeading,
 } from "@/components/marketing/ui";
 import {
   COURSE_PLATFORM_PRICE,
   type MarketingContent,
+  type ProductInterest,
   type ProductPageContent,
 } from "@/content/marketing";
 import type { Locale } from "@/i18n/config";
@@ -30,66 +31,76 @@ export function ProductPage({
   page,
   t,
   locale,
+  product,
+  heroVisual,
 }: {
   page: ProductPageContent;
   t: MarketingContent;
   locale: Locale;
+  /** The product this page sells — pre-ticked on its demo form. */
+  product: ProductInterest;
+  /**
+   * A drawing to lead the hero instead of the tour's first capture. When given, the tour below
+   * shows every capture, since none of them has been used up top.
+   */
+  heroVisual?: React.ReactNode;
 }) {
   const Arrow = locale === "ar" ? ArrowLeft : ArrowRight;
   const [lead, ...rest] = page.tour.shots;
+  const tourShots = heroVisual ? page.tour.shots : rest;
 
   return (
     <>
-      <section className="relative overflow-hidden">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-[460px] bg-[radial-gradient(70%_100%_at_50%_0%,color-mix(in_oklab,var(--primary)_10%,transparent),transparent_70%)]"
-        />
-        <Container className="relative py-16 sm:py-24">
-          <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_1fr] lg:gap-16">
+      {/* Pulled up under the sticky header, which is transparent over this navy band until scroll. */}
+      <section className="mk-ink relative -mt-16 overflow-hidden pt-16">
+        <div aria-hidden className="mk-lattice" />
+        <Container wide className="relative py-16 sm:py-24">
+          <div className="grid items-center gap-12 lg:grid-cols-[1fr_1.05fr] lg:gap-14">
             <div>
-              <h1 className="text-4xl font-bold text-balance sm:text-5xl sm:leading-[1.12]">
+              <h1 className="text-4xl leading-[1.2] font-extrabold text-balance text-white sm:text-5xl lg:text-[3.3rem]">
                 {page.hero.title}
                 {page.hero.titleAccent ? (
                   <>
                     {" "}
-                    <span className="text-primary">{page.hero.titleAccent}</span>
+                    <span className="bg-[linear-gradient(90deg,#F3D58A,#E2B550,#F3D58A)] bg-clip-text text-transparent">
+                      {page.hero.titleAccent}
+                    </span>
                   </>
                 ) : null}
               </h1>
-              <p className="text-muted-foreground mt-6 text-lg leading-relaxed text-pretty">
+              <p className="text-ink-foreground/75 mt-6 text-lg leading-relaxed text-pretty">
                 {page.hero.subtitle}
               </p>
 
               <div className="mt-8 flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
-                <CtaLink href={page.hero.primary.href}>
+                <CtaLink href={page.hero.primary.href} variant="onInk">
                   {page.hero.primary.label}
                   <Arrow aria-hidden className="size-4" />
                 </CtaLink>
                 {page.hero.secondary ? (
-                  <CtaLink href={page.hero.secondary.href} variant="secondary">
+                  <CtaLink href={page.hero.secondary.href} variant="onInkGhost">
                     {page.hero.secondary.label}
                   </CtaLink>
                 ) : null}
               </div>
 
-              <ul className="text-muted-foreground mt-8 flex flex-col gap-2 text-sm">
+              <ul className="text-ink-foreground/75 mt-8 flex flex-col gap-2.5 text-[0.95rem]">
                 {page.hero.points.map((point) => (
                   <li key={point} className="flex items-center gap-2.5">
-                    <span aria-hidden className="bg-accent size-1.5 rounded-full" />
+                    <Check aria-hidden className="text-gold size-4 shrink-0" strokeWidth={3} />
                     {point}
                   </li>
                 ))}
               </ul>
 
               {page.pricing.kind === "published" ? (
-                <p className="border-border bg-card text-muted-foreground mt-8 rounded-xl border p-4 text-sm leading-relaxed">
-                  <span className="text-foreground font-semibold">
+                <p className="text-ink-foreground/75 mt-8 rounded-2xl border border-white/12 bg-white/[0.06] p-4 text-sm leading-relaxed">
+                  <span className="text-gold font-extrabold">
                     {price(COURSE_PLATFORM_PRICE.firstYearMinor, locale)}
                   </span>{" "}
                   — {page.pricing.firstYearLabel}
                   {" · "}
-                  <span className="text-foreground font-semibold">
+                  <span className="font-extrabold text-white">
                     {price(COURSE_PLATFORM_PRICE.renewalMinor, locale)}
                   </span>{" "}
                   — {page.pricing.renewalLabel}
@@ -97,11 +108,14 @@ export function ProductPage({
               ) : null}
             </div>
 
-            {lead ? (
+            {heroVisual ? (
+              <div>{heroVisual}</div>
+            ) : lead ? (
               <ProductShot
                 shot={lead}
                 priority
-                sizes="(min-width: 1024px) 560px, 100vw"
+                onInk
+                sizes="(min-width: 1024px) 600px, 100vw"
               />
             ) : null}
           </div>
@@ -116,9 +130,10 @@ export function ProductPage({
             {page.audience.groups.map((group) => (
               <div
                 key={group.title}
-                className="border-border bg-card rounded-2xl border p-6"
+                className="mk-card relative overflow-hidden rounded-3xl p-6"
               >
-                <h3 className="text-base font-semibold">{group.title}</h3>
+                <span aria-hidden className="bg-gold absolute inset-x-6 top-0 h-0.5 rounded-b-full" />
+                <h3 className="text-lg font-extrabold">{group.title}</h3>
                 <ul className="mt-4 flex flex-col gap-2.5">
                   {group.items.map((item) => (
                     <li
@@ -127,7 +142,7 @@ export function ProductPage({
                     >
                       <span
                         aria-hidden
-                        className="bg-accent mt-2 size-1.5 shrink-0 rounded-full"
+                        className="bg-primary/60 mt-2.5 size-1.5 shrink-0 rounded-full"
                       />
                       {item}
                     </li>
@@ -144,7 +159,7 @@ export function ProductPage({
           <SectionHeading head={page.tour.head} />
 
           <div className="mt-12 grid gap-10 sm:grid-cols-2 sm:gap-8">
-            {rest.map((s) => (
+            {tourShots.map((s) => (
               <ProductShot
                 key={s.src}
                 shot={s}
@@ -162,11 +177,9 @@ export function ProductPage({
           <ul className="mt-12 grid gap-x-10 gap-y-9 sm:grid-cols-2">
             {page.capabilities.items.map((item) => (
               <li key={item.title} className="flex gap-4">
-                <span className="bg-primary/8 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
-                  <Icon name={item.icon} className="size-5" />
-                </span>
+                <IconTile name={item.icon} />
                 <div>
-                  <h3 className="text-base font-semibold">{item.title}</h3>
+                  <h3 className="text-lg font-extrabold">{item.title}</h3>
                   <p className="text-muted-foreground mt-1.5 leading-relaxed">
                     {item.body}
                   </p>
@@ -181,16 +194,17 @@ export function ProductPage({
         <Container>
           <SectionHeading head={page.workflow.head} />
 
-          <ol className="mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+          <ol className="relative mt-12 grid gap-8 sm:grid-cols-2 lg:grid-cols-4">
+            <span aria-hidden className="absolute inset-x-[8%] top-6 hidden h-px bg-[linear-gradient(90deg,transparent,oklch(0.8_0.125_82/0.7),transparent)] lg:block" />
             {page.workflow.steps.map((step, index) => (
-              <li key={step.title}>
+              <li key={step.title} className="relative">
                 <span
                   aria-hidden
-                  className="border-border text-primary flex size-9 items-center justify-center rounded-full border text-sm font-bold"
+                  className="bg-ink text-gold ring-gold/40 flex size-12 items-center justify-center rounded-2xl text-lg font-extrabold ring-1"
                 >
                   {index + 1}
                 </span>
-                <h3 className="mt-4 text-base font-semibold">{step.title}</h3>
+                <h3 className="mt-4 text-lg font-extrabold">{step.title}</h3>
                 <p className="text-muted-foreground mt-2 leading-relaxed">
                   {step.body}
                 </p>
@@ -211,14 +225,15 @@ export function ProductPage({
             align="center"
           />
 
-          <div className="border-border bg-card mx-auto mt-12 max-w-3xl rounded-2xl border p-6 sm:p-9">
+          <div className="mk-card relative mx-auto mt-12 max-w-3xl overflow-hidden rounded-3xl p-6 sm:p-9">
+            <span aria-hidden className="bg-gold absolute inset-x-0 top-0 h-1" />
             {page.pricing.kind === "published" ? (
               <div className="border-border grid gap-6 border-b pb-8 sm:grid-cols-2 sm:gap-10">
                 <div>
                   <p className="text-muted-foreground text-sm font-semibold">
                     {page.pricing.firstYearLabel}
                   </p>
-                  <p className="mt-2 text-3xl font-bold sm:text-4xl">
+                  <p className="text-ink mt-2 text-3xl font-extrabold sm:text-4xl">
                     {price(COURSE_PLATFORM_PRICE.firstYearMinor, locale)}
                   </p>
                   <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
@@ -229,7 +244,7 @@ export function ProductPage({
                   <p className="text-muted-foreground text-sm font-semibold">
                     {page.pricing.renewalLabel}
                   </p>
-                  <p className="mt-2 text-3xl font-bold sm:text-4xl">
+                  <p className="text-ink mt-2 text-3xl font-extrabold sm:text-4xl">
                     {price(COURSE_PLATFORM_PRICE.renewalMinor, locale)}
                   </p>
                   <p className="text-muted-foreground mt-3 text-sm leading-relaxed">
@@ -239,7 +254,7 @@ export function ProductPage({
               </div>
             ) : null}
 
-            <h3 className="mt-8 text-base font-semibold">
+            <h3 className="mt-8 text-lg font-extrabold">
               {page.pricing.includesHeading}
             </h3>
             <ul className="mt-4 grid gap-3 sm:grid-cols-2">
@@ -273,11 +288,11 @@ export function ProductPage({
         </Container>
       </Section>
 
-      <Section tone="ink">
+      <Section tone="ink" id="demo">
         <Container>
           <div className="grid items-start gap-10 lg:grid-cols-2 lg:gap-16">
             <div>
-              <h2 className="text-ink-foreground text-3xl font-bold text-balance sm:text-4xl">
+              <h2 className="text-3xl leading-[1.25] font-extrabold text-balance text-white sm:text-4xl">
                 {page.close.title}
               </h2>
               <p className="text-ink-foreground/75 mt-4 text-lg leading-relaxed text-pretty">
@@ -293,7 +308,7 @@ export function ProductPage({
               </ul>
             </div>
 
-            <DemoForm t={t} locale={locale} />
+            <DemoForm t={t} locale={locale} defaultProduct={product} />
           </div>
         </Container>
       </Section>

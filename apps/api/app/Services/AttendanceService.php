@@ -48,9 +48,9 @@ final class AttendanceService
      *
      * @return array{status: string, billed: bool, billingAction: ?string}
      */
-    public function record(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride = null, ?bool $teacherOverride = null): array
+    public function record(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride = null, ?bool $teacherOverride = null, ?int $teacherShareBp = null): array
     {
-        return $this->apply($session, $next, $reason, $actorUserId, $actorRole, $billOverride, $teacherOverride, recorded: true);
+        return $this->apply($session, $next, $reason, $actorUserId, $actorRole, $billOverride, $teacherOverride, recorded: true, teacherShareBp: $teacherShareBp);
     }
 
     /**
@@ -100,21 +100,31 @@ final class AttendanceService
      *                          when they are taking one back (clear the stamp).
      * @return array{status: string, billed: bool, billingAction: ?string}
      */
-    private function apply(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride, ?bool $teacherOverride, bool $recorded): array
+    private function apply(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride, ?bool $teacherOverride, bool $recorded, ?int $teacherShareBp = null): array
     {
         // One unit. The request's own transaction COMMITS after a 422 (Laravel renders the exception
         // inside it), so without this a payout refusing here left the package minutes or invoice line
         // already taken off: "cannot undo" on screen, the lesson gone from its package underneath.
-        return DB::transaction(fn (): array => $this->applyOutcome($session, $next, $reason, $actorUserId, $actorRole, $billOverride, $teacherOverride, $recorded));
+        return DB::transaction(fn (): array => $this->applyOutcome($session, $next, $reason, $actorUserId, $actorRole, $billOverride, $teacherOverride, $recorded, $teacherShareBp));
     }
 
     /** @return array{status: string, billed: bool, billingAction: ?string} */
-    private function applyOutcome(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride, ?bool $teacherOverride, bool $recorded): array
+    private function applyOutcome(object $session, SessionStatus $next, ?string $reason, string $actorUserId, string $actorRole, ?bool $billOverride, ?bool $teacherOverride, bool $recorded, ?int $teacherShareBp = null): array
     {
         $prev = (string) $session->status;
         $wasBilled = (bool) $session->billed;
         $wasPaidToTeacher = (bool) $session->paid_to_teacher;
         $verdict = SessionClassifier::classify($next, $billOverride, $teacherOverride);
+
+        // The teacher's share of a cancelled/free lesson the office chose to pay (a quarter, a
+        // half, the whole). It means something only alongside "pay the teacher": every other
+        // outcome — attended included — pays the whole lesson, so it is stored as NULL.
+        $prevShareBp = isset($session->teacher_pay_share_bp) ? (int) $session->teacher_pay_share_bp : null;
+        $shareBp = $teacherOverride === true && $teacherShareBp !== null && $teacherShareBp < 10000
+            ? max(0, $teacherShareBp)
+            : null;
+        // The payout hooks price the line from the in-memory row, so it must carry the new share.
+        $session->teacher_pay_share_bp = $shareBp;
 
         // The billing/payout hooks read the session row for date, amount and (now) the line
         // description. Stamp the outcome we're applying so a charged cancellation's line shows the
@@ -161,6 +171,13 @@ final class AttendanceService
             $this->payoutHook->onSessionUnattended($session);  // reverse the payout line (if not finalized)
             $paidToTeacher = false;
             $payrollAction = 'reversed';
+        } elseif ($verdict['countsForTeacher'] && $wasPaidToTeacher && $prevShareBp !== $shareBp) {
+            // Still paid, but a different share (attended → cancelled at half pay, or a quarter
+            // corrected to a half): take the old line back and accrue it again at the new share,
+            // under the same finalized-statement guard as any other reversal.
+            $this->payoutHook->onSessionUnattended($session);
+            $this->payoutHook->onSessionAttended($session);
+            $payrollAction = 'repriced';
         }
 
         DB::table('sessions')->where('id', $session->id)->update([
@@ -168,6 +185,7 @@ final class AttendanceService
             'status_reason' => $reason,
             'bill_override' => $billOverride,
             'teacher_override' => $teacherOverride,
+            'teacher_pay_share_bp' => $shareBp,
             'billed' => $billed,
             'paid_to_teacher' => $paidToTeacher,
             // A revert leaves no outcome behind: the lesson has to look untouched to the pending
@@ -188,7 +206,7 @@ final class AttendanceService
             (string) $session->academy_id,
             $actorUserId,
             $actorRole,
-            after: ['status' => $next->value, 'billed' => $billed, 'billing_action' => $billingAction, 'paid_to_teacher' => $paidToTeacher, 'payroll_action' => $payrollAction, 'reason' => $reason, 'bill_override' => $billOverride, 'teacher_override' => $teacherOverride],
+            after: ['status' => $next->value, 'billed' => $billed, 'billing_action' => $billingAction, 'paid_to_teacher' => $paidToTeacher, 'payroll_action' => $payrollAction, 'reason' => $reason, 'bill_override' => $billOverride, 'teacher_override' => $teacherOverride, 'teacher_pay_percent' => $shareBp !== null ? intdiv($shareBp, 100) : null],
             before: ['status' => $prev, 'billed' => $wasBilled, 'paid_to_teacher' => $wasPaidToTeacher],
         );
 

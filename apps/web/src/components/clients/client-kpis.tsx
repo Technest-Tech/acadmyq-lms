@@ -1,113 +1,74 @@
 "use client";
 
-import { Blocks, CalendarClock, Users, Wallet } from "lucide-react";
+import { LogIn, ReceiptText, Users, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { StatTile } from "@/components/admin/stat-tile";
 import type { ClientDetail } from "@/lib/api";
-import { formatNumber } from "@/lib/money";
-import { daysUntil } from "@/lib/time";
-import {
-  fmtDate,
-  nextUpcoming,
-  revenueBuckets,
-  revenueLabel,
-} from "./client-summary";
+import { formatMoney, formatNumber } from "@/lib/money";
+import { formatRelativeTime } from "@/lib/time";
+import { agreementPrice, daysSince, fmtDate, isInactive } from "./client-summary";
 
 type Tone = "good" | "warn" | "crit" | "neutral";
 
 /**
- * The four numbers that answer "how is this client doing?" before any tab is opened: what it
- * pays us, how much of what it could hold it does hold, how big it is, and the next clock that
- * will ring. All derived from the client read — the tiles never fetch.
+ * The four numbers that answer "how is this client doing?" before any tab is opened: what it pays
+ * us, what it still owes us, how big it is and how much it teaches, and when anyone last signed in.
+ * What it holds and when its clocks ring live on the header's module tags and its banner. All
+ * derived from the client read — the tiles never fetch.
  */
 export function ClientKpis({ data }: { data: ClientDetail }) {
   const t = useTranslations("clients.detail.kpi");
-  const tm = useTranslations("clients.modules");
-  const tsubs = useTranslations("clients.subs");
+  const tf = useTranslations("finance");
+  const tg = useTranslations("accounts.agreement");
   const locale = useLocale();
-  const { modules, catalog, summary } = data;
+  const { modules, summary, client } = data;
+  const usage = summary.usage;
+  const n = (value: number) => formatNumber(value, locale);
 
-  // Revenue
-  const revenue = revenueLabel(revenueBuckets(modules), locale, (interval) =>
-    tsubs(interval === "YEARLY" ? "perYearSuffix" : "perMonthSuffix"),
-  );
+  // What it pays and what it owes — both from its account in the book.
+  const account = data.account ?? null;
   const active = modules.filter((m) => m.status === "ACTIVE");
-  const paid = active.filter((m) => !m.is_trial);
   const trials = active.filter((m) => m.is_trial);
-  const paused = modules.filter((m) => m.status === "PAUSED");
-  const total = catalog.allowedModules.length;
-
+  const price = agreementPrice(account, locale, (interval) => tf(`intervalShort.${interval}`));
+  const revenue = price !== "" ? price : account?.plan ? tg(`plan.${account.plan}`) : "";
   let revenueSub = t("revenueNone");
   let revenueTone: Tone = "neutral";
-  if (paid.length > 0) {
-    revenueSub = t("revenuePaid", { count: paid.length });
+  if (account?.plan) {
+    revenueSub = tg(`plan.${account.plan}`);
     revenueTone = "good";
   } else if (trials.length > 0) {
     revenueSub = t("revenueTrial");
     revenueTone = "warn";
   }
 
-  // Modules
-  const soonestTrial = trials
-    .map((m) => ({ module: m.module, days: daysUntil(m.trial_end) }))
-    .filter(
-      (x): x is { module: (typeof x)["module"]; days: number } =>
-        x.days !== null,
-    )
-    .sort((a, b) => a.days - b.days)[0];
-  let modulesSub: string;
-  let modulesTone: Tone;
-  if (soonestTrial !== undefined) {
-    modulesSub =
-      soonestTrial.days >= 0
-        ? t("modulesTrial", {
-            module: tm(soonestTrial.module),
-            days: soonestTrial.days,
+  const owing = Object.entries(account?.outstanding ?? {}).filter(([, v]) => v > 0);
+  const owed =
+    account === null
+      ? "—"
+      : owing.length === 0
+        ? formatMoney({ amount: 0, currency: client.default_currency }, locale, { trimZeroDecimals: true })
+        : owing.map(([currency, amount]) => formatMoney({ amount, currency }, locale, { trimZeroDecimals: true })).join(" · ");
+  const owedSub =
+    account === null
+      ? undefined
+      : account.has_overdue
+        ? t("unpaidOverdue", {
+            amount: Object.entries(account.overdue)
+              .map(([currency, amount]) => formatMoney({ amount, currency }, locale, { trimZeroDecimals: true }))
+              .join(" · "),
           })
-        : t("modulesTrialExpired", { module: tm(soonestTrial.module) });
-    modulesTone = soonestTrial.days >= 0 ? "warn" : "crit";
-  } else if (paused.length > 0) {
-    modulesSub = t("modulesPaused", { count: paused.length });
-    modulesTone = "neutral";
-  } else if (active.length === 0) {
-    modulesSub = t("modulesNone");
-    modulesTone = "neutral";
-  } else {
-    modulesSub = t("modulesAllOn");
-    modulesTone = "good";
-  }
+        : account.next_due_on
+          ? t("unpaidNext", { date: fmtDate(account.next_due_on, locale) })
+          : t("unpaidNone");
+  const owedTone: Tone = account === null ? "neutral" : account.has_overdue ? "crit" : owing.length > 0 ? "warn" : "good";
 
-  // Next date
-  const upcoming = nextUpcoming(modules);
-  let upcomingSub = t("upcomingNone");
-  let upcomingTone: Tone = "neutral";
-  if (upcoming !== null) {
-    const name = tm(upcoming.module);
-    const days = Math.abs(upcoming.days);
-    if (upcoming.trial) {
-      upcomingSub =
-        upcoming.days > 0
-          ? t("trialEnds", { module: name, days })
-          : upcoming.days === 0
-            ? t("trialEndsToday", { module: name })
-            : t("trialEnded", { module: name, days });
-    } else {
-      upcomingSub =
-        upcoming.days > 0
-          ? t("renewal", { module: name, days })
-          : upcoming.days === 0
-            ? t("renewalToday", { module: name })
-            : t("renewalOverdue", { module: name, days });
-    }
-    upcomingTone =
-      upcoming.days < 0 ? "crit" : upcoming.days <= 7 ? "warn" : "neutral";
-  }
+  // When anyone last signed in
+  const lastLogin = usage?.last_login_at ?? null;
+  const stale = usage !== undefined && isInactive(lastLogin, client.created_at);
+  const since = daysSince(lastLogin);
 
   return (
-    <div
-      className="grid grid-cols-2 gap-3 lg:grid-cols-4"
-      data-testid="client-kpis"
-    >
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="client-kpis">
       <StatTile
         label={t("revenue")}
         value={revenue === "" ? "—" : revenue}
@@ -116,30 +77,35 @@ export function ClientKpis({ data }: { data: ClientDetail }) {
         icon={Wallet}
         testId="kpi-revenue"
       />
-      <StatTile
-        label={t("modules")}
-        value={t("modulesOf", { active: active.length, total })}
-        sub={modulesSub}
-        subTone={modulesTone}
-        icon={Blocks}
-        testId="kpi-modules"
-      />
+      <StatTile label={t("unpaid")} value={owed} sub={owedSub} subTone={owedTone} icon={ReceiptText} testId="kpi-unpaid" />
       <StatTile
         label={t("students")}
-        value={formatNumber(summary.student_count, locale)}
-        sub={t("teachers", {
-          count: formatNumber(summary.teacher_count, locale),
-        })}
+        value={n(summary.student_count)}
+        sub={[
+          t("teachers", { count: n(summary.teacher_count) }),
+          usage === undefined ? null : t("lessons", { count: n(usage.lessons_this_month) }),
+        ]
+          .filter(Boolean)
+          .join(" · ")}
         icon={Users}
         testId="kpi-people"
       />
       <StatTile
-        label={t("upcoming")}
-        value={upcoming === null ? "—" : fmtDate(upcoming.date, locale)}
-        sub={upcomingSub}
-        subTone={upcomingTone}
-        icon={CalendarClock}
-        testId="kpi-upcoming"
+        label={t("lastLogin")}
+        // `auto`: an Arabic "منذ ٣ أيام" is not a left-to-right figure.
+        value={<span dir="auto">{lastLogin === null ? t("lastLoginNever") : formatRelativeTime(lastLogin, locale)}</span>}
+        sub={
+          usage === undefined
+            ? undefined
+            : stale
+              ? since === null
+                ? t("lastLoginNever")
+                : t("lastLoginStale", { days: n(since) })
+              : t("lastLoginFresh")
+        }
+        subTone={usage === undefined ? "neutral" : stale ? "warn" : "good"}
+        icon={LogIn}
+        testId="kpi-login"
       />
     </div>
   );

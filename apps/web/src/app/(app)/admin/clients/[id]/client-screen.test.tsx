@@ -93,10 +93,30 @@ const detail = (over: Partial<api.ClientDetail> = {}): api.ClientDetail => ({
       id: "u1",
       full_name: "Omar Salem",
       email: "o@bright.eg",
+      phone: "+20 100 123 4567",
       is_active: true,
     },
     student_count: 120,
     teacher_count: 8,
+    usage: {
+      last_login_at: new Date().toISOString(),
+      lessons_this_month: 64,
+    },
+  },
+  // Its account in the book: monthly at 999, one cycle late.
+  account: {
+    id: "acct-1",
+    plan: "MONTHLY",
+    pay_token: "tok",
+    recurring: { deal_id: "d1", amount_minor: 99900, list_amount_minor: null, interval: "MONTHLY", currency: "EGP" },
+    next_due_on: inDays(-5).slice(0, 10),
+    next_due_minor: 99900,
+    next_due_currency: "EGP",
+    has_overdue: true,
+    overdue: { EGP: 99900 },
+    outstanding: { EGP: 199800 },
+    pending_proofs: 0,
+    active_deals: 1,
   },
   catalog: {
     clientType: "MANAGEMENT",
@@ -156,25 +176,54 @@ describe("ClientScreen", () => {
       "o@bright.eg",
     );
     expect(screen.getByTestId("kpi-revenue")).toHaveTextContent("999");
-    expect(screen.getByTestId("kpi-revenue")).toHaveTextContent(
-      "1 paid modules",
-    );
-    expect(screen.getByTestId("kpi-modules")).toHaveTextContent("2 of 3");
+    expect(screen.getByTestId("kpi-revenue")).toHaveTextContent("Monthly");
+    expect(screen.getByTestId("kpi-unpaid")).toHaveTextContent("late");
     expect(screen.getByTestId("kpi-people")).toHaveTextContent("120");
+    expect(screen.getByTestId("kpi-people")).toHaveTextContent("64 lessons this month");
+    expect(screen.getByTestId("kpi-login")).toHaveTextContent("Using the system");
+    // Who to call, one tap away on WhatsApp.
+    expect(screen.getByTestId("client-phone")).toHaveAttribute("href", "https://wa.me/201001234567");
+
+    // Is it being used? Last sign-in, this month's lessons, what it owes.
+    expect(screen.getByTestId("usage-lessons")).toHaveTextContent("64");
+    expect(screen.getByTestId("usage-unpaid")).toHaveTextContent("late");
+    expect(screen.getByTestId("issue-payment-late")).toBeInTheDocument();
 
     // The video trial ends in 3 days → one attention row, pointing at the Modules tab.
     expect(screen.getByTestId("issue-trial-VIDEO")).toHaveTextContent(
       "Video trial ends in 3 days",
     );
+    // …but the banner over the page rings the loudest clock: the late payment, with the tab that settles it.
+    expect(screen.getByTestId("client-alarm")).toHaveTextContent("Payment 5 days late");
+    expect(screen.getByTestId("client-alarm")).toHaveTextContent("Open subscription");
     expect(screen.getByTestId("fact-owner")).toHaveTextContent("Omar Salem");
 
     expect(screen.getByTestId("tab-overview")).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    // No WhatsApp module → no WhatsApp tab.
-    expect(screen.queryByTestId("tab-whatsapp")).toBeNull();
-    expect(screen.getByTestId("tab-video")).toBeInTheDocument();
+    // Five sections, whatever the client holds; the video tab is gone.
+    expect(
+      Array.from(document.querySelectorAll('[data-testid^="tab-"]')).map((el) => el.getAttribute("data-testid")),
+    ).toEqual(["tab-overview", "tab-subscription", "tab-features", "tab-connections", "tab-settings"]);
+  });
+
+  it("flags a client nobody has signed in to for weeks", async () => {
+    vi.mocked(api.getClient).mockResolvedValue(
+      detail({
+        summary: {
+          ...detail().summary,
+          usage: { last_login_at: inDays(-20), lessons_this_month: 0 },
+        },
+        account: { ...detail().account!, next_due_on: null, next_due_minor: null, has_overdue: false, overdue: {}, outstanding: {} },
+      }),
+    );
+    render(wrap(["academy.read"]));
+    await heading();
+
+    expect(screen.getByTestId("issue-inactive")).toHaveTextContent("20 days");
+    expect(screen.getByTestId("kpi-login")).toHaveTextContent("20 days without a sign-in");
+    expect(screen.getByTestId("kpi-unpaid")).toHaveTextContent("Nothing owed");
   });
 
   it("names the open section on the URL", async () => {
@@ -189,21 +238,33 @@ describe("ClientScreen", () => {
     expect(screen.getByTestId("client-delete-card")).toBeInTheDocument();
     expect(screen.getByTestId("client-settings-form")).toBeInTheDocument();
 
+    // The domains moved to Connections.
+    expect(screen.queryByTestId("client-domains-card")).toBeNull();
+
     const user = userEvent.setup();
-    await user.click(screen.getByTestId("tab-modules"));
-    expect(nav.replace).toHaveBeenCalledWith("/admin/clients/c1?tab=modules", {
+    await user.click(screen.getByTestId("tab-subscription"));
+    expect(nav.replace).toHaveBeenCalledWith("/admin/clients/c1?tab=subscription", {
       scroll: false,
     });
   });
 
-  it("falls back to the overview for a tab the client does not have", async () => {
+  it("lands an old tab name in its new section, and anything unknown on the overview", async () => {
+    nav.params = new URLSearchParams("tab=billing");
+    const { unmount } = render(wrap(["academy.read"]));
+    await heading();
+    expect(screen.getByTestId("tab-subscription")).toHaveAttribute("aria-selected", "true");
+    unmount();
+
     nav.params = new URLSearchParams("tab=whatsapp");
+    const second = render(wrap(["academy.read"]));
+    await heading();
+    expect(screen.getByTestId("tab-connections")).toHaveAttribute("aria-selected", "true");
+    second.unmount();
+
+    nav.params = new URLSearchParams("tab=nonsense");
     render(wrap(["academy.read"]));
     await heading();
-    expect(screen.getByTestId("tab-overview")).toHaveAttribute(
-      "aria-selected",
-      "true",
-    );
+    expect(screen.getByTestId("tab-overview")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("client-overview")).toBeInTheDocument();
   });
 
@@ -213,7 +274,9 @@ describe("ClientScreen", () => {
     render(wrap(["academy.read", "academy.suspend"]));
     await heading();
 
-    await user.click(screen.getByTestId("client-suspend"));
+    // Suspending waits behind the "more" menu, away from the hand.
+    await user.click(screen.getByTestId("client-more"));
+    await user.click(await screen.findByTestId("client-suspend"));
     await user.type(screen.getByTestId("suspend-reason"), "Unpaid");
     vi.mocked(api.getClient).mockResolvedValue(
       detail({

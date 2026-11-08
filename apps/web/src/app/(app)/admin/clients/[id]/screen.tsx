@@ -2,13 +2,11 @@
 
 import {
   ArrowLeft,
-  Blocks,
-  CreditCard,
   LayoutDashboard,
-  MessageCircle,
-  MonitorPlay,
+  PlugZap,
   ReceiptText,
   Settings2,
+  SlidersHorizontal,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -20,21 +18,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { AcademySubscriptionPanel } from "@/components/academies/academy-subscription-panel";
 import { SectionTabs, type SectionTab } from "@/components/admin/section-tabs";
 import { useAuth } from "@/components/auth-provider";
 import { ClientHeader } from "@/components/clients/client-header";
 import { ClientKpis } from "@/components/clients/client-kpis";
 import { ClientOverview } from "@/components/clients/client-overview";
+import { ClientDomainsCard } from "@/components/clients/client-domains-card";
 import { ClientSettingsTab } from "@/components/clients/client-settings";
-import type { ClientTab } from "@/components/clients/client-summary";
+import { LEGACY_CLIENT_TABS, type ClientTab } from "@/components/clients/client-summary";
 import { ClientXpayCard } from "@/components/clients/client-xpay-card";
 import { FeaturesCard } from "@/components/clients/features-card";
-import {
-  ClientVideoCard,
-  ClientWhatsappCard,
-} from "@/components/clients/module-tabs";
+import { ClientWhatsappCard } from "@/components/clients/module-tabs";
 import { ModulesCard } from "@/components/clients/modules-card";
+import { AccountPanel } from "@/components/finance/account-panel";
+import { AgreementFormModal, type AgreementTarget } from "@/components/finance/agreement-form-modal";
 import { ClientWhatsappGroupsCard } from "@/components/clients/whatsapp-groups-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { useToast } from "@/components/ui/toast";
@@ -42,6 +39,8 @@ import {
   ApiError,
   enterAcademy,
   getClient,
+  getClientAccount,
+  type AccountPayload,
   getPlatformSettings,
   reactivateAcademy,
   suspendAcademy,
@@ -51,19 +50,18 @@ import {
 } from "@/lib/api";
 
 /**
- * /admin/clients/[id] — the client control center (05-MODULES-NOT-PACKAGES §4), laid out the way
- * a customer page reads in any grown-up admin: an identity header with the lifecycle verbs, four
- * KPIs, then one section per concern behind a tab strip —
+ * /admin/clients/[id] — the client control center, in five sections behind one tab strip (Ahmed,
+ * 2026-11-07: the eight tabs had grown duplicates and an empty one):
  *
- *   Overview            what needs a decision, what the client holds, the facts for a call
- *   Modules & features  THE writer for which modules it holds, at what price, and the switches
- *   Billing             our bills to this client and their payment proofs
- *   Payments            how the client collects from its own students (XPay)
- *   WhatsApp / Video    only when the client holds that module
- *   Settings            identity, owner login, domains, danger zone
+ *   Overview              what needs a decision, whether it is being used, the facts for a call
+ *   Subscription & money  what it holds and pays (THE writer for modules, prices, trials) and our
+ *                         bills to it with their proofs — one story, one tab
+ *   Features              the per-client switches, opt-in extras first
+ *   Connections           WhatsApp (when held), the payment gateway it collects with, its domains
+ *   Settings              identity, owner login, danger zone
  *
- * `?tab=` on the URL names the open section, so a refresh keeps its place and any other page can
- * link straight to a client's billing or settings.
+ * `?tab=` on the URL names the open section, so a refresh keeps its place; the old eight names
+ * still land in the right one (LEGACY_CLIENT_TABS).
  */
 export function ClientScreen({ clientId }: { clientId: string }) {
   const t = useTranslations("clients.detail");
@@ -81,18 +79,26 @@ export function ClientScreen({ clientId }: { clientId: string }) {
   >({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** The client's account in the book (undefined = not loaded / no access, null = no agreement yet). */
+  const [account, setAccount] = useState<AccountPayload | null | undefined>(undefined);
+  /** Ending a trial with no agreement yet opens the agreement form (it ends the trial on save). */
+  const [activating, setActivating] = useState<AgreementTarget | null>(null);
 
   const load = useCallback(async () => {
     try {
-      const [client, settings] = await Promise.all([
+      const [client, settings, money] = await Promise.all([
         getClient(clientId),
         can("platform.manage")
           ? getPlatformSettings().catch(() => ({
               settings: {} as PlatformSettings,
             }))
           : Promise.resolve({ settings: {} as PlatformSettings }),
+        can("platform.manage")
+          ? getClientAccount(clientId).catch(() => undefined)
+          : Promise.resolve(undefined),
       ]);
       setData(client);
+      setAccount(money === undefined ? undefined : money.account === null ? null : (money as AccountPayload));
       setDefaultPricing(
         (settings.settings.module_pricing as
           | typeof defaultPricing
@@ -113,36 +119,21 @@ export function ClientScreen({ clientId }: { clientId: string }) {
     [data],
   );
 
-  const tabs = useMemo<SectionTab<ClientTab>[]>(() => {
-    const list: SectionTab<ClientTab>[] = [
+  const tabs = useMemo<SectionTab<ClientTab>[]>(
+    () => [
       { key: "overview", label: t("tabs.overview"), icon: LayoutDashboard },
-      {
-        key: "modules",
-        label: t("tabs.modules"),
-        icon: Blocks,
-        badge: activeModules.size > 0 ? activeModules.size : undefined,
-      },
-      { key: "billing", label: t("tabs.billing"), icon: ReceiptText },
-      // Unconditional: how a client collects money from its own students is not a module, it is a
-      // property of every client that bills anyone.
-      { key: "payments", label: t("tabs.payments"), icon: CreditCard },
-    ];
-    if (activeModules.has("WHATSAPP")) {
-      list.push({
-        key: "whatsapp",
-        label: t("tabs.whatsapp"),
-        icon: MessageCircle,
-      });
-    }
-    if (activeModules.has("VIDEO")) {
-      list.push({ key: "video", label: t("tabs.video"), icon: MonitorPlay });
-    }
-    list.push({ key: "settings", label: t("tabs.settings"), icon: Settings2 });
-    return list;
-  }, [activeModules, t]);
+      { key: "subscription", label: t("tabs.subscription"), icon: ReceiptText },
+      { key: "features", label: t("tabs.features"), icon: SlidersHorizontal },
+      { key: "connections", label: t("tabs.connections"), icon: PlugZap },
+      { key: "settings", label: t("tabs.settings"), icon: Settings2 },
+    ],
+    [t],
+  );
 
-  // The open section lives on the URL. An unknown or not-yet-available tab falls back to Overview.
-  const requested = searchParams.get("tab");
+  // The open section lives on the URL. An old tab name maps onto its new home; anything else
+  // falls back to Overview.
+  const requestedRaw = searchParams.get("tab") ?? "";
+  const requested = LEGACY_CLIENT_TABS[requestedRaw] ?? requestedRaw;
   const tab: ClientTab = tabs.some((x) => x.key === requested)
     ? (requested as ClientTab)
     : "overview";
@@ -216,6 +207,23 @@ export function ClientScreen({ clientId }: { clientId: string }) {
   }
 
   const { client } = data;
+  const trial = data.modules.find((m) => m.status === "ACTIVE" && m.is_trial) ?? null;
+  const paid = data.modules.filter((m) => m.status === "ACTIVE" && !m.is_trial);
+  const agreementTarget = {
+    kind: "academy" as const,
+    academyId: clientId,
+    name: client.name,
+    inTrial: trial !== null,
+    trialEnd: trial?.trial_end ?? null,
+    // What its modules were sold at (or the platform's default price) — the form's starting point.
+    suggested: (() => {
+      const sold = paid.reduce((sum, m) => sum + m.total_cost_minor, 0);
+      if (sold > 0) return { amount_minor: sold, currency: paid[0]!.currency, interval: paid[0]!.billing_interval };
+      const primary = data.modules[0]?.module;
+      const preset = primary ? defaultPricing[primary] : undefined;
+      return preset && preset.price_minor > 0 ? { amount_minor: preset.price_minor, currency: preset.currency, interval: "MONTHLY" as const } : null;
+    })(),
+  };
 
   return (
     <div className="space-y-6" data-testid="client-screen">
@@ -238,11 +246,18 @@ export function ClientScreen({ clientId }: { clientId: string }) {
 
       {tab === "overview" && <ClientOverview data={data} clientId={clientId} />}
 
-      {tab === "modules" && (
+      {tab === "subscription" && (
         <TabSection
-          title={t("sections.modules")}
-          hint={t("sections.modulesHint")}
+          title={t("sections.subscription")}
+          hint={t("sections.subscriptionHint")}
         >
+          {account !== undefined && (
+            <AccountPanel
+              payload={account}
+              target={agreementTarget}
+              onChanged={() => void load()}
+            />
+          )}
           <ModulesCard
             clientId={clientId}
             clientType={data.catalog.clientType}
@@ -250,50 +265,49 @@ export function ClientScreen({ clientId }: { clientId: string }) {
             currency={client.default_currency}
             defaultPricing={defaultPricing}
             onChanged={() => void load()}
+            onActivate={
+              account === null
+                ? () => setActivating({ ...agreementTarget, inTrial: true })
+                : undefined
+            }
           />
+          <AgreementFormModal
+            open={activating !== null}
+            target={activating}
+            onClose={() => setActivating(null)}
+            onSaved={() => {
+              setActivating(null);
+              void load();
+            }}
+          />
+        </TabSection>
+      )}
+
+      {/* The card carries its own title and hint: a section heading over it would say it twice. */}
+      {tab === "features" && (
+        <div role="tabpanel">
           <FeaturesCard
             clientId={clientId}
             catalog={data.catalog}
             modules={data.modules}
             onChanged={() => void load()}
           />
-        </TabSection>
+        </div>
       )}
 
-      {tab === "billing" && (
+      {tab === "connections" && (
         <TabSection
-          title={t("sections.billing")}
-          hint={t("sections.billingHint")}
+          title={t("sections.connections")}
+          hint={t("sections.connectionsHint")}
         >
-          <AcademySubscriptionPanel
-            academyId={clientId}
-            onChanged={() => void load()}
-          />
-        </TabSection>
-      )}
-
-      {tab === "payments" && (
-        <TabSection
-          title={t("sections.payments")}
-          hint={t("sections.paymentsHint")}
-        >
+          {activeModules.has("WHATSAPP") && (
+            <>
+              <ClientWhatsappCard clientId={clientId} />
+              <ClientWhatsappGroupsCard clientId={clientId} />
+            </>
+          )}
           <ClientXpayCard clientId={clientId} />
-        </TabSection>
-      )}
-
-      {tab === "whatsapp" && activeModules.has("WHATSAPP") && (
-        <TabSection
-          title={t("sections.whatsapp")}
-          hint={t("sections.whatsappHint")}
-        >
-          <ClientWhatsappCard clientId={clientId} />
-          <ClientWhatsappGroupsCard clientId={clientId} />
-        </TabSection>
-      )}
-
-      {tab === "video" && activeModules.has("VIDEO") && (
-        <TabSection title={t("sections.video")} hint={t("sections.videoHint")}>
-          <ClientVideoCard clientId={clientId} />
+          <ClientDomainsCard clientId={clientId} />
         </TabSection>
       )}
 
@@ -322,7 +336,7 @@ function TabSection({
   return (
     <div className="space-y-4" role="tabpanel">
       <div>
-        <h2 className="text-base font-semibold tracking-tight">{title}</h2>
+        <h2 className="text-lg font-extrabold tracking-tight">{title}</h2>
         <p className="text-muted-foreground mt-0.5 text-sm">{hint}</p>
       </div>
       {children}

@@ -7,7 +7,6 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Services\AcademyBilling;
 use App\Services\ModuleBilling;
-use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\Tenancy;
@@ -15,9 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
  * Super Admin management of an academy's SaaS subscription (Platform↔Academy billing): the
@@ -33,21 +30,7 @@ final class AcademySubscriptionController extends Controller
     public function __construct(
         private readonly AcademyBilling $billing,
         private readonly ModuleBilling $modules,
-        private readonly WhatsAppSender $sender,
     ) {}
-
-    /**
-     * GET /admin/subscriptions — cross-academy subscription overview + the global pending
-     * payment-proof review queue (one audited SECURITY DEFINER read, like the billing overview).
-     */
-    public function overview(): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-
-        $data = json_decode(DB::selectOne('select app.admin_subscription_overview() as o')->o, true);
-
-        return response()->json($data);
-    }
 
     /** GET /admin/academies/{id}/subscription — the subscription + its plan/add-on cost breakdown. */
     public function show(string $id): JsonResponse
@@ -160,216 +143,18 @@ final class AcademySubscriptionController extends Controller
 
         $sub = $this->billing->ensureSubscription($ctx->academyId);
 
-        return response()->json(['subscription' => $sub]);
-    }
-
-    // ── Academy bills (Platform → Academy invoices) ──────────────────────────
-
-    /** GET /admin/academies/{id}/bills — the academy's platform bills, newest first. */
-    public function bills(string $id): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-        $this->assertAcademyExists($id);
-
-        $bills = $this->inAcademyContext($id, fn () => DB::table('academy_invoices')
-            ->where('academy_id', $id)
-            ->orderByDesc('issued_at')
-            ->get());
-
-        return response()->json(['bills' => $bills]);
-    }
-
-    /** POST /admin/academies/{id}/bills/generate — issue the current period's bill (idempotent). */
-    public function generateBill(string $id): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-        $this->assertAcademyExists($id);
-        $ctx = app(AuthContext::class);
-
-        $billId = $this->inAcademyContext($id, function () use ($id, $ctx) {
-            $billId = $this->billing->generateCurrentBill($id);
-            if ($billId !== null) {
-                Audit::log('academy_invoice.generated', 'academy_invoice', $billId, $id, $ctx->userId, 'SUPER_ADMIN', after: ['trigger' => 'manual']);
-            }
-
-            return $billId;
-        });
-
-        if ($billId === null) {
-            abort(422, 'A trial subscription cannot be billed. Activate it first.');
+        // What the academy owes the platform, from the owner's accounts book — shown only to the
+        // academy's owner (a teacher or a supervisor has no business with the school's bill).
+        $account = null;
+        if ($ctx->role === 'ACADEMY_OWNER') {
+            $raw = DB::selectOne('select app.my_account_dues() as d')->d ?? null;
+            $account = is_string($raw) ? json_decode($raw, true) : null;
         }
 
-        return response()->json(['billId' => $billId]);
-    }
-
-    /** POST /admin/academies/{id}/bills/{billId}/mark-paid — record an offline payment. */
-    public function markBillPaid(Request $request, string $id, string $billId): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-        $data = $request->validate([
-            'method' => ['required', 'string', 'max:50'],
-            'reason' => ['nullable', 'string', 'max:1000'],
-        ]);
-        $ctx = app(AuthContext::class);
-
-        $this->inAcademyContext($id, function () use ($id, $billId, $data, $ctx) {
-            $this->assertBillBelongs($id, $billId);
-            $this->billing->markBillPaid($billId, $data['method'], $data['reason'] ?? null);
-            Audit::log('academy_invoice.marked_paid', 'academy_invoice', $billId, $id, $ctx->userId, 'SUPER_ADMIN',
-                after: ['method' => $data['method'], 'reason' => $data['reason'] ?? null]);
-        });
-
-        return response()->json(['ok' => true]);
-    }
-
-    /** POST /admin/academies/{id}/bills/{billId}/status — set OPEN / OVERDUE / VOID / PAID. */
-    public function setBillStatus(Request $request, string $id, string $billId): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-        $data = $request->validate([
-            'status' => ['required', Rule::in(['OPEN', 'OVERDUE', 'VOID', 'PAID'])],
-        ]);
-        $ctx = app(AuthContext::class);
-
-        $this->inAcademyContext($id, function () use ($id, $billId, $data, $ctx) {
-            $this->assertBillBelongs($id, $billId);
-            $this->billing->setBillStatus($billId, $data['status']);
-            Audit::log('academy_invoice.status_changed', 'academy_invoice', $billId, $id, $ctx->userId, 'SUPER_ADMIN',
-                after: ['status' => $data['status']]);
-        });
-
-        return response()->json(['ok' => true]);
-    }
-
-    /**
-     * POST /admin/academies/{id}/bills/{billId}/send — send the bill to the academy owner over
-     * WhatsApp (via the seam: Wasender when a token is configured, otherwise a wa.me deep link).
-     */
-    public function sendBill(string $id, string $billId): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-        $ctx = app(AuthContext::class);
-
-        $result = $this->inAcademyContext($id, function () use ($id, $billId, $ctx) {
-            $bill = $this->assertBillBelongs($id, $billId);
-            $academyName = (string) DB::table('academies')->where('id', $id)->value('name');
-            $phone = $this->billing->ownerPhone($id) ?? '';
-
-            $frontendUrl = config('app.frontend_url') ?: config('app.url');
-            $url = rtrim((string) $frontendUrl, '/').'/a/'.$bill->public_token;
-            $period = sprintf('%s → %s', $bill->period_start, $bill->period_end);
-
-            $message = implode("\n\n", [
-                "مرحباً {$academyName}، فاتورة اشتراككم للفترة {$period} جاهزة. يمكنكم الدفع عبر الرابط: {$url}",
-                "Hello {$academyName}, your subscription invoice for {$period} is ready. Pay via: {$url}",
-            ]);
-
-            $send = $this->sender->sendOrLink($id, $phone, $message, [
-                'automation_type' => 'MANUAL',
-                'recipient_kind' => 'ACADEMY_OWNER',
-                'ref_type' => 'academy_invoice',
-                'ref_id' => $billId,
-            ]);
-
-            DB::table('academy_invoices')->where('id', $billId)->update([
-                'sent_at' => now(),
-                'sent_channel' => 'WHATSAPP',
-                'updated_at' => now(),
-            ]);
-
-            Audit::log('academy_invoice.sent', 'academy_invoice', $billId, $id, $ctx->userId, 'SUPER_ADMIN',
-                after: ['transport' => $send['transport'], 'phone' => $phone]);
-
-            return ['send' => $send, 'url' => $url, 'message' => $message, 'phone' => $phone];
-        });
-
-        return response()->json([
-            'phone' => $result['phone'],
-            'message' => $result['message'],
-            'url' => $result['url'],
-            'transport' => $result['send']['transport'],
-            'sent' => $result['send']['sent'],
-            'deeplink' => $result['send']['deeplink'],
-        ]);
-    }
-
-    // ── Payment proof submissions (public uploads → Super Admin review) ──────
-
-    /** GET /admin/academies/{id}/bills/{billId}/submissions — payment proofs for a bill. */
-    public function billSubmissions(string $id, string $billId): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-
-        $subs = $this->inAcademyContext($id, fn () => DB::table('academy_payment_submissions')
-            ->where('academy_id', $id)
-            ->where('academy_invoice_id', $billId)
-            ->orderByDesc('created_at')
-            ->get(['id', 'method', 'amount_minor', 'note', 'review_status', 'reviewed_at', 'created_at']));
-
-        return response()->json(['submissions' => $subs]);
-    }
-
-    /** GET /admin/academies/{id}/payment-submissions/{subId}/screenshot — stream the private file. */
-    public function screenshot(string $id, string $subId): StreamedResponse|JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-
-        $path = $this->inAcademyContext($id, fn () => DB::table('academy_payment_submissions')
-            ->where('id', $subId)->where('academy_id', $id)->value('screenshot_path'));
-
-        if ($path === null || ! Storage::disk('local')->exists($path)) {
-            abort(404, 'Screenshot not found.');
-        }
-
-        return Storage::disk('local')->response($path);
-    }
-
-    /** POST /admin/academies/{id}/payment-submissions/{subId}/review — approve (→ paid) or reject. */
-    public function reviewSubmission(Request $request, string $id, string $subId): JsonResponse
-    {
-        Gate::authorize('academy_billing.manage');
-        $data = $request->validate(['decision' => ['required', Rule::in(['approve', 'reject'])]]);
-        $ctx = app(AuthContext::class);
-
-        $this->inAcademyContext($id, function () use ($id, $subId, $data, $ctx) {
-            $sub = DB::table('academy_payment_submissions')
-                ->where('id', $subId)->where('academy_id', $id)->first();
-            if ($sub === null) {
-                abort(404, 'Submission not found.');
-            }
-
-            $status = $data['decision'] === 'approve' ? 'APPROVED' : 'REJECTED';
-            DB::table('academy_payment_submissions')->where('id', $subId)->update([
-                'review_status' => $status,
-                'reviewed_by' => $ctx->userId,
-                'reviewed_at' => now(),
-                'updated_at' => now(),
-            ]);
-
-            // Approving a proof settles the bill with the submitted method.
-            if ($status === 'APPROVED') {
-                $this->billing->markBillPaid((string) $sub->academy_invoice_id, (string) $sub->method, 'Payment proof approved');
-            }
-
-            Audit::log('academy_payment.reviewed', 'academy_payment_submission', $subId, $id, $ctx->userId, 'SUPER_ADMIN',
-                after: ['decision' => $status]);
-        });
-
-        return response()->json(['ok' => true]);
+        return response()->json(['subscription' => $sub, 'account' => $account]);
     }
 
     // ── internals ────────────────────────────────────────────────────────────
-
-    /** Ensure the bill exists and belongs to the academy (within its context); returns the row. */
-    private function assertBillBelongs(string $academyId, string $billId): object
-    {
-        $bill = DB::table('academy_invoices')->where('id', $billId)->where('academy_id', $academyId)->first();
-        if ($bill === null) {
-            abort(404, 'Bill not found.');
-        }
-
-        return $bill;
-    }
 
     private function assertAcademyExists(string $id): void
     {

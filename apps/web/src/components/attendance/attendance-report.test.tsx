@@ -506,6 +506,36 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     );
   });
 
+  it("lets the office pay the teacher half of a lesson the student cancelled", async () => {
+    const user = userEvent.setup();
+    renderPanel(
+      makeSession("ACADEMY_OWNER", {
+        permissions: [
+          "session.read",
+          "session.mark_attendance",
+          "session.write_report",
+          "session.cancel",
+          "session.bill_override",
+        ],
+      }),
+    );
+
+    await user.click(await screen.findByTestId("outcome-CANCELLED_BY_STUDENT"));
+    // No, a quarter, a half, the whole lesson — "No" until the office picks.
+    expect(await screen.findByTestId("teacher-share-0")).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByTestId("teacher-share-50"));
+    await user.click(screen.getByTestId("cancel-billing-confirm"));
+
+    expect(api.markAttendance).toHaveBeenCalledWith(
+      "se1",
+      expect.objectContaining({
+        status: "CANCELLED_BY_STUDENT",
+        pay_teacher: true,
+        teacher_pay_percent: 50,
+      }),
+    );
+  });
+
   it("routes a TEACHER's free mark through the approval request flow", async () => {
     const user = userEvent.setup();
     vi.mocked(api.requestFree).mockResolvedValue({

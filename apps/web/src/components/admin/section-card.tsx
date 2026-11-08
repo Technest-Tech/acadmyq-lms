@@ -41,7 +41,7 @@ export function SectionCard({
     <section
       data-testid={testId}
       className={cn(
-        "bg-card overflow-hidden rounded-xl shadow-sm ring-1 ring-foreground/[0.06]",
+        "admin-surface bg-card overflow-hidden rounded-xl shadow-sm ring-1 ring-foreground/[0.06]",
         danger && "ring-destructive/25 bg-destructive/[0.02]",
         className,
       )}
@@ -57,7 +57,7 @@ export function SectionCard({
             {Icon && (
               <span
                 className={cn(
-                  "mt-px flex size-8 shrink-0 items-center justify-center rounded-lg",
+                  "admin-section__icon mt-px flex size-8 shrink-0 items-center justify-center rounded-lg",
                   danger
                     ? "bg-destructive/10 text-destructive"
                     : "bg-muted text-muted-foreground",
@@ -69,7 +69,7 @@ export function SectionCard({
             <div className="min-w-0">
               <h2
                 className={cn(
-                  "text-sm leading-5 font-semibold",
+                  "admin-section__title text-sm leading-5 font-semibold",
                   danger && "text-destructive",
                 )}
               >

@@ -1,16 +1,30 @@
+import { MessageCircle } from "lucide-react";
 import { headers } from "next/headers";
+import { getTranslations } from "next-intl/server";
 import type { LoginBrand } from "@/app/login/login-screen";
 import { LocaleSwitcher } from "@/components/locale-switcher";
-import { SiteFooter } from "@/components/marketing/site-footer";
 import { SiteHeader } from "@/components/marketing/site-header";
-import { marketing } from "@/content/marketing";
+import { marketingFont } from "@/components/marketing/surface";
+import { marketing, WHATSAPP } from "@/content/marketing";
 import { resolveTenantSite } from "@/lib/tenant-site";
+import { cn } from "@/lib/utils";
 
 /**
- * The chrome around the password pages, decided the same way the sign-in page decides it: the
- * platform door wears the marketing site's header and footer, a client's own door wears only the
- * client (a locale switcher and a light ground — nothing of ours to sell to someone at their own
- * academy's address).
+ * The frame around every sign-in door: the sign-in page, forgot-password and reset-password.
+ *
+ * One look for all of them — the marketing site's deep navy ground with its faint khatam lattice,
+ * and a single white card in the middle. Nothing else: no sales pitch, no feature list, no footer
+ * of links. The person on this page came to get in, and anything beside the form is in the way.
+ *
+ * The two doors differ only in what frames the card:
+ *  - THE PLATFORM door (`app.<root>/login`, no `brand`): the site header (transparent over the
+ *    navy, see `DARK_TOP` in site-header), and one help line under the card — our WhatsApp.
+ *  - A CLIENT's door (`<handle>.<root>`, `brand` set, docs/lms/02): only a language switch and a
+ *    quiet "powered by" line. Nothing of ours to sell, and no number of ours to call: the client's
+ *    people get help from their academy, not from us.
+ *
+ * Light text on navy everywhere here, so the `.marketing` wrapper (palette + face) is set on the
+ * frame itself: these routes live outside `app/(marketing)` and would otherwise get neither.
  */
 export async function AuthFrame({
   brand,
@@ -19,31 +33,62 @@ export async function AuthFrame({
   brand: LoginBrand | null;
   children: React.ReactNode;
 }) {
-  if (brand) {
-    return (
-      <div className="client-door text-foreground relative flex min-h-dvh flex-col overflow-hidden">
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            background:
-              "radial-gradient(70rem 38rem at 50% -14%, oklch(0.519 0.158 163.2 / 0.18), transparent 68%)," +
-              "linear-gradient(180deg, oklch(0.992 0.008 95) 0%, oklch(0.975 0.012 150) 100%)",
-          }}
-        />
-        <div className="relative flex justify-end p-5">
+  const t = await getTranslations("login");
+
+  return (
+    <div
+      className={cn(
+        "marketing mk-ink relative flex min-h-dvh flex-col",
+        marketingFont.variable,
+      )}
+    >
+      <div aria-hidden className="mk-lattice" />
+
+      {brand ? (
+        <div className="marketing-footer-locale relative flex justify-end p-4 sm:p-5">
           <LocaleSwitcher />
         </div>
-        <main className="relative flex flex-1 items-start justify-center px-6 pb-16 pt-6">
-          <div className="animate-page-enter w-full max-w-[26rem]">{children}</div>
-        </main>
-      </div>
-    );
-  }
+      ) : (
+        <PlatformHeader />
+      )}
 
+      <main
+        id="main"
+        className="relative flex flex-1 items-center justify-center px-4 py-10 sm:py-14"
+      >
+        <div className="animate-page-enter w-full max-w-[27rem]">
+          {children}
+
+          {brand ? (
+            <p className="text-ink-foreground/55 mt-6 text-center text-xs">
+              {t("poweredBy")}
+            </p>
+          ) : (
+            <p className="text-ink-foreground/70 mt-6 flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-center text-sm">
+              <span>{t("needHelp")}</span>
+              <a
+                href={WHATSAPP.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-gold focus-visible:outline-gold inline-flex items-center gap-1.5 rounded font-bold underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2"
+              >
+                <MessageCircle aria-hidden className="size-4" />
+                {t("whatsappUs")}
+              </a>
+            </p>
+          )}
+        </div>
+      </main>
+    </div>
+  );
+}
+
+/** The site header, so a visitor can walk back to the site, plus the keyboard skip link. */
+async function PlatformHeader() {
   const { t } = await marketing();
 
   return (
-    <div className="marketing bg-background text-foreground flex min-h-dvh flex-col">
+    <>
       <a
         href="#main"
         className="bg-primary text-primary-foreground focus:ring-ring sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-1/2 focus:z-[60] focus:-translate-x-1/2 focus:rounded-lg focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:ring-2"
@@ -51,27 +96,17 @@ export async function AuthFrame({
         {t.nav.skipToContent}
       </a>
       <SiteHeader t={t} />
-      <main id="main" className="flex-1">
-        <section className="relative overflow-hidden">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-[520px] bg-[radial-gradient(70%_100%_at_50%_0%,color-mix(in_oklab,var(--primary)_10%,transparent),transparent_70%)]"
-          />
-          <div className="relative mx-auto w-full max-w-[26rem] px-4 py-14 sm:py-20">
-            <div className="animate-page-enter">{children}</div>
-          </div>
-        </section>
-      </main>
-      <SiteFooter t={t} />
-    </div>
+    </>
   );
 }
 
-/** Resolve which door a password page is being served on — the same rule as the sign-in page. */
+/** Resolve which door a page is being served on: a management client's handle, or the platform. */
 export async function doorBrand(): Promise<LoginBrand | null> {
   const handle = (await headers()).get("x-academy");
   if (!handle) return null;
   const site = await resolveTenantSite(handle);
+  // Unknown handle, or a course-platform client (whose door is their course site, not this one) —
+  // neither should wear a client identity here.
   if (site === null || site.kind !== "MANAGEMENT") return null;
   return {
     handle,

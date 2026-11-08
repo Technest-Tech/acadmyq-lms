@@ -40,11 +40,14 @@ export function StatTile({
   const body = (
     <>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-muted-foreground truncate text-xs font-medium">
+        <span className="admin-stat__label text-muted-foreground truncate text-xs font-medium">
           {label}
         </span>
         {Icon && (
-          <Icon className="text-muted-foreground/70 size-4 shrink-0" aria-hidden />
+          // The span is the modern look's pastel tile (centre-look.css); classic draws the bare icon.
+          <span className="admin-stat__icon inline-flex shrink-0">
+            <Icon className="text-muted-foreground/70 size-4 shrink-0" aria-hidden />
+          </span>
         )}
       </div>
       {loading ? (
@@ -52,7 +55,7 @@ export function StatTile({
       ) : (
         // Wraps on a phone: two tiles abreast are ~150px, and a cut-off MRR reads as a different one.
         <p
-          className="mt-1.5 text-xl font-bold tracking-tight break-words tabular-nums sm:truncate sm:text-2xl"
+          className="admin-stat__value mt-1.5 text-xl font-bold tracking-tight break-words tabular-nums sm:truncate sm:text-2xl"
           dir="ltr"
         >
           {value}
@@ -65,7 +68,7 @@ export function StatTile({
   );
 
   const base =
-    "bg-card block min-w-0 rounded-xl p-4 shadow-sm ring-1 ring-foreground/[0.06]";
+    "admin-surface admin-stat bg-card block min-w-0 rounded-xl p-4 shadow-sm ring-1 ring-foreground/[0.06]";
 
   if (href) {
     return (

@@ -333,6 +333,9 @@ final class SessionController extends Controller
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
             'charge_student' => ['sometimes', 'boolean'],
             'pay_teacher' => ['sometimes', 'boolean'],
+            // How much of the lesson the teacher is paid when pay_teacher is true: a quarter, a
+            // half or the whole lesson (the default). Ignored when the teacher is not paid.
+            'teacher_pay_percent' => ['sometimes', 'nullable', 'integer', Rule::in([25, 50, 100])],
         ]);
 
         $next = SessionStatus::from(self::NON_BILLABLE_CANCELS[$data['cancelled_by']]);
@@ -343,11 +346,12 @@ final class SessionController extends Controller
         $teacherOverride = $mayBill && (bool) ($data['pay_teacher'] ?? false);
         $prevStatus = (string) $session->status;
 
-        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride);
+        $shareBp = isset($data['teacher_pay_percent']) ? (int) $data['teacher_pay_percent'] * 100 : null;
+        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride, $shareBp);
 
         Audit::log('session.cancelled', 'session', $sessionId, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role,
             before: ['status' => $prevStatus],
-            after: ['status' => $result['status'], 'cancelled_by' => $data['cancelled_by'], 'reason' => $data['reason'] ?? null, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride]);
+            after: ['status' => $result['status'], 'cancelled_by' => $data['cancelled_by'], 'reason' => $data['reason'] ?? null, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride, 'teacher_pay_percent' => $teacherOverride ? ($data['teacher_pay_percent'] ?? 100) : null]);
 
         return response()->json(['ok' => true, 'status' => $result['status'], 'billed' => $result['billed']]);
     }
@@ -775,6 +779,12 @@ final class SessionController extends Controller
             ->select([
                 'se.id', 'se.student_id', 'se.teacher_id', 'se.scheduled_at_utc',
                 'se.duration_minutes', 'se.status',
+                // The attendance page's "Reason" column: what the office or teacher typed when
+                // recording the outcome (a cancellation, an excused absence), and while a teacher's
+                // cancel still waits for approval, the reason the teacher gave on the request.
+                'se.status_reason', 'cr.reason as pending_cancel_reason',
+                // Whether a cancelled/free lesson still pays the teacher, and what share of it.
+                'se.teacher_override', 'se.teacher_pay_share_bp',
                 'st.full_name as student_name', 'st.status as student_status',
                 'te.full_name as teacher_name',
                 'cr.cancel_type as pending_cancel_type',

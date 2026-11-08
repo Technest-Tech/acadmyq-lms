@@ -5,6 +5,7 @@ import arMessages from "../../messages/ar.json";
 import { AppShell } from "@/components/app-shell";
 import { AuthProvider } from "@/components/auth-provider";
 import { ThemeProvider } from "@/components/theme-provider";
+import { ApiError } from "@/lib/api";
 
 const replace = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -55,11 +56,30 @@ describe("AuthProvider route protection (AC-2.13)", () => {
   });
 
   it("redirects to /login when there is no valid session", async () => {
-    getMe.mockRejectedValue(new Error("401"));
+    getMe.mockRejectedValue(new ApiError(401, "Unauthenticated."));
 
     renderApp();
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+    expect(getMe).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not sign anyone out over one dropped /auth/me — it asks again first", async () => {
+    getMe
+      .mockRejectedValueOnce(new TypeError("Failed to fetch"))
+      .mockResolvedValue({
+        user: { id: "u1", fullName: "Owner Noor", email: "o@x.test" },
+        role: "ACADEMY_OWNER",
+        academyId: "a1",
+        permissions: ["student.read"],
+        locale: "ar",
+      });
+
+    renderApp();
+
+    expect(await screen.findByTestId("sidebar", {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(getMe).toHaveBeenCalledTimes(2);
+    expect(replace).not.toHaveBeenCalledWith("/login");
   });
 
   it("redirects to /login when a session idles out mid-use (any API 401)", async () => {

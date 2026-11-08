@@ -6,7 +6,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Services\ClientPurge;
+use App\Services\FinanceLedger;
 use App\Services\ModuleBilling;
+use App\Support\AcademyProfile;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\FeatureCatalog;
@@ -35,11 +37,18 @@ final class ClientController extends Controller
     public function __construct(private readonly ModuleBilling $modules) {}
 
     /** GET /admin/clients — every client with its per-module subscription summary. */
-    public function index(): JsonResponse
+    public function index(FinanceLedger $ledger): JsonResponse
     {
         Gate::authorize('academy.read');
 
         $data = json_decode(DB::selectOne('select app.admin_client_directory() as d')->d, true);
+
+        // What each client owes us and when it next pays comes from the accounts book — the one
+        // money book (FinanceLedger) — never from the module periods.
+        $accounts = Gate::allows('platform.manage') ? $ledger->summariesByAcademy() : [];
+        foreach ($data['clients'] ?? [] as $i => $client) {
+            $data['clients'][$i]['account'] = $accounts[(string) $client['id']] ?? null;
+        }
 
         return response()->json($data);
     }
@@ -119,12 +128,13 @@ final class ClientController extends Controller
     }
 
     /** GET /admin/clients/{id} — one client: academy facts + owner/size summary + module subscriptions + add-ons. */
-    public function show(string $id): JsonResponse
+    public function show(string $id, FinanceLedger $ledger): JsonResponse
     {
         Gate::authorize('academy.read');
         $this->assertAcademyExists($id);
+        $account = Gate::allows('platform.manage') ? ($ledger->summariesByAcademy([$id])[$id] ?? null) : null;
 
-        $payload = $this->inAcademyContext($id, function () use ($id) {
+        $payload = $this->inAcademyContext($id, function () use ($id, $account) {
             $academy = DB::table('academies')->where('id', $id)->first([
                 'id', 'name', 'client_type', 'status', 'suspended_at', 'suspended_reason', 'plan_id',
                 'default_currency', 'timezone', 'invoice_grouping', 'billing_day',
@@ -138,20 +148,45 @@ final class ClientController extends Controller
                 ->where('ur.academy_id', $id)
                 ->where('ur.role', 'ACADEMY_OWNER')
                 ->orderBy('u.created_at')
-                ->first(['u.id', 'u.full_name', 'u.email', 'u.is_active']);
+                ->first(['u.id', 'u.full_name', 'u.email', 'u.phone', 'u.is_active']);
+
+            // Is the client actually using the system? The same signals the hub reads
+            // (app.admin_client_directory): the last sign-in and the lessons recorded this month in
+            // the academy's own timezone. (What it owes us is `account`, from the book.)
+            // The month boundary is computed by Postgres, never bound from Carbon (a naive
+            // timestamp into timestamptz lands hours off).
+            $timezone = (string) ($academy->timezone ?? 'UTC');
 
             return [
                 'client' => $academy,
+                // QURAN or CENTRE: what kind of school this is, shown on the client's header.
+                'profile' => AcademyProfile::forAcademy($id),
                 'summary' => [
                     'owner' => $owner === null ? null : [
                         'id' => $owner->id,
                         'full_name' => $owner->full_name,
                         'email' => $owner->email,
+                        'phone' => $owner->phone,
                         'is_active' => (bool) $owner->is_active,
                     ],
                     'student_count' => DB::table('students')->where('academy_id', $id)->count(),
                     'teacher_count' => DB::table('teachers')->where('academy_id', $id)->count(),
+                    'usage' => [
+                        'last_login_at' => DB::table('audit_log')
+                            ->where('academy_id', $id)
+                            ->where('action', 'auth.login')
+                            ->max('created_at'),
+                        'lessons_this_month' => DB::table('sessions')
+                            ->where('academy_id', $id)
+                            ->whereNull('hidden_at')
+                            ->whereIn('status', ['ATTENDED', 'ABSENT_EXCUSED', 'ABSENT_UNEXCUSED'])
+                            ->whereRaw("scheduled_at_utc >= (date_trunc('month', now() at time zone ?) at time zone ?)", [$timezone, $timezone])
+                            ->count(),
+                    ],
                 ],
+                // The client's account in the book: agreement, next due, what is late (null until
+                // an agreement is set, or for a caller without platform.manage).
+                'account' => $account,
                 'catalog' => $this->featureCatalogFor((string) ($academy->client_type ?? 'MANAGEMENT')),
                 'modules' => $this->moduleRows($id),
                 'addOns' => DB::table('academy_addons as aa')

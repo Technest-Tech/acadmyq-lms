@@ -169,44 +169,43 @@
 /*
  * The PUBLIC MARKETING SITE (`app/(marketing)`) — acadmyq.com and its product pages.
  *
- * A third light-only surface alongside `.learn-site` and `.client-door`, and for the same reason:
- * a visitor who has never logged in must not inherit a staff member's OS dark preference. But it
- * does NOT reuse their palette. The dashboard's emerald-and-gold is the working environment of
- * someone already inside the product; the site that has to explain the product to a stranger reads
- * calmer and warmer — an off-white paper ground, deep teal for the brand, one amber accent, and
- * near-black ink instead of grey.
+ * A light-only surface alongside `.learn-site` and `.client-door`, and for the same reason: a visitor
+ * who has never logged in must not inherit a staff member's OS dark preference.
  *
- * `--accent` is DECORATION ONLY: at this lightness amber clears 3:1 against the page but not the
- * 4.5:1 body-text bar, so it appears as rules, marks and small filled shapes with dark text on
- * them — never as a text colour on the background. `--ink` is the one deep brand ground (footer,
- * the pricing band); anything on it is `--ink-foreground`.
+ * It wears the product's MODERN LOOK (centre-look.css): a calm navy for what acts, a deep navy
+ * ground for the bands that carry the brand, and gold kept for marks and the one loudest button. A
+ * visitor who signs up then opens a workspace in the same colours they were sold.
+ *
+ * `--accent` / `--gold` are DECORATION and filled shapes with dark text on them — never a text
+ * colour on the light ground (gold clears 3:1 there, not 4.5:1). On `--ink`, gold text is fine.
  */
 .marketing {
   color-scheme: light;
   /* Every section is full-bleed; clipping here (not `hidden`) keeps `position: sticky` working. */
   overflow-x: clip;
-  --background: oklch(0.985 0.006 92);
-  --foreground: oklch(0.205 0.021 235);
+  font-family: var(--font-marketing), var(--font-centre), ui-sans-serif, system-ui, sans-serif;
+  --background: oklch(0.985 0.004 255);
+  --foreground: oklch(0.22 0.035 263);
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.205 0.021 235);
+  --card-foreground: oklch(0.22 0.035 263);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.205 0.021 235);
-  --primary: oklch(0.435 0.083 195);
-  --primary-foreground: oklch(0.99 0.004 190);
-  --secondary: oklch(0.955 0.009 92);
-  --secondary-foreground: oklch(0.26 0.024 235);
-  --muted: oklch(0.958 0.008 92);
-  --muted-foreground: oklch(0.44 0.018 235);
-  --accent: oklch(0.735 0.132 62);
-  --accent-foreground: oklch(0.26 0.05 60);
-  --destructive: oklch(0.52 0.19 27);
-  --border: oklch(0.9 0.01 92);
-  --input: oklch(0.885 0.011 92);
-  --ring: oklch(0.435 0.083 195);
-  --ink: oklch(0.215 0.028 215);
-  --ink-foreground: oklch(0.97 0.008 190);
-  --gold: oklch(0.735 0.132 62);
-  --gold-foreground: oklch(0.26 0.05 60);
+  --popover-foreground: oklch(0.22 0.035 263);
+  --primary: oklch(0.42 0.1 262);
+  --primary-foreground: oklch(0.99 0.003 255);
+  --secondary: oklch(0.962 0.01 255);
+  --secondary-foreground: oklch(0.27 0.04 262);
+  --muted: oklch(0.966 0.008 255);
+  --muted-foreground: oklch(0.46 0.025 260);
+  --accent: oklch(0.8 0.125 82);
+  --accent-foreground: oklch(0.3 0.06 68);
+  --destructive: oklch(0.55 0.2 27);
+  --border: oklch(0.915 0.012 255);
+  --input: oklch(0.885 0.014 255);
+  --ring: oklch(0.5 0.11 260);
+  --ink: oklch(0.205 0.045 264);
+  --ink-foreground: oklch(0.975 0.006 255);
+  --gold: oklch(0.8 0.125 82);
+  --gold-foreground: oklch(0.27 0.06 66);
   --radius: 0.75rem;
 }
 

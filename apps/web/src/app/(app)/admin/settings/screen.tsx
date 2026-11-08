@@ -1,13 +1,10 @@
 "use client";
 
 import {
-  Banknote,
   Briefcase,
   Mail,
   ShieldCheck,
-  Smartphone,
   ToggleLeft,
-  Wallet,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -42,24 +39,13 @@ const inputClass =
 const cardClass =
   "bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]";
 
-const TABS = ["flags", "general", "payment", "roles", "departments"] as const;
+// Where clients pay (InstaPay / Vodafone Cash) moved to Accounts → Settings on 2026-11-08.
+const TABS = ["flags", "general", "roles", "departments"] as const;
 type SettingsTab = (typeof TABS)[number];
 
 function isSettingsTab(v: string | null): v is SettingsTab {
   return v !== null && (TABS as readonly string[]).includes(v);
 }
-
-interface PayMethod {
-  enabled: boolean;
-  display_name: string;
-  handle?: string;
-  number?: string;
-}
-
-const DEFAULT_PAY = {
-  INSTAPAY: { enabled: true, display_name: "InstaPay", handle: "" },
-  VODAFONE_CASH: { enabled: true, display_name: "Vodafone Cash", number: "" },
-} satisfies Record<string, PayMethod>;
 
 function Toggle({
   on,
@@ -117,10 +103,6 @@ export function PlatformSettingsScreen() {
   }, []);
   const [flags, setFlags] = useState<FeatureFlag[] | null>(null);
   const [settings, setSettings] = useState<Record<string, string>>({});
-  const [pay, setPay] = useState<{
-    INSTAPAY: PayMethod;
-    VODAFONE_CASH: PayMethod;
-  }>(DEFAULT_PAY);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -138,19 +120,6 @@ export function PlatformSettingsScreen() {
           next[k] = v === undefined || v === null ? "" : String(v);
         }
         setSettings(next);
-
-        const pm = r.settings.platform_payment_methods as
-          | Record<string, PayMethod>
-          | undefined;
-        if (pm) {
-          setPay({
-            INSTAPAY: { ...DEFAULT_PAY.INSTAPAY, ...(pm.INSTAPAY ?? {}) },
-            VODAFONE_CASH: {
-              ...DEFAULT_PAY.VODAFONE_CASH,
-              ...(pm.VODAFONE_CASH ?? {}),
-            },
-          });
-        }
       })
       .catch(() => setError(t("loadError")));
   }, [t]);
@@ -201,7 +170,6 @@ export function PlatformSettingsScreen() {
   const TAB_ICON = {
     flags: ToggleLeft,
     general: Mail,
-    payment: Wallet,
     roles: ShieldCheck,
     departments: Briefcase,
   };
@@ -335,75 +303,6 @@ export function PlatformSettingsScreen() {
         </form>
       )}
 
-      {/* Platform receiving methods (academies pay their subscription here) */}
-      {tab === "payment" && (
-        <form
-          className="max-w-2xl"
-          onSubmit={(e) => void persist({ platform_payment_methods: pay }, e)}
-        >
-          <div className={cardClass}>
-            <h2 className="flex items-center gap-2 text-sm font-semibold">
-              <Banknote className="text-muted-foreground size-4" aria-hidden />
-              {t("payment.heading")}
-            </h2>
-            <p className="text-muted-foreground mb-4 mt-0.5 text-xs">
-              {t("payment.hint")}
-            </p>
-
-            <div className="space-y-3">
-              <MethodCard
-                icon={Wallet}
-                title={t("payment.instapay")}
-                fieldLabel={t("payment.instapayHandle")}
-                placeholder="name@instapay"
-                enabled={pay.INSTAPAY.enabled}
-                value={pay.INSTAPAY.handle ?? ""}
-                onToggle={(v) =>
-                  setPay((p) => ({
-                    ...p,
-                    INSTAPAY: { ...p.INSTAPAY, enabled: v },
-                  }))
-                }
-                onChange={(v) =>
-                  setPay((p) => ({
-                    ...p,
-                    INSTAPAY: { ...p.INSTAPAY, handle: v },
-                  }))
-                }
-                inputClass={inputClass}
-              />
-              <MethodCard
-                icon={Smartphone}
-                title={t("payment.vodafone")}
-                fieldLabel={t("payment.vodafoneNumber")}
-                placeholder="+201xxxxxxxxx"
-                enabled={pay.VODAFONE_CASH.enabled}
-                value={pay.VODAFONE_CASH.number ?? ""}
-                onToggle={(v) =>
-                  setPay((p) => ({
-                    ...p,
-                    VODAFONE_CASH: { ...p.VODAFONE_CASH, enabled: v },
-                  }))
-                }
-                onChange={(v) =>
-                  setPay((p) => ({
-                    ...p,
-                    VODAFONE_CASH: { ...p.VODAFONE_CASH, number: v },
-                  }))
-                }
-                inputClass={inputClass}
-              />
-            </div>
-
-            <div className="mt-5 flex justify-end">
-              <Button type="submit" size="sm" disabled={busy} data-testid="save-payment">
-                {busy ? t("saving") : t("save")}
-              </Button>
-            </div>
-          </div>
-        </form>
-      )}
-
       {/* Role permissions matrix (moved from /admin/roles — R3). Content-only: this page
           already owns the h1, so the tab renders the matrix, not a second page. */}
       {tab === "roles" && <RoleMatrix />}
@@ -414,51 +313,3 @@ export function PlatformSettingsScreen() {
   );
 }
 
-function MethodCard({
-  icon: Icon,
-  title,
-  fieldLabel,
-  placeholder,
-  enabled,
-  value,
-  onToggle,
-  onChange,
-  inputClass,
-}: {
-  icon: typeof Wallet;
-  title: string;
-  fieldLabel: string;
-  placeholder: string;
-  enabled: boolean;
-  value: string;
-  onToggle: (v: boolean) => void;
-  onChange: (v: string) => void;
-  inputClass: string;
-}) {
-  return (
-    <div
-      className={cn(
-        "rounded-xl border p-4 transition-colors",
-        enabled ? "border-primary/30 bg-primary/[0.03]" : "bg-muted/20",
-      )}
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <span className="flex items-center gap-2 text-sm font-medium">
-          <Icon className="text-primary size-4" aria-hidden />
-          {title}
-        </span>
-        <Toggle on={enabled} disabled={false} onClick={() => onToggle(!enabled)} label={title} />
-      </div>
-      <label className="block space-y-1.5">
-        <span className="text-muted-foreground text-xs">{fieldLabel}</span>
-        <input
-          className={inputClass}
-          dir="ltr"
-          placeholder={placeholder}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </label>
-    </div>
-  );
-}

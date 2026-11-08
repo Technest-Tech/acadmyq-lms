@@ -31,7 +31,7 @@ export default async function ContactPage() {
     <Container className="py-16 sm:py-24">
       <div className="grid items-start gap-12 lg:grid-cols-[1fr_1.1fr] lg:gap-16">
         <div>
-          <h1 className="text-4xl font-bold text-balance sm:text-5xl">
+          <h1 className="text-4xl leading-[1.2] font-extrabold text-balance sm:text-5xl">
             {t.contact.hero.title}
           </h1>
           <p className="text-muted-foreground mt-5 text-lg leading-relaxed text-pretty">
@@ -39,7 +39,7 @@ export default async function ContactPage() {
           </p>
 
           <section className="mt-10">
-            <h2 className="text-lg font-semibold">{t.contact.expect.title}</h2>
+            <h2 className="text-lg font-extrabold">{t.contact.expect.title}</h2>
             <ul className="mt-4 flex flex-col gap-3">
               {t.contact.expect.items.map((item) => (
                 <CheckItem key={item}>{item}</CheckItem>
@@ -48,7 +48,7 @@ export default async function ContactPage() {
           </section>
 
           <section className="border-border mt-10 border-t pt-8">
-            <h2 className="text-lg font-semibold">{t.contact.reach.title}</h2>
+            <h2 className="text-lg font-extrabold">{t.contact.reach.title}</h2>
             <p className="text-muted-foreground mt-3 leading-relaxed">
               {t.contact.reach.body}
             </p>
@@ -91,7 +91,7 @@ export default async function ContactPage() {
           </section>
         </div>
 
-        <DemoForm t={t} locale={locale} />
+        <DemoForm t={t} locale={locale} defaultProduct="ACADEMY_MANAGEMENT" />
       </div>
     </Container>
   );

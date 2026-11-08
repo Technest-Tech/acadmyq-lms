@@ -28,7 +28,7 @@ export function AdminPageHeader({
   className?: string;
 }) {
   return (
-    <div className={cn("space-y-3", className)}>
+    <div className={cn("admin-page-header space-y-3", className)}>
       {backHref && (
         <Link
           href={backHref}
@@ -41,11 +41,11 @@ export function AdminPageHeader({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="truncate text-xl font-bold tracking-tight">{title}</h1>
+            <h1 className="admin-page-header__title truncate text-xl font-bold tracking-tight">{title}</h1>
             {titleExtra}
           </div>
           {subtitle && (
-            <p className="text-muted-foreground mt-0.5 text-sm">{subtitle}</p>
+            <p className="admin-page-header__sub text-muted-foreground mt-0.5 text-sm">{subtitle}</p>
           )}
         </div>
         {actions && (

@@ -204,6 +204,9 @@ final class CancellationRequestController extends Controller
             'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
             'charge_student' => ['sometimes', 'boolean'],
             'pay_teacher' => ['sometimes', 'boolean'],
+            // How much of the lesson the teacher is paid when pay_teacher is true: a quarter, a
+            // half or the whole lesson (the default). Ignored when the teacher is not paid.
+            'teacher_pay_percent' => ['sometimes', 'nullable', 'integer', Rule::in([25, 50, 100])],
         ]);
 
         // Approving is operational; choosing to charge / pay anyway is money (session.bill_override)
@@ -218,6 +221,7 @@ final class CancellationRequestController extends Controller
             billOverride: $mayBill && (bool) ($data['charge_student'] ?? false),
             teacherOverride: $mayBill && (bool) ($data['pay_teacher'] ?? false),
             reasonOverride: $data['reason'] ?? null,
+            teacherShareBp: isset($data['teacher_pay_percent']) ? (int) $data['teacher_pay_percent'] * 100 : null,
         );
     }
 
@@ -243,10 +247,11 @@ final class CancellationRequestController extends Controller
         bool $billOverride = false,
         bool $teacherOverride = false,
         ?string $reasonOverride = null,
+        ?int $teacherShareBp = null,
     ): JsonResponse {
         $academyId = $this->currentAcademyId();
 
-        return DB::transaction(function () use ($requestId, $approve, $note, $academyId, $service, $billOverride, $teacherOverride, $reasonOverride) {
+        return DB::transaction(function () use ($requestId, $approve, $note, $academyId, $service, $billOverride, $teacherOverride, $reasonOverride, $teacherShareBp) {
             $req = DB::table('session_cancellation_requests')->where('id', $requestId)->lockForUpdate()->first();
             if ($req === null) {
                 abort(404, 'Request not found.');
@@ -289,11 +294,12 @@ final class CancellationRequestController extends Controller
                     $this->ctx()->role,
                     $billOverride,
                     $teacherOverride,
+                    $teacherShareBp,
                 );
 
                 Audit::log($isFree ? 'session.marked_free' : 'session.cancelled', 'session', (string) $req->session_id, $academyId, $this->ctx()->userId, $this->ctx()->role,
                     before: ['status' => $session?->status],
-                    after: ['status' => $sessionStatus, 'cancelled_by' => $req->cancel_type, 'reason' => $reason, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride, 'via' => 'approval']);
+                    after: ['status' => $sessionStatus, 'cancelled_by' => $req->cancel_type, 'reason' => $reason, 'charge_student' => $billOverride, 'pay_teacher' => $teacherOverride, 'teacher_pay_percent' => $teacherOverride ? ($teacherShareBp !== null ? intdiv($teacherShareBp, 100) : 100) : null, 'via' => 'approval']);
             }
 
             Audit::log($approve ? 'session.cancellation_approved' : 'session.cancellation_rejected',

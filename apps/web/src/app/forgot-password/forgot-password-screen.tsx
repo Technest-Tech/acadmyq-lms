@@ -4,12 +4,11 @@ import { ArrowRight, Mail } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { AuthCard, authInputClass } from "@/components/auth/auth-card";
 import { ctaClass } from "@/components/marketing/ui";
 import { ApiError, forgotPassword } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-const inputClass =
-  "border-input bg-background placeholder:text-muted-foreground/60 focus:border-primary focus:ring-primary/15 h-12 w-full rounded-xl border text-base shadow-xs outline-none transition-colors focus:ring-3 sm:text-sm";
 
 /**
  * Request a password-reset link. The answer is the same whatever the email — the server never
@@ -37,9 +36,9 @@ export function ForgotPasswordScreen() {
   }
 
   return (
-    <div className="bg-card border-border rounded-2xl border p-6 shadow-sm sm:p-8" data-testid="forgot-password">
+    <AuthCard testId="forgot-password">
       <div className="mb-6 space-y-1.5">
-        <h1 className="text-xl font-bold">{t("forgotTitle")}</h1>
+        <h1 className="text-2xl font-extrabold">{t("forgotTitle")}</h1>
         <p className="text-muted-foreground text-sm">{t("forgotSubtitle")}</p>
       </div>
 
@@ -71,7 +70,7 @@ export function ForgotPasswordScreen() {
                 placeholder={t("emailPlaceholder")}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className={`${inputClass} ps-10 pe-3.5`}
+                className={`${authInputClass} ps-10 pe-3.5`}
               />
             </div>
           </div>
@@ -104,6 +103,6 @@ export function ForgotPasswordScreen() {
           </p>
         </form>
       )}
-    </div>
+    </AuthCard>
   );
 }

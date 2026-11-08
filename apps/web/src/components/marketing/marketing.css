@@ -1,0 +1,124 @@
+/*
+ * The marketing site's decoration: the deep navy grounds, the khatam lattice laid over them, and the
+ * slow float of the cards around the hero's drawing. Colours come from the `.marketing` tokens in
+ * globals.css; this file only paints with them. Reduced motion is handled once, in globals.css.
+ */
+
+/* ── The deep navy ground of the hero and the brand bands ─────────────────────────────────── */
+.mk-ink {
+  background-color: var(--ink);
+  background-image:
+    radial-gradient(60% 70% at 50% 0%, oklch(0.42 0.1 262 / 0.55), transparent 72%),
+    radial-gradient(35% 45% at 88% 12%, oklch(0.8 0.125 82 / 0.1), transparent 70%),
+    radial-gradient(30% 40% at 8% 40%, oklch(0.55 0.11 255 / 0.18), transparent 70%);
+  color: var(--ink-foreground);
+}
+
+/*
+ * The khatam (eight-pointed star) lattice the Quran workspace is known for, as a faint gold line
+ * over the navy. Masked so it fades out toward the edges instead of tiling hard to the frame.
+ */
+.mk-lattice {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%23E2B550' stroke-width='1'%3E%3Crect x='20' y='20' width='24' height='24'/%3E%3Crect x='20' y='20' width='24' height='24' transform='rotate(45 32 32)'/%3E%3Cpath d='M0 32h15M49 32h15M32 0v15M32 49v15'/%3E%3C/g%3E%3C/svg%3E");
+  background-size: 64px 64px;
+  opacity: 0.1;
+  mask-image: radial-gradient(70% 80% at 50% 30%, #000 20%, transparent 75%);
+}
+
+/* The same lattice, softer, on a light ground (the problem/foundation bands). */
+.mk-lattice--light {
+  opacity: 0.18;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='64' height='64' viewBox='0 0 64 64'%3E%3Cg fill='none' stroke='%2394A3C4' stroke-width='1'%3E%3Crect x='20' y='20' width='24' height='24'/%3E%3Crect x='20' y='20' width='24' height='24' transform='rotate(45 32 32)'/%3E%3Cpath d='M0 32h15M49 32h15M32 0v15M32 49v15'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* ── The hero drawing ───────────────────────────────────────────────────────────────────────── */
+.mk-window {
+  box-shadow:
+    0 0 0 1px oklch(1 0 0 / 0.08),
+    0 30px 80px -20px oklch(0.12 0.05 264 / 0.65),
+    0 12px 30px -12px oklch(0.12 0.05 264 / 0.45);
+}
+
+.mk-float-card {
+  box-shadow:
+    0 0 0 1px oklch(0.3 0.04 260 / 0.06),
+    0 18px 40px -16px oklch(0.2 0.05 264 / 0.45);
+}
+
+@keyframes mk-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+
+.mk-float {
+  animation: mk-float 7s ease-in-out infinite;
+}
+
+.mk-float--late {
+  animation-duration: 8s;
+  animation-delay: -3s;
+}
+
+.mk-float--later {
+  animation-duration: 9s;
+  animation-delay: -5s;
+}
+
+@keyframes mk-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 oklch(0.8 0.125 82 / 0.55);
+  }
+  50% {
+    box-shadow: 0 0 0 5px oklch(0.8 0.125 82 / 0);
+  }
+}
+
+.mk-live-dot {
+  animation: mk-pulse 2s ease-in-out infinite;
+}
+
+/* ── Cards on the light ground ──────────────────────────────────────────────────────────────── */
+.mk-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  box-shadow:
+    0 1px 2px oklch(0.3 0.04 260 / 0.04),
+    0 14px 34px -18px oklch(0.3 0.05 260 / 0.18);
+}
+
+.mk-card--lift {
+  transition:
+    transform 200ms ease,
+    box-shadow 200ms ease;
+}
+
+.mk-card--lift:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 1px 2px oklch(0.3 0.04 260 / 0.05),
+    0 24px 44px -20px oklch(0.3 0.05 260 / 0.28);
+}
+
+/* The quiet stage a drawn screen sits on inside a feature tile. */
+.mk-stage {
+  background:
+    radial-gradient(80% 90% at 50% 0%, oklch(0.94 0.025 255), transparent 80%),
+    oklch(0.965 0.008 255);
+  border: 1px solid oklch(0.93 0.012 255);
+}
+
+/* A WhatsApp-like chat wallpaper, drawn rather than copied. */
+.mk-chat {
+  background-color: oklch(0.95 0.02 85);
+  background-image: radial-gradient(oklch(0.88 0.03 85) 1px, transparent 1px);
+  background-size: 14px 14px;
+}

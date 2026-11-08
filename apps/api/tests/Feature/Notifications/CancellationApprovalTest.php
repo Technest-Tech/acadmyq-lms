@@ -283,3 +283,27 @@ it('forbids a teacher from the owner-only Notifications endpoints', function () 
     $this->getJson('/api/notifications')->assertStatus(403);
     $this->getJson('/api/notifications/summary')->assertStatus(403);
 });
+
+it('approves a cancellation paying the teacher half the lesson', function () {
+    $this->asAcademy($this->academy);
+    DB::table('teachers')->where('id', $this->teacher)->update(['session_rate_minor' => 6000]);
+    DB::table('sessions')->where('id', $this->session)->update(['duration_minutes' => 60]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/sessions/{$this->session}/cancellation-request", ['cancelled_by' => 'student', 'reason' => 'Travel'])
+        ->assertStatus(201);
+    $reqId = DB::table('session_cancellation_requests')->where('session_id', $this->session)->value('id');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/cancellation-requests/{$reqId}/approve", [
+        'pay_teacher' => true,
+        'teacher_pay_percent' => 50,
+    ])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = DB::table('sessions')->where('id', $this->session)->first();
+    expect($row->status)->toBe('CANCELLED_BY_STUDENT')
+        ->and((int) $row->teacher_pay_share_bp)->toBe(5000)
+        ->and((int) DB::table('payout_line_items')->where('session_id', $this->session)->value('amount_minor'))->toBe(3000);
+});

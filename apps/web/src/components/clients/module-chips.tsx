@@ -1,5 +1,6 @@
 "use client";
 
+import { BookOpen, MessageCircle, MonitorPlay, School, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { ClientModuleChip, ClientType, ModuleCode } from "@/lib/api";
 import { CLIENT_TYPE_MODULES, MODULE_CODES } from "@/lib/api";
@@ -35,19 +36,28 @@ export const MODULE_STYLE: Record<
   },
 };
 
-/** The module's coloured letter square — the identity mark the Modules card, Features card and
- *  overview all lead their rows with, so one glance says "this row is Video" everywhere. */
+/** The module's own picture, beside its name wherever a module is named in full. */
+export const MODULE_GLYPH: Record<ModuleCode, LucideIcon> = {
+  MANAGEMENT: School,
+  VIDEO: MonitorPlay,
+  WHATSAPP: MessageCircle,
+  LMS: BookOpen,
+};
+
+/** The module's coloured square with its picture — the identity mark the Modules and Features
+ *  cards lead their rows with, the same picture the roster's tags carry. */
 export function ModuleIcon({ code, className }: { code: ModuleCode; className?: string }) {
+  const Glyph = MODULE_GLYPH[code];
   return (
     <span
       className={cn(
-        "inline-flex size-9 shrink-0 items-center justify-center rounded-lg text-xs font-bold ring-1",
+        "inline-flex size-9 shrink-0 items-center justify-center rounded-xl ring-1",
         MODULE_STYLE[code].on,
         className,
       )}
       aria-hidden
     >
-      {MODULE_STYLE[code].label}
+      <Glyph className="size-[55%]" />
     </span>
   );
 }
@@ -103,6 +113,45 @@ export function ModuleChips({
             {sub?.is_trial && !paused && trialDays !== null && (
               <span className="ms-0.5 font-semibold">{Math.max(trialDays, 0)}</span>
             )}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
+ * What a client holds, each module by its name and picture rather than a letter: the roster's
+ * column. Only what it holds — what it could still add is the client page's business. A trial says
+ * so, a paused module is struck through.
+ */
+type HeldModule = Pick<ClientModuleChip, "module" | "is_trial"> & { status: string };
+
+export function ModuleTags({ modules }: { modules: readonly HeldModule[] }) {
+  const t = useTranslations("clients");
+  const held = MODULE_CODES.map((code) => modules.find((m) => m.module === code && m.status !== "ENDED")).filter(
+    (m): m is HeldModule => m !== undefined,
+  );
+  if (held.length === 0) return <span className="text-muted-foreground text-xs">{t("roster.clock.noModules")}</span>;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5">
+      {held.map((m) => {
+        const Icon = MODULE_GLYPH[m.module];
+        const paused = m.status === "PAUSED";
+        return (
+          <span
+            key={m.module}
+            data-module={m.module}
+            data-state={paused ? "paused" : m.is_trial ? "trial" : "active"}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold whitespace-nowrap ring-1",
+              MODULE_STYLE[m.module].on,
+              paused && "line-through opacity-50",
+            )}
+          >
+            <Icon className="size-3.5 shrink-0" aria-hidden />
+            {t(`modules.${m.module}`)}
+            {m.is_trial && !paused && <span className="font-semibold opacity-75">· {t("roster.trialTag")}</span>}
           </span>
         );
       })}

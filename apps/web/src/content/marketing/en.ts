@@ -1,4 +1,4 @@
-import { heroImage, shot } from "./shots";
+import { photo, shot } from "./shots";
 import { ROUTES } from "./site";
 import type { MarketingContent } from "./types";
 
@@ -19,6 +19,7 @@ export const en: MarketingContent = {
   nav: {
     skipToContent: "Skip to content",
     primaryLabel: "Main navigation",
+    features: "Features",
     coursePlatform: "Course Platform",
     academyManagement: "Academy Management",
     pricing: "Pricing",
@@ -32,7 +33,7 @@ export const en: MarketingContent = {
 
   footer: {
     tagline:
-      "Two systems for building and running an education business: a course platform under your own brand, and a management system for your academy.",
+      "One system to run an online academy: students, lessons, collections, teacher pay and WhatsApp in one place — and a course website under your own brand.",
     productsHeading: "Products",
     companyHeading: "Acadmyq",
     legalHeading: "Legal",
@@ -40,14 +41,14 @@ export const en: MarketingContent = {
     rights: "All rights reserved.",
     emailLabel: "Email",
     phoneLabel: "Phone",
-    noContactNote: "The demo request form is the fastest way to reach us.",
+    whatsappLabel: "WhatsApp",
   },
 
   meta: {
     home: {
-      title: "Acadmyq — a course platform under your brand, and a system to run your academy",
+      title: "Acadmyq — the management system for online academies",
       description:
-        "Launch a course website that carries your own name, or run your academy's students, schedules and invoices from one system. Arabic and English throughout.",
+        "Run your academy from one system: students, groups and timetables, attendance, subscriptions and receipts, teacher pay, WhatsApp reminders and a follow-up link for every parent.",
     },
     coursePlatform: {
       title: "Course Platform — your own branded course website | Acadmyq",
@@ -78,112 +79,435 @@ export const en: MarketingContent = {
 
   home: {
     hero: {
-      title: "Everything you need to build your education business",
-      titleAccent: "and run it from one place",
+      badge: "Management system for online academies",
+      title: "Your whole academy in one system,",
+      titleAccent: "from the first lesson to the last receipt",
       subtitle:
-        "Launch a course platform that carries your name and brand, or organise your academy's students, schedules and invoices in a single system.",
+        "Students, groups and timetables, attendance, subscriptions and collections, teacher pay, WhatsApp reminders and a link for every parent — one system built for Quran, language and online tutoring academies.",
       primary: { label: "Request a demo", href: ROUTES.contact },
-      secondary: { label: "Explore the Course Platform", href: ROUTES.coursePlatform },
+      secondary: { label: "See how it works", href: "#features" },
       points: [
-        "Full Arabic and full English",
-        "Your own subdomain",
-        "Works on phones, tablets and desktops",
+        "Fully Arabic and English",
+        "Works on any phone, no app",
+        "Every academy's data isolated",
       ],
     },
 
-    heroImage: heroImage(
-      "An example course website in a browser window: a fictional academy's name and logo, a headline, a button to browse the courses, and a row of course cards below.",
-    ),
-
-    products: {
-      head: {
-        eyebrow: "Two systems",
-        title: "Pick the one that fits where you are",
-        body: "A course platform for people selling what they teach, and a management system for an academy already running. Both sit on the same foundation, and an academy that does both can run them together.",
-      },
-
-      course: {
-        eyebrow: "Course Platform",
-        title: "A course website with your name on it",
-        body: "Upload your lessons, arrange them into sections, and open them to your students on a site carrying your logo, your colour and your address.",
-        bullets: [
-          "Uploaded video or YouTube, plus audio, PDF, text and quiz lessons",
-          "Students sign up and log in on your site, not ours",
-          "Access codes open a course for a student",
-          "Progress tracking, quizzes and completion certificates",
-        ],
-        cta: { label: "See the Course Platform", href: ROUTES.coursePlatform },
-        shot: shot(
-          "cpCourse",
-          "A course page showing the description and the full contents broken into sections and lessons, with free preview lessons marked.",
-          "The course page — the whole contents in front of a student before they decide",
-        ),
-      },
-
-      management: {
-        eyebrow: "Academy Management",
-        title: "Students, lessons and invoices on one screen",
-        body: "Instead of scattered files and paper timetables: students and guardians, schedules and attendance, packages, invoices and reports.",
-        bullets: [
-          "Records for students, guardians, teachers and staff",
-          "Recurring weekly schedules and per-lesson attendance",
-          "Hour packages, invoices and payment records",
-          "Permissions per role, and an audit trail for every change",
-        ],
-        cta: { label: "See Academy Management", href: ROUTES.academyManagement },
-        shot: shot(
-          "amDashboard",
-          "An academy dashboard showing student and teacher counts and the day's lessons beside a financial summary.",
-          "The academy dashboard — what matters the moment you open the system",
-        ),
-      },
+    heroDemo: {
+      alt: "An example academy dashboard on Acadmyq: active students, today's lessons, money collected and attendance rate, a six-month collections chart and today's lesson list, with a WhatsApp reminder, a received payment and a marked register around it.",
+      url: "alnoor.acadmyq.com",
+      academy: "Al-Noor Academy",
+      nav: ["Home", "Students", "Groups", "Timetable", "Attendance", "Accounts", "Payroll", "WhatsApp"],
+      hello: "Good morning, Sarah",
+      helloSub: "18 lessons today and 3 new trial lessons",
+      kpis: [
+        { label: "Active students", value: "248", delta: "+12" },
+        { label: "Lessons today", value: "18", delta: "6 done" },
+        { label: "Collected this month", value: "86,400", delta: "+8%" },
+        { label: "Attendance", value: "94%", delta: "+2%" },
+      ],
+      chartTitle: "Collections — last 6 months",
+      chartMonths: ["Jun", "Jul", "Aug", "Sep", "Oct", "Nov"],
+      todayTitle: "Today's lessons",
+      lessons: [
+        { time: "4:00 PM", who: "Yusuf Ahmed", teacher: "Ms. Fatima", state: "done" },
+        { time: "5:00 PM", who: "Tajweed group", teacher: "Mr. Khaled", state: "live" },
+        { time: "7:30 PM", who: "Maryam Khaled", teacher: "Ms. Sarah", state: "next" },
+      ],
+      states: { done: "Done", live: "Now", next: "Next" },
+      whatsapp: { app: "WhatsApp", text: "Reminder: Yusuf's lesson with Ms. Fatima starts in 30 minutes", time: "3:30 PM" },
+      payment: { title: "Payment received", body: "EGP 1,200 — Mahmoud family" },
+      marked: { title: "Attendance marked", body: "Tajweed group — 9 of 10" },
     },
 
-    shared: {
+    builtFor: {
+      label: "Built for",
+      items: [
+        "Quran academies",
+        "Language academies",
+        "Online tutoring",
+        "Group classes and courses",
+        "Learning centres",
+      ],
+    },
+
+    audiences: {
       head: {
-        eyebrow: "One foundation",
-        title: "What both systems share",
-        body: "The two products run on the same platform, so everything here applies to either one.",
+        eyebrow: "Who it's for",
+        title: "For academies that teach online, every day",
+        body: "One-to-one Quran circles, private language lessons or levelled groups — the system takes the shape of how you work, not the other way round.",
       },
       items: [
         {
+          photo: photo("quran", "A navy-bound Quran with gold ornament on a dark ground, purple flowers beside it."),
+          tag: "Quran & Islamic studies",
+          title: "Quran academies",
+          body: "Students in different countries, teachers on scattered hours, and families who want to know how their children are doing.",
+          points: [
+            "Recurring lessons for each student and teacher",
+            "A report after every lesson, sent to the family",
+            "Monthly subscription or an hours package",
+          ],
+        },
+        {
+          photo: photo("student", "A child wearing headphones following a lesson on a laptop screen."),
+          tag: "Languages & tutoring",
+          title: "One-to-one lessons at different prices",
+          body: "Every student at their own price, every teacher on their own pay basis, and a lesson link ready for each teacher.",
+          points: [
+            "A price per student and per teacher",
+            "Pay by the hour, per student, or a fixed salary",
+            "An Enter button that records when the teacher joined",
+          ],
+        },
+        {
+          photo: photo("group", "A laptop showing a video group class, a green mug beside it on a wooden table."),
+          tag: "Groups",
+          title: "Group classes and courses",
+          body: "One teacher and many students, with the group's timetable, register and payments in one place.",
+          points: [
+            "One register for the whole group",
+            "Monthly, per-lesson or per-course fees",
+            "A WhatsApp group reminder before each lesson",
+          ],
+        },
+      ],
+    },
+
+    problem: {
+      head: {
+        eyebrow: "Before and after",
+        title: "From everyday chaos to an organised day",
+        body: "These are the problems academies describe on our first call — and how the system solves them.",
+      },
+      photo: photo("chaos", "A man whose face and chest are covered in sticky notes of tasks and reminders."),
+      beforeTitle: "Before",
+      afterTitle: "With Acadmyq",
+      pairs: [
+        {
+          before: "An Excel timetable nobody is sure is the latest copy",
+          after: "One timetable that generates every student's lessons from a start date",
+        },
+        {
+          before: "Reminders typed by hand to every student before every lesson",
+          after: "WhatsApp reminders that go out on their own, before and at the start",
+        },
+        {
+          before: "Lessons that happened but nobody recorded, lost from the books",
+          after: "Every unmarked lesson waits on an overdue list until someone marks it",
+        },
+        {
+          before: "Payments scattered across transfers, cash and notebooks",
+          after: "A receipt for every payment, a treasury, and a clear balance per family",
+        },
+        {
+          before: "Teacher pay worked out on a calculator at month end",
+          after: "A pay statement per teacher, built from the lessons they taught",
+        },
+        {
+          before: "A parent asking: how many lessons did my son attend? What do I owe?",
+          after: "A private link per family with lessons, reports and balance",
+        },
+      ],
+    },
+
+    features: {
+      head: {
+        eyebrow: "Inside the system",
+        title: "Everything your academy runs, in one place",
+        body: "Not separate lists — each part feeds the next. A marked lesson lands on the student's account, the teacher's statement and the family's report in the same moment.",
+      },
+      tiles: {
+        schedule: {
+          tag: "Timetables & attendance",
+          title: "A timetable that makes its own lessons, and a register that never slips",
+          body: "A weekly timetable per student or group generates lessons from the start date, and the teacher marks attendance in one tap.",
+          demo: {
+            days: ["Sat", "Sun", "Mon", "Tue", "Wed"],
+            blocks: [
+              { day: 0, row: 0, label: "Yusuf", tone: "navy" },
+              { day: 1, row: 1, label: "Tajweed", tone: "gold" },
+              { day: 2, row: 0, label: "Maryam", tone: "sky" },
+              { day: 2, row: 2, label: "Yusuf", tone: "navy" },
+              { day: 3, row: 1, label: "Tajweed", tone: "gold" },
+              { day: 4, row: 0, label: "Salma", tone: "sky" },
+              { day: 4, row: 2, label: "Omar", tone: "navy" },
+            ],
+            rows: [
+              { name: "Yusuf Ahmed", time: "4:00 PM", state: "present" },
+              { name: "Maryam Khaled", time: "5:00 PM", state: "absent" },
+              { name: "Tajweed group", time: "7:30 PM", state: "pending" },
+            ],
+            states: { present: "Present", absent: "Absent", pending: "Not marked" },
+          },
+        },
+        whatsapp: {
+          tag: "WhatsApp",
+          title: "Reminders sent from your academy's own number",
+          body: "Link your number once by scanning a QR code, and the system reminds students and teachers before every lesson.",
+          demo: {
+            contact: "Al-Noor Academy",
+            status: "Connected",
+            messages: [
+              { text: "Reminder: Yusuf's lesson with Ms. Fatima is at 4:00 PM, in 30 minutes.", time: "3:30 PM" },
+              { text: "The lesson has started. Ms. Fatima is waiting for Yusuf.", time: "4:00 PM" },
+            ],
+          },
+        },
+        money: {
+          tag: "Subscriptions & collections",
+          title: "A receipt for every pound, a balance for every family",
+          body: "Monthly subscriptions or hours packages, receipts, a treasury and discounts, and card payment from the invoice link.",
+          demo: {
+            title: "Payment receipt",
+            number: "#1042",
+            lines: [
+              { label: "Family", value: "Mahmoud family" },
+              { label: "Subscription", value: "8 lessons — Nov" },
+              { label: "Method", value: "Card" },
+            ],
+            totalLabel: "Amount",
+            total: "EGP 1,200",
+            duesTitle: "Due this week",
+            dues: [
+              { name: "Salem family", value: "EGP 800", late: true },
+              { name: "Omar family", value: "EGP 600", late: false },
+              { name: "Yusuf family", value: "EGP 950", late: false },
+            ],
+            lateLabel: "Late",
+          },
+        },
+        portal: {
+          tag: "Parent link",
+          title: "One link where the family follows everything",
+          body: "No password, no app: upcoming and past lessons, reports and the balance — on the parent's phone.",
+          demo: {
+            greeting: "Hello, Mahmoud family",
+            child: "Yusuf",
+            nextLabel: "Next lesson",
+            next: "Sun 4:00 PM",
+            balanceLabel: "Balance",
+            balance: "Paid in full",
+            lessonsTitle: "Recent lessons",
+            lessons: [
+              { date: "Thursday", state: "Present" },
+              { date: "Tuesday", state: "Present" },
+              { date: "Saturday", state: "Present" },
+            ],
+            pay: "Pay by card",
+          },
+        },
+        payroll: {
+          tag: "Teacher pay",
+          title: "The pay statement writes itself",
+          body: "By the hour, per student or a fixed salary — every lesson a teacher gives lands on their statement, with bonuses and deductions.",
+          demo: {
+            teacher: "Ms. Fatima Ali",
+            month: "November",
+            lines: [
+              { label: "42 lessons", value: "4,200" },
+              { label: "Bonus", value: "+300" },
+              { label: "Late deduction", value: "−150" },
+            ],
+            totalLabel: "Net",
+            total: "EGP 4,350",
+            types: ["Hourly", "Per student", "Fixed"],
+          },
+        },
+        reports: {
+          tag: "Reports",
+          title: "A report after every lesson, on a card with your brand",
+          body: "Report fields you define, a report card carrying your logo to send to the family, and ready-made certificate designs.",
+          demo: {
+            title: "Lesson report",
+            student: "Yusuf Ahmed",
+            rows: [
+              { label: "Memorisation", stars: 5 },
+              { label: "Tajweed", stars: 4 },
+              { label: "Revision", stars: 4 },
+            ],
+            note: "Excellent memorisation of Surat Al-Mulk.",
+          },
+        },
+      },
+      more: {
+        title: "And much more",
+        body: "Everything a growing academy needs, without buying another system.",
+        items: [
+          "Trial lessons",
+          "Leads",
+          "Certificates",
+          "Teacher supervision",
+          "Teacher quality reviews",
+          "Custom roles",
+          "Audit log of every change",
+          "Excel export",
+          "Your own domain",
+        ],
+      },
+    },
+
+    day: {
+      head: {
+        eyebrow: "A day at your academy",
+        title: "The system works with you, from before the lesson to month end",
+        body: "This is what happens around every lesson, without anyone having to remember it.",
+      },
+      steps: [
+        {
+          icon: "BellRing",
+          time: "Before the lesson",
+          title: "The reminder goes out",
+          body: "A WhatsApp message to the student and teacher, or their group, before the lesson and again as it starts.",
+        },
+        {
+          icon: "Video",
+          time: "Lesson time",
+          title: "The teacher joins in one tap",
+          body: "An Enter button opens the teacher's lesson link and records when they joined, so you know who runs late.",
+        },
+        {
+          icon: "ClipboardCheck",
+          time: "After the lesson",
+          title: "Attendance and the report",
+          body: "The teacher marks attendance and writes the report, which becomes a card in your brand for the family.",
+        },
+        {
+          icon: "TriangleAlert",
+          time: "If nobody marks it",
+          title: "No lesson gets lost",
+          body: "An unmarked lesson moves to the overdue list, and your supervision group gets a WhatsApp alert.",
+        },
+        {
+          icon: "Wallet",
+          time: "Month end",
+          title: "The books are ready",
+          body: "What families owe is worked out from lessons, and each teacher's statement from their lessons. No calculator.",
+        },
+      ],
+    },
+
+    modules: {
+      head: {
+        eyebrow: "Modules",
+        title: "Start with management, add what you need",
+        body: "You pay only for what you use, and every module works on the same data as the rest.",
+      },
+      items: [
+        {
+          icon: "LayoutDashboard",
+          name: "Academy management",
+          tag: "The core",
+          body: "The heart of the system: students, families and teachers, timetables, attendance and groups, subscriptions, receipts and the treasury, payroll and reports.",
+          points: ["Students, families, teachers", "Timetables and attendance", "Collections and payroll"],
+          cta: { label: "Academy management in detail", href: ROUTES.academyManagement },
+        },
+        {
+          icon: "MessageCircle",
+          name: "WhatsApp",
+          tag: "Add-on",
+          body: "Link your academy's number, launch lesson reminders for students, teachers and groups, and alerts for your supervision and accounts teams.",
+          points: ["Link the number by QR", "Reminders before and at the start", "Alerts for your team"],
+        },
+        {
+          icon: "Contact",
+          name: "Leads",
+          tag: "Add-on",
+          body: "Everyone who asked about your academy on one board: from first contact to subscription, with follow-up dates and one-click conversion to a student.",
+          points: ["A board of stages", "Follow-up dates", "Convert to a student"],
+        },
+        {
+          icon: "GraduationCap",
+          name: "Course platform",
+          tag: "Add-on",
+          body: "A course website in your academy's brand: video lessons, files and quizzes, access codes and completion certificates.",
+          points: ["A site under your name", "Lessons and quizzes", "Completion certificates"],
+          cta: { label: "Course platform in detail", href: ROUTES.coursePlatform },
+        },
+      ],
+    },
+
+    foundation: {
+      head: {
+        eyebrow: "A solid foundation",
+        title: "Built to carry your academy's data safely",
+        body: "What you read here applies to every module in the system.",
+      },
+      items: [
+        {
+          icon: "Lock",
+          title: "Every academy's data isolated",
+          body: "Isolation is enforced inside the database itself, row by row — not in application code alone.",
+        },
+        {
+          icon: "Shield",
+          title: "Each person sees what is theirs",
+          body: "Ready roles for owner, supervisor and teacher, plus custom roles you build. Teachers never see your finances.",
+        },
+        {
+          icon: "History",
+          title: "An audit log of every change",
+          body: "Who changed what and when, with the value before and after — so you know exactly what happened when accounts differ.",
+        },
+        {
           icon: "Languages",
           title: "Arabic and English",
-          body: "Every screen is written in Arabic, laid out right to left, and in English, laid out left to right. Each person picks their own.",
+          body: "Every screen in right-to-left Arabic and in English. Each user picks their own language.",
         },
         {
           icon: "Smartphone",
-          title: "Works on any device",
-          body: "Phone, tablet and desktop — the same screens in the browser, with no app you have to ask your students to install.",
-        },
-        {
-          icon: "Lock",
-          title: "Each client's data is isolated",
-          body: "Isolation is enforced inside the database itself, row by row, not in application code alone — so no query can reach another client's data.",
+          title: "On any device",
+          body: "Phone, tablet or computer, right in the browser. No app to ask your team to install.",
         },
         {
           icon: "Globe",
-          title: "Your own subdomain",
-          body: "An address of your own that opens either your course site or your academy's branded staff sign-in.",
+          title: "Your name, your brand",
+          body: "A subdomain or your own domain, with your logo on the sign-in page and on every link families receive.",
+        },
+      ],
+    },
+
+    faq: {
+      head: {
+        eyebrow: "Common questions",
+        title: "Before you ask",
+      },
+      items: [
+        {
+          q: "Does it suit an academy that is fully online?",
+          a: "Yes — that is what it was built for: timetables handle time zones, attendance is marked per lesson, and the books are built from the lessons that actually happened.",
         },
         {
-          icon: "Palette",
-          title: "Your identity, not ours",
-          body: "Your name, logo and primary colour are what students and guardians see on screen and in the links that reach them.",
+          q: "Do we need to install anything?",
+          a: "No. It runs in the browser on phones and computers, and we take care of hosting, updates and backups.",
         },
         {
-          icon: "UserCog",
-          title: "Roles and permissions",
-          body: "Ready-made roles for the usual cases, and custom roles you build yourself so each person gets exactly what they need.",
+          q: "Can a teacher see the whole academy?",
+          a: "No. A teacher sees only their own timetable, students and pay — never the academy's finances or other teachers' data.",
+        },
+        {
+          q: "Can parents pay online?",
+          a: "Yes. If your academy links an XPay payment account, parents pay by card from the invoice link and the payment is recorded automatically.",
+        },
+        {
+          q: "How do we start if we already have data?",
+          a: "We start with a call to understand how you work, then set up your academy's account and help you bring in students, teachers and timetables.",
+        },
+        {
+          q: "How much does it cost?",
+          a: "It depends on the size of your academy and the modules you need. Request a demo and we'll give you a clear price for your case after a short call.",
         },
       ],
     },
 
     close: {
-      title: "Start with a short call",
-      body: "Tell us about your teaching business, and we'll show you the right system running — and answer your questions before you decide.",
-      primary: { label: "Request a demo", href: ROUTES.contact },
-      secondary: { label: "Log in", href: ROUTES.login },
+      title: "See your academy, organised",
+      body: "Leave your details and we'll show you the system running on a case like yours, and answer every question before you decide.",
+      points: [
+        "A live demo of the real system, not a recording",
+        "We help you set up your account and bring in your data",
+        "Support throughout your subscription",
+      ],
     },
   },
 
@@ -439,13 +763,13 @@ export const en: MarketingContent = {
       title: "Your whole academy",
       titleAccent: "in one system",
       subtitle:
-        "Students and guardians, teachers and staff, schedules and attendance, packages, invoices and reports — instead of scattered files where nobody knows which one is current.",
+        "Students, families and teachers, timetables, groups and attendance, subscriptions, receipts and payroll, and WhatsApp reminders — instead of scattered files where nobody knows which one is current.",
       primary: { label: "Request a demo", href: ROUTES.contact },
       secondary: { label: "See the screens", href: "#tour" },
       points: [
-        "Fine-grained roles and permissions",
-        "An audit trail for every change",
-        "Invoices built from lessons that actually happened",
+        "WhatsApp reminders before every lesson",
+        "A follow-up link for every parent",
+        "Books and payroll built from lessons that happened",
       ],
     },
 
@@ -532,53 +856,63 @@ export const en: MarketingContent = {
       items: [
         {
           icon: "Users",
-          title: "Students and guardians",
-          body: "A record per student linked to their guardian, with enrolment status, assigned teacher and extra fields you define for your own academy.",
-        },
-        {
-          icon: "UserCog",
-          title: "Teachers and staff",
-          body: "Teacher records with their specialisations and earnings, staff with their departments, and what each of them is allowed to do.",
+          title: "Students, families and teachers",
+          body: "A record per student linked to their family and teacher; a family is one account however many children it has, with extra fields you define.",
         },
         {
           icon: "CalendarDays",
-          title: "Schedules and recurring lessons",
-          body: "A weekly timetable per student that generates lessons automatically from a start date you set, with rescheduling and cancellation on the record.",
+          title: "Recurring timetables",
+          body: "A weekly timetable per student generates lessons automatically from a start date you set, with rescheduling, cancellation and the reason recorded.",
         },
         {
           icon: "ClipboardCheck",
-          title: "Attendance",
-          body: "Attendance marked per lesson, and a list of what has not been marked yet so no lesson quietly disappears.",
+          title: "Attendance and overdue lessons",
+          body: "Attendance for every lesson, and a list of lessons that ended without being marked, so none slips through unrecorded.",
+        },
+        {
+          icon: "GraduationCap",
+          title: "Groups",
+          body: "A group with one teacher and many students, with its own timetable, register and a monthly, per-lesson or per-course fee.",
         },
         {
           icon: "Wallet",
-          title: "Hour packages",
-          body: "A package of hours a student buys, drawn down lesson by lesson, as an alternative to monthly invoicing.",
+          title: "Subscriptions and hours packages",
+          body: "A monthly subscription of a set number of lessons, an hours package drawn down lesson by lesson, or a free student who never gets an invoice.",
         },
         {
           icon: "Receipt",
-          title: "Invoices and payments",
-          body: "Invoices built from the lessons that took place and each student's rate, with payments recorded and a link a guardian can open.",
+          title: "Receipts and treasury",
+          body: "A receipt for every payment, a treasury, discounts, a balance per family, and card payment from the invoice link via XPay.",
+        },
+        {
+          icon: "HandCoins",
+          title: "Teacher pay",
+          body: "Hourly, per student or a fixed salary. Each teacher's statement is built from the lessons they taught, with bonuses and deductions.",
+        },
+        {
+          icon: "MessageCircle",
+          title: "WhatsApp reminders and alerts",
+          body: "Reminders to students and teachers before and at the start of each lesson, and alerts to your supervision and accounts groups, from your own number.",
+        },
+        {
+          icon: "Smartphone",
+          title: "Parent link",
+          body: "A private link per family, no password: upcoming and past lessons, approved reports and the balance.",
         },
         {
           icon: "TrendingUp",
-          title: "Reporting",
-          body: "Revenue, collections and outstanding balances, teacher earnings, attendance reports and student progress reports.",
+          title: "Reports and report cards",
+          body: "A report after each lesson with fields you choose, a branded report card for the family, and finance, attendance and teacher reports.",
         },
         {
           icon: "Shield",
           title: "Roles and permissions",
-          body: "Ready roles for owner, supervisor, teacher and staff, plus custom roles you build from your own permission set.",
+          body: "Ready-made roles for owner, supervisor and teacher, and custom roles you build from your own permissions.",
         },
         {
           icon: "History",
-          title: "Audit trail",
-          body: "Every change recorded: who made it, when, and what the value was before and after — so a disagreement has an answer.",
-        },
-        {
-          icon: "Palette",
-          title: "Your academy's identity",
-          body: "Your academy's name and logo on your team's sign-in page and on the links and documents that reach guardians.",
+          title: "Audit log",
+          body: "Every change recorded: who made it, when, and the value before and after — so you know exactly what happened when figures disagree.",
         },
       ],
     },

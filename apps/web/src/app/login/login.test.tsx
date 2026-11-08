@@ -8,8 +8,9 @@ import { ApiError } from "@/lib/api";
 import { LoginScreen } from "./login-screen";
 
 const replace = vi.fn();
+const prefetch = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), replace }),
+  useRouter: () => ({ refresh: vi.fn(), replace, prefetch }),
 }));
 
 const login = vi.fn();
@@ -41,6 +42,7 @@ function renderLogin(
 
 beforeEach(() => {
   replace.mockClear();
+  prefetch.mockClear();
   login.mockReset();
   getMe.mockReset();
   getMe.mockRejectedValue(new ApiError(401, "unauthenticated"));
@@ -131,10 +133,47 @@ describe("LoginScreen on a client subdomain", () => {
     expect(login).not.toHaveBeenCalled();
   });
 
-  it("never checks for a session on the platform login", async () => {
+  it("sends a visitor who already has a session straight in on the platform door too", async () => {
+    getMe.mockResolvedValue({ role: "SUPER_ADMIN", academyId: null });
     renderLogin(null);
 
     expect(screen.getByText(enMessages.auth.signInSubtitle)).toBeInTheDocument();
-    expect(getMe).not.toHaveBeenCalled();
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    expect(login).not.toHaveBeenCalled();
+  });
+});
+
+// ── one sign-in is always enough ──
+describe("LoginScreen after the password is accepted", () => {
+  async function signIn() {
+    const user = userEvent.setup();
+    renderLogin();
+    await user.type(screen.getByLabelText(enMessages.auth.email), "owner@noor.test");
+    await user.type(screen.getByLabelText(enMessages.auth.password), "password");
+    await user.click(screen.getByRole("button", { name: enMessages.auth.signIn }));
+    return user;
+  }
+
+  it("stays busy until the dashboard takes over, so nobody signs in a second time", async () => {
+    login.mockResolvedValue({ role: "ACADEMY_OWNER", academyId: "a1" });
+    await signIn();
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/dashboard"));
+    const button = screen.getByRole("button", { name: enMessages.auth.signingIn });
+    expect(button).toBeDisabled();
+    expect(login).toHaveBeenCalledTimes(1);
+  });
+
+  it("warms the dashboard route as soon as the form opens", () => {
+    renderLogin();
+    expect(prefetch).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("says 'try again', not 'wrong password', when the CSRF retry still fails", async () => {
+    login.mockRejectedValue(new ApiError(419, "CSRF token mismatch."));
+    await signIn();
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(enMessages.auth.serverError);
+    expect(screen.getByRole("button", { name: enMessages.auth.signIn })).toBeEnabled();
   });
 });

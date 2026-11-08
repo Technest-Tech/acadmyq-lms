@@ -70,6 +70,17 @@ export const CONTACT = {
 } as const;
 
 /**
+ * The WhatsApp line the site publishes (Ahmed, 2026-11-08). Written here rather than read from the
+ * env like `CONTACT`, because it is the business's own number and must appear on every deployment.
+ * `display` is how a person reads it; the link uses the bare digits wa.me expects.
+ */
+export const WHATSAPP = {
+  number: "+201038578207",
+  display: "+20 10 3857 8207",
+  url: "https://wa.me/201038578207",
+} as const;
+
+/**
  * The date the privacy policy and terms were last rewritten, as an ISO date.
  *
  * A CONSTANT, never `new Date()`: a legal page's "last updated" line has to say when the words

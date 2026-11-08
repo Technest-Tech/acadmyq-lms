@@ -401,6 +401,13 @@ export interface CreateAcademyInput {
   /** The first owner's login credentials, set directly at creation. */
   email: string;
   password: string;
+  /** Who to call: the owner's name and phone (the name otherwise defaults from the email). */
+  owner_name?: string | null;
+  owner_phone?: string | null;
+  /** A trial's own length; without it the platform default applies. */
+  trial_days?: number;
+  /** Opt-in management features on from day one (e.g. `modern_look`). */
+  enable_features?: string[];
 }
 
 export function listAcademies(): Promise<{ academies: AcademyListItem[] }> {
@@ -554,6 +561,22 @@ export function activateAcademySubscription(
 /** The caller's OWN academy subscription (owner dashboard widget). */
 export function getMySubscription(): Promise<{
   subscription: AcademySubscription | null;
+  /** What the academy owes the platform (owner only): due now, next date, its pay link. */
+  account?: {
+    pay_token: string | null;
+    dues: Array<{
+      id: string;
+      title: string;
+      due_on: string;
+      remaining_minor: number;
+      currency: string;
+      overdue: boolean;
+    }>;
+    due_now: Array<{ currency: string; amount_minor: number }>;
+    next_due_on: string | null;
+    overdue: boolean;
+    pending_proof: boolean;
+  } | null;
 }> {
   return apiFetch("/api/my-subscription");
 }
@@ -637,9 +660,16 @@ export interface ClientDirectoryEntry {
   subdomain: string | null;
   created_at: string;
   owner_email: string | null;
+  owner_name: string | null;
+  owner_phone: string | null;
   student_count: number;
   teacher_count: number;
+  /** Is the client using the system? The last sign-in, this month's recorded lessons. */
+  last_login_at: string | null;
+  lessons_this_month: number;
   modules: ClientModuleChip[];
+  /** Its account in the book — agreement, next due, what is late. Null before an agreement. */
+  account?: AccountSummary | null;
 }
 
 /**
@@ -681,12 +711,20 @@ export interface ClientDetail {
     subdomain: string | null;
     created_at: string;
   };
+  /** QURAN or CENTRE — what kind of school it is. */
+  profile?: "QURAN" | "CENTRE";
   /** Who owns it and how big it is — the header/overview facts, same sources as the directory. */
   summary: {
-    owner: AcademyOwner | null;
+    owner: (AcademyOwner & { phone?: string | null }) | null;
     student_count: number;
     teacher_count: number;
+    usage?: {
+      last_login_at: string | null;
+      lessons_this_month: number;
+    };
   };
+  /** Its account in the book (null before an agreement, or without platform.manage). */
+  account?: AccountSummary | null;
   catalog: ClientFeatureCatalog;
   modules: ModuleSubscription[];
   addOns: {
@@ -827,116 +865,6 @@ export function endClientModule(
   return apiFetch(
     `/api/admin/clients/${clientId}/modules/${module.toLowerCase()}/subscription/end`,
     { method: "POST" },
-  );
-}
-
-/** A platform bill issued to an academy for its SaaS subscription. */
-export interface AcademyBill {
-  id: string;
-  academy_id: string;
-  period_start: string;
-  period_end: string;
-  status: "OPEN" | "PAID" | "OVERDUE" | "VOID";
-  currency: string;
-  total_minor: number;
-  amount_paid_minor: number;
-  due_date: string;
-  issued_at: string;
-  paid_at: string | null;
-  payment_method: string | null;
-  public_token: string;
-  sent_at: string | null;
-  reminder_count: number;
-  /** Per-module composition snapshot at generation (R3, M-BILL-1); jsonb may arrive stringified. */
-  module_breakdown?:
-    | { module: ModuleCode; total_minor: number; currency: string }[]
-    | string
-    | null;
-}
-
-export function listAcademyBills(
-  academyId: string,
-): Promise<{ bills: AcademyBill[] }> {
-  return apiFetch(`/api/admin/academies/${academyId}/bills`);
-}
-
-export function generateAcademyBill(
-  academyId: string,
-): Promise<{ billId: string }> {
-  return apiFetch(`/api/admin/academies/${academyId}/bills/generate`, {
-    method: "POST",
-  });
-}
-
-export function markAcademyBillPaid(
-  academyId: string,
-  billId: string,
-  body: { method: string; reason?: string },
-): Promise<{ ok: boolean }> {
-  return apiFetch(
-    `/api/admin/academies/${academyId}/bills/${billId}/mark-paid`,
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-  );
-}
-
-export function setAcademyBillStatus(
-  academyId: string,
-  billId: string,
-  status: "OPEN" | "OVERDUE" | "VOID" | "PAID",
-): Promise<{ ok: boolean }> {
-  return apiFetch(`/api/admin/academies/${academyId}/bills/${billId}/status`, {
-    method: "POST",
-    body: JSON.stringify({ status }),
-  });
-}
-
-export function sendAcademyBill(
-  academyId: string,
-  billId: string,
-): Promise<{
-  phone: string;
-  message: string;
-  url: string;
-  transport: "WASENDER" | "DEEPLINK";
-  sent: boolean;
-  deeplink: string;
-}> {
-  return apiFetch(`/api/admin/academies/${academyId}/bills/${billId}/send`, {
-    method: "POST",
-  });
-}
-
-/** An academy's uploaded payment proof (transfer screenshot) awaiting review. */
-export interface AcademyPaymentSubmission {
-  id: string;
-  method: "INSTAPAY" | "VODAFONE_CASH";
-  amount_minor: number | null;
-  note: string | null;
-  review_status: "PENDING" | "APPROVED" | "REJECTED";
-  reviewed_at: string | null;
-  created_at: string;
-}
-
-export function listBillSubmissions(
-  academyId: string,
-  billId: string,
-): Promise<{ submissions: AcademyPaymentSubmission[] }> {
-  return apiFetch(
-    `/api/admin/academies/${academyId}/bills/${billId}/submissions`,
-  );
-}
-
-export function reviewPaymentSubmission(
-  academyId: string,
-  subId: string,
-  decision: "approve" | "reject",
-): Promise<{ ok: boolean }> {
-  return apiFetch(
-    `/api/admin/academies/${academyId}/payment-submissions/${subId}/review`,
-    { method: "POST", body: JSON.stringify({ decision }) },
   );
 }
 
@@ -1329,45 +1257,6 @@ export function waConnectStatus(token: string): Promise<{ state: string }> {
 }
 
 // ── Cross-academy Super Admin overviews (sidebar pages) ──────────────────────
-
-export interface SubscriptionOverviewRow {
-  academy_id: string;
-  academy_name: string;
-  academy_status: string;
-  plan_name: string | null;
-  status: string | null;
-  is_trial: boolean;
-  trial_end: string | null;
-  activated_at: string | null;
-  current_period_end: string | null;
-  total_cost_minor: number;
-  currency: string;
-  outstanding_minor: number;
-  outstanding_count: number;
-  pending_proofs: number;
-}
-
-export interface PendingProof {
-  submission_id: string;
-  academy_id: string;
-  academy_name: string;
-  bill_id: string;
-  method: "INSTAPAY" | "VODAFONE_CASH";
-  amount_minor: number | null;
-  note: string | null;
-  created_at: string;
-  bill_total_minor: number;
-  currency: string;
-  period_start: string;
-  period_end: string;
-}
-
-export function getSubscriptionsOverview(): Promise<{
-  academies: SubscriptionOverviewRow[];
-  pending_proofs: PendingProof[];
-}> {
-  return apiFetch("/api/admin/subscriptions");
-}
 
 export interface AutomationOverviewRow {
   academy_id: string;
@@ -1945,26 +1834,6 @@ export async function fetchPrivateFileUrl(path: string): Promise<string> {
   return URL.createObjectURL(await res.blob());
 }
 
-/** Fetch a private payment-proof screenshot as an object URL (works in cookie + token modes). */
-export async function fetchPaymentScreenshot(
-  academyId: string,
-  subId: string,
-): Promise<string> {
-  const headers = new Headers({ Accept: "image/*" });
-  if (AUTH_MODE === "token") {
-    const token = getAuthToken();
-    if (token) headers.set("Authorization", `Bearer ${token}`);
-  }
-  const res = await fetch(
-    `${apiBase()}/api/admin/academies/${academyId}/payment-submissions/${subId}/screenshot`,
-    {
-      headers,
-      credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
-    },
-  );
-  if (!res.ok) throw new ApiError(res.status, "Screenshot fetch failed");
-  return URL.createObjectURL(await res.blob());
-}
 
 export function listReportFields(
   academyId: string,
@@ -3866,6 +3735,9 @@ export function rescheduleSession(
   });
 }
 
+/** How much of a cancelled/free lesson the teacher is paid: a quarter, a half or all of it. */
+export type TeacherPayPercent = 25 | 50 | 100;
+
 export function cancelSession(
   sessionId: string,
   input: {
@@ -3873,6 +3745,8 @@ export function cancelSession(
     reason?: string;
     charge_student?: boolean;
     pay_teacher?: boolean;
+    /** Share of the lesson the teacher is paid when pay_teacher is true (default 100). */
+    teacher_pay_percent?: TeacherPayPercent;
   },
 ): Promise<{ ok: boolean; status: string; billed?: boolean }> {
   return apiFetch(`/api/sessions/${sessionId}/cancel`, {
@@ -4128,6 +4002,8 @@ export function markAttendance(
     /** Cancellation-only billing override (owner decision). Ignored for ATTENDED/FREE. */
     charge_student?: boolean;
     pay_teacher?: boolean;
+    /** Share of the lesson the teacher is paid when pay_teacher is true (default 100). */
+    teacher_pay_percent?: TeacherPayPercent;
   },
 ): Promise<{
   status: string;
@@ -4267,6 +4143,14 @@ export interface DaySession extends PendingSession {
   /** Set when a teacher-raised cancellation is awaiting owner approval — the session is still
    *  SCHEDULED, so the row shows an "awaiting approval" marker. null when there's no pending request. */
   pending_cancel_type: "teacher" | "student" | null;
+  /** Why the outcome was recorded (typed on a cancellation or excused absence); null when none. */
+  status_reason?: string | null;
+  /** The reason on a teacher's cancel request still awaiting approval. */
+  pending_cancel_reason?: string | null;
+  /** A cancelled/free lesson the office still pays the teacher for (null = status default). */
+  teacher_override?: boolean | null;
+  /** The share of it, in basis points (10000 = whole lesson); null = the whole lesson. */
+  teacher_pay_share_bp?: number | null;
   /** Who recorded the outcome (attended, absent, cancelled, free); null while still pending. */
   done_by_user_id?: string | null;
   done_by_name?: string | null;
@@ -5328,41 +5212,10 @@ export interface AdminDashboardStats {
   type_distribution: Array<{ client_type: ClientType; client_count: number }>;
 }
 
-export interface AdminMrr {
-  currency: string;
-  amount_minor: number;
-}
-
-export interface AdminEndingSoon {
-  academy_id: string;
-  academy_name: string;
-  kind: "trial" | "renewal";
-  ends_at: string;
-  days_left: number;
-  total_cost_minor: number;
-  currency: string;
-}
-
-export interface AdminOutstanding {
-  academies: number;
-  totals: AdminMrr[];
-}
-
-export interface AdminDashboardSubscriptions {
-  endingSoon: AdminEndingSoon[];
-  endingSoonCount: number;
-  outstanding: AdminOutstanding;
-  pendingProofs: {
-    count: number;
-    items: PendingProof[];
-  };
-}
-
+/** The platform home's bundle. Money (MRR, owed, dues, proofs) is Accounts → Dues (getDues). */
 export interface AdminDashboard {
   stats: AdminDashboardStats;
   recentActivity: AuditEntry[];
-  billing: { mrr: AdminMrr[] };
-  subscriptions: AdminDashboardSubscriptions;
 }
 
 export function getAdminDashboard(): Promise<AdminDashboard> {
@@ -5458,37 +5311,6 @@ export function updatePlatformSettings(
     method: "PATCH",
     body: JSON.stringify({ settings }),
   });
-}
-
-// ── Billing & revenue overview (Phase 5) ────────────────────────────────────
-
-export interface BillingMrr {
-  currency: string;
-  amount_minor: number;
-}
-
-export interface BillingAcademyRow {
-  id: string;
-  name: string;
-  status: AcademyStatus;
-  billing_day: number | null;
-  plan_code: string | null;
-  plan_name: string | null;
-  plan_price_minor: number | null;
-  currency: string;
-  active_addons: number;
-  addons_total_minor: number;
-  monthly_minor: number;
-}
-
-export interface BillingOverview {
-  counts: { total: number; active: number; trial: number; suspended: number };
-  mrr: BillingMrr[];
-  academies: BillingAcademyRow[];
-}
-
-export function getBillingOverview(): Promise<BillingOverview> {
-  return apiFetch("/api/admin/billing/overview");
 }
 
 // ── Cross-tenant user management (Phase 4) ──────────────────────────────────
@@ -5780,6 +5602,8 @@ export function approveCancellation(
     /** Owner's per-cancellation billing decision applied on approval. */
     charge_student?: boolean;
     pay_teacher?: boolean;
+    /** Share of the lesson the teacher is paid when pay_teacher is true (default 100). */
+    teacher_pay_percent?: TeacherPayPercent;
     /** Reason shown to the parent on the invoice line; defaults to the teacher's request reason. */
     reason?: string;
   } = {},
@@ -9360,11 +9184,12 @@ export function updateDemoRequest(
   });
 }
 
-// ── Finance ledger (Super Admin, platform.manage) ────────────────────────────
-// The platform owner's OWN income book: the clients who pay the owner, their deals (a one-time
-// sale, optionally in installments, or a subscription) and the money actually received. An
-// island by design — nothing here references an academy or a module subscription, in either
-// direction. Money is integer minor units in the deal's currency; the ledger never converts.
+// ── Accounts (Super Admin, platform.manage) ──────────────────────────────────
+// The platform's ONE money book (since 2026-11-08): every client that pays the owner — a platform
+// client links to its academy (`academy_id`), a client off our servers does not — its AGREEMENT
+// (how it pays), the deals that carry the money (a one-time sale in installments, or a recurring
+// line), the payments, and the transfer proofs clients upload from their pay link. Money is integer
+// minor units in the deal's currency; the book never converts. (API paths keep `/admin/finance`.)
 
 export const FINANCE_SERVICES = [
   "COURSE_SITE",
@@ -9373,6 +9198,7 @@ export const FINANCE_SERVICES = [
   "WHATSAPP_SERVICE",
   "CUSTOM_WORK",
   "HOSTING",
+  "SUPPORT",
   "OTHER",
 ] as const;
 export type FinanceService = (typeof FINANCE_SERVICES)[number];
@@ -9380,7 +9206,12 @@ export type FinanceService = (typeof FINANCE_SERVICES)[number];
 export const FINANCE_KINDS = ["ONE_TIME", "SUBSCRIPTION"] as const;
 export type FinanceKind = (typeof FINANCE_KINDS)[number];
 
-export const FINANCE_INTERVALS = ["MONTHLY", "QUARTERLY", "YEARLY"] as const;
+export const FINANCE_INTERVALS = [
+  "MONTHLY",
+  "QUARTERLY",
+  "SEMI_ANNUAL",
+  "YEARLY",
+] as const;
 export type FinanceInterval = (typeof FINANCE_INTERVALS)[number];
 
 export const FINANCE_DEAL_STATUSES = [
@@ -9417,6 +9248,21 @@ export type FinanceInstallmentStatus =
   | "OVERDUE"
   | "PENDING";
 
+/**
+ * How a client pays (the agreement the owner picked): every 1 / 3 / 6 / 12 months, one payment for
+ * the system + yearly support and server, or the whole system bought outright (on their servers,
+ * yearly support optional). CUSTOM = a mix typed deal by deal.
+ */
+export const ACCOUNT_PLANS = [
+  "MONTHLY",
+  "QUARTERLY",
+  "SEMI_ANNUAL",
+  "YEARLY",
+  "ONE_TIME_SUPPORT",
+  "OUTRIGHT",
+] as const;
+export type AccountPlan = (typeof ACCOUNT_PLANS)[number] | "CUSTOM";
+
 export interface FinanceClientRow {
   id: string;
   name: string;
@@ -9425,6 +9271,29 @@ export interface FinanceClientRow {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** The platform client this account belongs to; null for a client off our servers. */
+  academy_id: string | null;
+  academy_name: string | null;
+  academy_status: string | null;
+  client_type: ClientType | null;
+  plan: AccountPlan | null;
+  pay_token: string | null;
+  /** The recurring line the agreement runs (null without one). */
+  rec_deal_id: string | null;
+  rec_amount_minor: number | null;
+  /** The cycle's price before the discount (yearly at 15% off …). */
+  rec_list_amount_minor: number | null;
+  rec_interval: FinanceInterval | null;
+  rec_currency: string | null;
+  rec_service: FinanceService | null;
+  /** The soonest money still owed on any active deal. */
+  next_due_on: string | null;
+  next_due_minor: number | null;
+  next_due_currency: string | null;
+  has_overdue: boolean;
+  /** currency → minor units owed past their date. */
+  overdue: Record<string, number>;
+  pending_proofs: number;
   deals_count: number;
   active_deals: number;
   /** currency → minor units received from this client, all time. */
@@ -9451,14 +9320,20 @@ export interface FinanceDealRow {
   id: string;
   client_id: string;
   client_name: string;
+  academy_id?: string | null;
+  plan?: AccountPlan | null;
   title: string;
   service: FinanceService;
   kind: FinanceKind;
   billing_interval: FinanceInterval | null;
   /** ONE_TIME: the agreed total (= the schedule's sum). SUBSCRIPTION: the price of one cycle. */
   amount_minor: number;
+  /** SUBSCRIPTION: the cycle's price before the discount, when there is one. */
+  list_amount_minor?: number | null;
   currency: string;
   started_on: string;
+  /** SUBSCRIPTION winding down: no cycle from this day on is owed (an agreement change). */
+  ends_on?: string | null;
   status: FinanceDealStatus;
   notes: string | null;
   created_at: string;
@@ -9731,6 +9606,234 @@ export function deleteFinancePayment(
   id: string,
 ): Promise<{ ok: boolean; deal_id: string | null }> {
   return apiFetch(`/api/admin/finance/payments/${id}`, { method: "DELETE" });
+}
+
+// ── Accounts: agreements, dues, proofs ──────────────────────────────────────
+
+/** The compact account facts the client roster and the client page read. */
+export interface AccountSummary {
+  id: string;
+  plan: AccountPlan | null;
+  pay_token: string | null;
+  recurring: {
+    deal_id: string;
+    amount_minor: number;
+    list_amount_minor: number | null;
+    interval: FinanceInterval;
+    currency: string;
+  } | null;
+  next_due_on: string | null;
+  next_due_minor: number | null;
+  next_due_currency: string | null;
+  has_overdue: boolean;
+  overdue: Record<string, number>;
+  outstanding: Record<string, number>;
+  pending_proofs: number;
+  active_deals: number;
+}
+
+/** A transfer screenshot a client uploaded from its pay link. */
+export interface PaymentProof {
+  id: string;
+  client_id: string;
+  client_name: string;
+  academy_id: string | null;
+  academy_name: string | null;
+  method: "INSTAPAY" | "VODAFONE_CASH";
+  amount_minor: number | null;
+  currency: string;
+  note: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  reviewed_at: string | null;
+  created_at: string;
+}
+
+/** One account's page: the row, every deal with its schedule, the money, the proofs, the link. */
+export interface AccountPayload {
+  account: FinanceClientRow;
+  deals: Array<FinanceDealRow & { schedule: FinanceInstallment[] }>;
+  payments: FinanceLedgerRow[];
+  submissions: PaymentProof[];
+  pay_url: string;
+}
+
+export interface AgreementInput {
+  plan: (typeof ACCOUNT_PLANS)[number];
+  currency: string;
+  service?: FinanceService | null;
+  notes?: string | null;
+  /** A platform client in trial starts paying now (its trials end). */
+  activate?: boolean;
+  recurring?: {
+    amount_minor: number;
+    list_amount_minor?: number | null;
+    first_due_on: string;
+    title?: string | null;
+  } | null;
+  one_time?: {
+    title?: string | null;
+    installments: FinanceInstallmentInput[];
+  } | null;
+  /** Money received on the spot (a down payment, the first cycle). */
+  paid_now?: {
+    amount_minor: number;
+    paid_on: string;
+    method: FinanceMethod;
+    reference?: string | null;
+  } | null;
+}
+
+/** An open due on an active deal, with who owes it (the Dues screen). */
+export interface OpenDue {
+  id: string;
+  deal_id: string;
+  seq: number;
+  due_on: string;
+  amount_minor: number;
+  remaining_minor: number;
+  title: string;
+  service: FinanceService;
+  kind: FinanceKind;
+  billing_interval: FinanceInterval | null;
+  currency: string;
+  client_id: string;
+  client_name: string;
+  academy_id: string | null;
+  academy_name: string | null;
+  plan: AccountPlan | null;
+  phone: string | null;
+  pay_token: string | null;
+  /** Days past the due date; negative = days still to go. */
+  days_late: number;
+}
+
+export interface DuesPayload {
+  today: string;
+  totals: FinanceTotals[];
+  late: OpenDue[];
+  week: OpenDue[];
+  month: OpenDue[];
+  proofs: PaymentProof[];
+  /** Platform trials ending within a week — the moment to agree a price. */
+  trials: Array<{
+    academy_id: string;
+    name: string;
+    trial_end: string;
+    days: number;
+    owner_phone: string | null;
+  }>;
+  /** Platform clients running paid modules with no agreement in the book. */
+  unagreed: Array<{
+    academy_id: string;
+    name: string;
+    client_type: ClientType | null;
+    suggested_minor: number;
+    currency: string;
+    interval: "MONTHLY" | "YEARLY";
+  }>;
+  reminders: { enabled: boolean; ready: boolean; owner_digest: boolean };
+}
+
+/** Accounts → Settings: who sends the WhatsApp reminders and where the owner's digest goes. */
+export interface AccountReminderSettings {
+  enabled: boolean;
+  sender_academy_id: string | null;
+  owner_phone: string | null;
+}
+
+export function getDues(): Promise<DuesPayload> {
+  return apiFetch("/api/admin/finance/dues");
+}
+
+export function getAccount(clientId: string): Promise<AccountPayload> {
+  return apiFetch(`/api/admin/finance/clients/${clientId}`);
+}
+
+/** A platform client's account, or `{account: null}` before it has an agreement. */
+export function getClientAccount(
+  academyId: string,
+): Promise<AccountPayload | { account: null }> {
+  return apiFetch(`/api/admin/clients/${academyId}/account`);
+}
+
+export function setAccountAgreement(
+  clientId: string,
+  input: AgreementInput,
+): Promise<AccountPayload> {
+  return apiFetch(`/api/admin/finance/clients/${clientId}/agreement`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Set a platform client's agreement (opens its account on first use). */
+export function setClientAgreement(
+  academyId: string,
+  input: AgreementInput,
+): Promise<AccountPayload> {
+  return apiFetch(`/api/admin/clients/${academyId}/agreement`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** A client off our servers, optionally with its agreement in the same step. */
+export function createAccount(
+  input: FinanceClientInput & { agreement?: AgreementInput },
+): Promise<AccountPayload & { client: FinanceClientRow }> {
+  return apiFetch("/api/admin/finance/clients", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+/** Money from a client (not one deal): it pays the oldest dues first. */
+export function receiveFromClient(
+  clientId: string,
+  input: FinancePaymentInput & { currency: string },
+): Promise<AccountPayload> {
+  return apiFetch(`/api/admin/finance/clients/${clientId}/payments`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function approveProof(
+  id: string,
+  input: { amount_minor: number; paid_on?: string; currency?: string },
+): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/finance/submissions/${id}/approve`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export function rejectProof(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/finance/submissions/${id}/reject`, {
+    method: "POST",
+  });
+}
+
+/** Fetch a proof's private screenshot as an object URL (works in cookie + token modes). */
+export async function fetchProofScreenshot(id: string): Promise<string> {
+  const headers = new Headers({ Accept: "image/*" });
+  if (AUTH_MODE === "token") {
+    const token = getAuthToken();
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+  }
+  const res = await fetch(
+    `${apiBase()}/api/admin/finance/submissions/${id}/screenshot`,
+    {
+      headers,
+      credentials: AUTH_MODE === "cookie" ? "include" : "same-origin",
+    },
+  );
+  if (!res.ok) throw new ApiError(res.status, "Screenshot fetch failed");
+  return URL.createObjectURL(await res.blob());
+}
+
+export function testAccountReminder(): Promise<{ sent: boolean }> {
+  return apiFetch("/api/admin/finance/reminders/test", { method: "POST" });
 }
 
 /**

@@ -1,7 +1,7 @@
 "use client";
 
 import { Blocks, Ellipsis } from "lucide-react";
-import { useLocale, useTranslations } from "next-intl";
+import { useTranslations } from "next-intl";
 import { useMemo, useState, type ReactNode } from "react";
 import { SectionCard } from "@/components/admin/section-card";
 import { StatusChip, type ChipTone } from "@/components/admin/status-chip";
@@ -23,25 +23,23 @@ import {
   endClientModule,
   extendClientModuleTrial,
   pauseClientModule,
-  updateClientModule,
   type ClientType,
   type ModuleCode,
   type ModuleSubscription,
 } from "@/lib/api";
-import { formatMoney } from "@/lib/money";
 import { daysUntil } from "@/lib/time";
 import { cn } from "@/lib/utils";
-import { revenueBuckets, revenueLabel } from "./client-summary";
+import { moduleSlots } from "./client-summary";
 
 /**
  * The Modules card (05-MODULES-NOT-PACKAGES §2/§5) — the client page's centerpiece and THE ONLY
- * writer for module on/off, price, trial, activate and pause. One row per module the client's TYPE
- * may hold, each backed 1:1 by a module_subscriptions row. There is no package to pick: a module is
- * either sold to this client (at a price we type here) or it isn't.
+ * writer for module on/off, trial, activate and pause. One row per module the client's TYPE may
+ * hold, each backed 1:1 by a module_subscriptions row. What the client PAYS is not here: since
+ * 2026-11-08 that is its agreement in the accounts book (the panel beside this card).
  *
- * Each row: identity · state chip + price · the verbs that apply right now. The everyday verbs
- * (Enable, Activate, Extend, Price) are buttons; the two that take something away (Pause, Remove)
- * sit behind the row's "⋯" menu so they are never a slip of the hand away.
+ * Each row: identity · state chip · the verbs that apply right now. The everyday verbs (Enable,
+ * Activate, Extend) are buttons; the two that take something away (Pause, Remove) sit behind the
+ * row's "⋯" menu so they are never a slip of the hand away.
  */
 export function ModulesCard({
   clientId,
@@ -50,6 +48,7 @@ export function ModulesCard({
   currency,
   defaultPricing,
   onChanged,
+  onActivate,
 }: {
   clientId: string;
   clientType: ClientType;
@@ -59,11 +58,15 @@ export function ModulesCard({
     Record<ModuleCode, { price_minor: number; currency: string }>
   >;
   onChanged: () => void;
+  /**
+   * Ending a trial is when the client starts paying, so with no agreement yet the client page
+   * opens the agreement form here instead (it ends the trial on save).
+   */
+  onActivate?: (module: ModuleCode) => void;
 }) {
   const t = useTranslations("clients.subs");
   const tm = useTranslations("clients.modules");
   const td = useTranslations("clients.detail");
-  const locale = useLocale();
   const { can } = useAuth();
   const toast = useToast();
   const canManage = can("academy_billing.manage");
@@ -76,7 +79,7 @@ export function ModulesCard({
   const [busy, setBusy] = useState<ModuleCode | null>(null);
   const [editor, setEditor] = useState<{
     module: ModuleCode;
-    kind: "enable" | "extend" | "price" | "confirm-pause" | "confirm-end";
+    kind: "enable" | "extend" | "confirm-pause" | "confirm-end";
   } | null>(null);
 
   const run = async (module: ModuleCode, fn: () => Promise<unknown>) => {
@@ -92,14 +95,6 @@ export function ModulesCard({
     }
   };
 
-  const total = useMemo(
-    () =>
-      revenueLabel(revenueBuckets(modules), locale, (interval) =>
-        t(interval === "YEARLY" ? "perYearSuffix" : "perMonthSuffix"),
-      ),
-    [modules, locale, t],
-  );
-
   /** One module's lifecycle as chip words: paused, trial countdown, or active + renewal date. */
   const stateOf = (
     sub: ModuleSubscription,
@@ -111,15 +106,8 @@ export function ModulesCard({
         ? { tone: "warn", label: t("trialLeft", { days }) }
         : { tone: "crit", label: t("trialExpired") };
     }
-    return {
-      tone: "good",
-      label:
-        sub.current_period_end !== null
-          ? t("renews", {
-              date: new Date(sub.current_period_end).toLocaleDateString(locale),
-            })
-          : t("active"),
-    };
+    // A paid module just runs: when the client pays next is its agreement's business.
+    return { tone: "good", label: t("active") };
   };
 
   return (
@@ -128,19 +116,10 @@ export function ModulesCard({
       title={t("title")}
       description={t("hint")}
       flush
-      action={
-        <span
-          className="text-sm font-semibold tabular-nums"
-          dir="ltr"
-          data-testid="modules-total"
-        >
-          {total === "" ? "—" : t("total", { total })}
-        </span>
-      }
       testId="modules-card"
     >
       <div className="divide-y">
-        {CLIENT_TYPE_MODULES[clientType].map((code) => {
+        {moduleSlots(CLIENT_TYPE_MODULES[clientType], modules.map((m) => m.module)).map((code) => {
           const sub = byModule.get(code) ?? null;
           const open = editor?.module === code ? editor.kind : null;
           const isBusy = busy === code;
@@ -173,25 +152,6 @@ export function ModulesCard({
                       <StatusChip tone={state.tone} dot>
                         {state.label}
                       </StatusChip>
-                      <span
-                        className="text-sm font-semibold tabular-nums"
-                        dir="ltr"
-                      >
-                        {sub.base_price_minor > 0
-                          ? formatMoney(
-                              {
-                                amount: sub.base_price_minor,
-                                currency: sub.currency,
-                              },
-                              locale,
-                            ) +
-                            t(
-                              sub.billing_interval === "YEARLY"
-                                ? "perYearSuffix"
-                                : "perMonthSuffix",
-                            )
-                          : t("free")}
-                      </span>
                     </>
                   )}
                 </div>
@@ -229,10 +189,13 @@ export function ModulesCard({
                               size="sm"
                               disabled={isBusy}
                               onClick={() =>
-                                run(code, () =>
-                                  activateClientModule(clientId, code),
-                                )
+                                onActivate
+                                  ? onActivate(code)
+                                  : run(code, () =>
+                                      activateClientModule(clientId, code),
+                                    )
                               }
+                              data-testid={`activate-${code}`}
                             >
                               {t("activate")}
                             </Button>
@@ -263,17 +226,6 @@ export function ModulesCard({
                             </Button>
                           </>
                         )}
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={isBusy}
-                          onClick={() =>
-                            setEditor({ module: code, kind: "price" })
-                          }
-                          data-testid={`price-${code}`}
-                        >
-                          {t("changePrice")}
-                        </Button>
                         <DropdownMenu>
                           <DropdownMenuTrigger>
                             <button
@@ -335,20 +287,6 @@ export function ModulesCard({
                     onCancel={() => setEditor(null)}
                     onSubmit={(input) =>
                       run(code, () => enableClientModule(clientId, code, input))
-                    }
-                  />
-                </Editor>
-              )}
-              {open === "price" && sub !== null && (
-                <Editor title={t("editorPrice")}>
-                  <PriceForm
-                    priceMinor={sub.base_price_minor}
-                    currency={sub.currency}
-                    interval={sub.billing_interval}
-                    busy={isBusy}
-                    onCancel={() => setEditor(null)}
-                    onSubmit={(patch) =>
-                      run(code, () => updateClientModule(clientId, code, patch))
                     }
                   />
                 </Editor>
@@ -418,7 +356,7 @@ function Editor({ title, children }: { title: string; children: ReactNode }) {
 const editorField =
   "border-input bg-background h-8 rounded-lg border px-2.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50";
 
-/** Sell a module to this client: its price, its interval, trial-or-paid. */
+/** Turn a module on for this client: a trial of N days, or running from today. The money is its agreement. */
 function EnableForm({
   module,
   currency,
@@ -443,21 +381,12 @@ function EnableForm({
   const t = useTranslations("clients.subs");
   const [mode, setMode] = useState<"trial" | "active">("trial");
   const [days, setDays] = useState(5);
-  const [price, setPrice] = useState(String(suggestedPriceMinor / 100));
-  const [interval, setInterval] = useState<"MONTHLY" | "YEARLY">("MONTHLY");
 
   return (
     <div
       className="flex flex-wrap items-end gap-3"
       data-testid={`enable-form-${module}`}
     >
-      <PriceFields
-        price={price}
-        setPrice={setPrice}
-        currency={currency}
-        interval={interval}
-        setInterval={setInterval}
-      />
       <label className="text-xs font-medium">
         <span className="text-muted-foreground mb-1 block">{t("mode")}</span>
         <select
@@ -494,9 +423,11 @@ function EnableForm({
           onClick={() =>
             onSubmit({
               mode,
-              price_minor: Math.max(0, Math.round(Number(price || 0) * 100)),
+              // What the client pays is its agreement (Accounts); the module keeps the default
+              // price only as the agreement form's starting point.
+              price_minor: suggestedPriceMinor,
               currency,
-              billing_interval: interval,
+              billing_interval: "MONTHLY",
               ...(mode === "trial" ? { trial_days: days } : {}),
             })
           }
@@ -505,107 +436,6 @@ function EnableForm({
         </Button>
       </div>
     </div>
-  );
-}
-
-/** Reprice a module for this client — a custom or yearly deal is just a number typed here. */
-function PriceForm({
-  priceMinor,
-  currency,
-  interval: current,
-  busy,
-  onCancel,
-  onSubmit,
-}: {
-  priceMinor: number;
-  currency: string;
-  interval: "MONTHLY" | "YEARLY";
-  busy: boolean;
-  onCancel: () => void;
-  onSubmit: (patch: {
-    price_minor: number;
-    billing_interval: "MONTHLY" | "YEARLY";
-  }) => void;
-}) {
-  const t = useTranslations("clients.subs");
-  const [price, setPrice] = useState(String(priceMinor / 100));
-  const [interval, setInterval] = useState(current);
-
-  return (
-    <div className="flex flex-wrap items-end gap-3">
-      <PriceFields
-        price={price}
-        setPrice={setPrice}
-        currency={currency}
-        interval={interval}
-        setInterval={setInterval}
-      />
-      <div className="ms-auto flex gap-2">
-        <Button size="sm" variant="outline" onClick={onCancel}>
-          {t("cancel")}
-        </Button>
-        <Button
-          size="sm"
-          disabled={busy}
-          onClick={() =>
-            onSubmit({
-              price_minor: Math.max(0, Math.round(Number(price || 0) * 100)),
-              billing_interval: interval,
-            })
-          }
-        >
-          {t("savePrice")}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-/** Price + interval, shared by the enable and reprice forms. */
-function PriceFields({
-  price,
-  setPrice,
-  currency,
-  interval,
-  setInterval,
-}: {
-  price: string;
-  setPrice: (v: string) => void;
-  currency: string;
-  interval: "MONTHLY" | "YEARLY";
-  setInterval: (v: "MONTHLY" | "YEARLY") => void;
-}) {
-  const t = useTranslations("clients.subs");
-
-  return (
-    <>
-      <label className="text-xs font-medium">
-        <span className="text-muted-foreground mb-1 block">
-          {t("price", { currency })}
-        </span>
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          className={cn(editorField, "w-28 tabular-nums")}
-        />
-      </label>
-      <label className="text-xs font-medium">
-        <span className="text-muted-foreground mb-1 block">
-          {t("interval")}
-        </span>
-        <select
-          value={interval}
-          onChange={(e) => setInterval(e.target.value as "MONTHLY" | "YEARLY")}
-          className={editorField}
-        >
-          <option value="MONTHLY">{t("monthly")}</option>
-          <option value="YEARLY">{t("yearly")}</option>
-        </select>
-      </label>
-    </>
   );
 }
 

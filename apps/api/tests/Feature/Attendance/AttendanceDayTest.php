@@ -106,3 +106,28 @@ it('row-scopes a teacher to their own sessions', function () {
 
     expect($ids)->toEqual(collect([$this->trialSession])); // only teacher1's session
 });
+
+// ── The "Reason" column: why a lesson was cancelled, and a pending request's reason ──
+it('carries the recorded reason, and a pending cancel request\'s reason', function () {
+    Sanctum::actingAs($this->owner);
+
+    $this->asAcademy($this->academy);
+    \Illuminate\Support\Facades\DB::table('sessions')->where('id', $this->regularSession)
+        ->update(['status' => 'CANCELLED_BY_STUDENT', 'status_reason' => 'سفر']);
+    \Illuminate\Support\Facades\DB::table('session_cancellation_requests')->insert([
+        'id' => (string) \Illuminate\Support\Str::uuid(),
+        'academy_id' => $this->academy,
+        'session_id' => $this->trialSession,
+        'teacher_id' => $this->teacher1,
+        'cancel_type' => 'teacher',
+        'reason' => 'مرض المعلمة',
+        'status' => 'PENDING',
+    ]);
+    $this->clearTenantContext();
+
+    $rows = collect($this->getJson(dayUrl())->assertOk()->json('sessions'));
+
+    expect($rows->firstWhere('id', $this->regularSession)['status_reason'])->toBe('سفر');
+    expect($rows->firstWhere('id', $this->trialSession)['status_reason'])->toBeNull();
+    expect($rows->firstWhere('id', $this->trialSession)['pending_cancel_reason'])->toBe('مرض المعلمة');
+});

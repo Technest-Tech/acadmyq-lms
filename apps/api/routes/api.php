@@ -12,7 +12,6 @@ use App\Http\Controllers\Admin\AcademyAutomationController;
 use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\AcademyLogoController;
 use App\Http\Controllers\Admin\AcademySubscriptionController;
-use App\Http\Controllers\Admin\BillingController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientDomainController;
 use App\Http\Controllers\Admin\ClientPaymentController;
@@ -20,8 +19,10 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DemoRequestController as AdminDemoRequestController;
 use App\Http\Controllers\Admin\Finance\ClientController as FinanceClientController;
 use App\Http\Controllers\Admin\Finance\DealController as FinanceDealController;
+use App\Http\Controllers\Admin\Finance\DuesController as FinanceDuesController;
 use App\Http\Controllers\Admin\Finance\OverviewController as FinanceOverviewController;
 use App\Http\Controllers\Admin\Finance\PaymentController as FinancePaymentController;
+use App\Http\Controllers\Admin\Finance\SubmissionController as FinanceSubmissionController;
 use App\Http\Controllers\Admin\LmsOversightController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
@@ -552,17 +553,6 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/admin/clients/{id}/domains/{domainId}/primary', [ClientDomainController::class, 'primary']);
     Route::delete('/admin/clients/{id}/domains/{domainId}', [ClientDomainController::class, 'destroy']);
 
-    // Platform → Academy bills (academy_billing.manage). Academy-scoped so the Super Admin write
-    // runs in the academy's context (no cross-tenant lookup); send delivers the bill over WhatsApp.
-    Route::get('/admin/academies/{id}/bills', [AcademySubscriptionController::class, 'bills']);
-    Route::post('/admin/academies/{id}/bills/generate', [AcademySubscriptionController::class, 'generateBill']);
-    Route::post('/admin/academies/{id}/bills/{billId}/mark-paid', [AcademySubscriptionController::class, 'markBillPaid']);
-    Route::post('/admin/academies/{id}/bills/{billId}/status', [AcademySubscriptionController::class, 'setBillStatus']);
-    Route::post('/admin/academies/{id}/bills/{billId}/send', [AcademySubscriptionController::class, 'sendBill']);
-    Route::get('/admin/academies/{id}/bills/{billId}/submissions', [AcademySubscriptionController::class, 'billSubmissions']);
-    Route::get('/admin/academies/{id}/payment-submissions/{subId}/screenshot', [AcademySubscriptionController::class, 'screenshot']);
-    Route::post('/admin/academies/{id}/payment-submissions/{subId}/review', [AcademySubscriptionController::class, 'reviewSubmission']);
-
     // The client's logo (academy.configure). Upload replaces the file AND rewrites
     // academies.brand_logo_url, which is the one column every branded surface already reads — the
     // client's sign-in page, their subdomain and their learner site all follow from this write.
@@ -624,13 +614,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/admin/users/{id}/reset-password', [UserController::class, 'resetPassword']);
     Route::post('/admin/users/{id}/roles', [UserController::class, 'setRole']);
 
-    // Billing & revenue overview (Super Admin, plan.manage) — MRR by currency, per-academy rows.
-    Route::get('/admin/billing/overview', [BillingController::class, 'overview']);
-
-    // Cross-academy Super Admin overview pages (sidebar). Subscriptions + payment-proof queue
-    // (academy_billing.manage); automation status (automation.manage). Inline actions reuse the
-    // per-academy endpoints above.
-    Route::get('/admin/subscriptions', [AcademySubscriptionController::class, 'overview']);
+    // Cross-academy Super Admin overview pages (sidebar): automation status (automation.manage).
+    // Inline actions reuse the per-academy endpoints above. (The money overviews live under
+    // /admin/finance — the accounts book.)
     Route::get('/admin/automation', [AcademyAutomationController::class, 'overview']);
     Route::get('/admin/automation/activity', [AcademyAutomationController::class, 'activity']);
     // Self-hosted gateway health + live rate-limit settings (System tab).
@@ -677,16 +663,27 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/demo-requests', [AdminDemoRequestController::class, 'index']);
     Route::patch('/admin/demo-requests/{id}', [AdminDemoRequestController::class, 'update'])->whereUuid('id');
 
-    // Finance ledger (Super Admin, platform.manage) — the platform owner's OWN income book:
-    // the clients who pay the owner, their deals (a one-time sale in installments, or a
-    // subscription) and the money actually received. An island by design: no link to academies,
-    // module subscriptions or academy invoices in either direction (see FinanceLedger).
+    // Accounts (Super Admin, platform.manage) — the platform's ONE money book since 2026-11-08:
+    // every client that pays the owner (a platform client links to its academy), its agreement
+    // (monthly / 3 / 6 months / yearly / one payment + yearly support / outright), the deals that
+    // carry the money, the payments and the proofs clients upload from their pay link. See
+    // FinanceLedger (the arithmetic) and PlatformAccounts (agreements, the academy link).
     Route::get('/admin/finance/overview', FinanceOverviewController::class);
+    Route::get('/admin/finance/dues', [FinanceDuesController::class, 'index']);
+    Route::post('/admin/finance/reminders/test', [FinanceDuesController::class, 'testReminder']);
+    Route::get('/admin/finance/submissions/{id}/screenshot', [FinanceSubmissionController::class, 'screenshot'])->whereUuid('id');
+    Route::post('/admin/finance/submissions/{id}/approve', [FinanceSubmissionController::class, 'approve'])->whereUuid('id');
+    Route::post('/admin/finance/submissions/{id}/reject', [FinanceSubmissionController::class, 'reject'])->whereUuid('id');
+    Route::get('/admin/clients/{id}/account', [FinanceClientController::class, 'forAcademy'])->whereUuid('id');
+    Route::put('/admin/clients/{id}/agreement', [FinanceClientController::class, 'agreementForAcademy'])->whereUuid('id');
     Route::get('/admin/finance/clients', [FinanceClientController::class, 'index']);
     Route::get('/admin/finance/clients/all', [FinanceClientController::class, 'all']);
     Route::post('/admin/finance/clients', [FinanceClientController::class, 'store']);
     Route::patch('/admin/finance/clients/{id}', [FinanceClientController::class, 'update'])->whereUuid('id');
     Route::delete('/admin/finance/clients/{id}', [FinanceClientController::class, 'destroy'])->whereUuid('id');
+    Route::get('/admin/finance/clients/{id}', [FinanceClientController::class, 'show'])->whereUuid('id');
+    Route::put('/admin/finance/clients/{id}/agreement', [FinanceClientController::class, 'agreement'])->whereUuid('id');
+    Route::post('/admin/finance/clients/{id}/payments', [FinanceClientController::class, 'receive'])->whereUuid('id');
     Route::get('/admin/finance/deals', [FinanceDealController::class, 'index']);
     Route::post('/admin/finance/deals', [FinanceDealController::class, 'store']);
     Route::get('/admin/finance/deals/{id}', [FinanceDealController::class, 'show'])->whereUuid('id');

@@ -202,6 +202,75 @@ it('TC-8.6b: a cancellation with pay_teacher=true accrues the payout', function 
     expect((bool) DB::table('sessions')->where('id', $session)->value('paid_to_teacher'))->toBeTrue();
 });
 
+it('pays the teacher half or a quarter of a cancelled lesson when the office says so', function () {
+    $half = ($this->juneSession)();
+    ($this->attend)($half, 'CANCELLED_BY_STUDENT', ['pay_teacher' => true, 'teacher_pay_percent' => 50])->assertOk();
+    $quarter = ($this->juneSession)(['scheduled_at_utc' => '2026-06-03 10:00:00+00']);
+    ($this->attend)($quarter, 'CANCELLED_BY_STUDENT', ['pay_teacher' => true, 'teacher_pay_percent' => 25])->assertOk();
+    $whole = ($this->juneSession)(['scheduled_at_utc' => '2026-06-04 10:00:00+00']);
+    ($this->attend)($whole, 'CANCELLED_BY_STUDENT', ['pay_teacher' => true, 'teacher_pay_percent' => 100])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->linesForSession)($half)->first()->amount_minor)->toBe(2500)
+        ->and((int) ($this->linesForSession)($quarter)->first()->amount_minor)->toBe(1250)
+        ->and((int) ($this->linesForSession)($whole)->first()->amount_minor)->toBe(5000)
+        ->and((int) ($this->payoutFor)()->total_minor)->toBe(8750);
+    expect(DB::table('sessions')->where('id', $half)->value('teacher_pay_share_bp'))->toBe(5000)
+        // The whole lesson is stored as NULL, like every lesson before the share existed.
+        ->and(DB::table('sessions')->where('id', $whole)->value('teacher_pay_share_bp'))->toBeNull();
+});
+
+it('ignores the share when the teacher is not paid at all', function () {
+    $session = ($this->juneSession)();
+    ($this->attend)($session, 'CANCELLED_BY_STUDENT', ['pay_teacher' => false, 'teacher_pay_percent' => 50])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(($this->linesForSession)($session))->toHaveCount(0)
+        ->and(DB::table('sessions')->where('id', $session)->value('teacher_pay_share_bp'))->toBeNull();
+});
+
+it('re-prices the line when an attended lesson is re-marked as cancelled at half pay, and back', function () {
+    $session = ($this->juneSession)();
+    ($this->attend)($session, 'ATTENDED')->assertOk();
+    ($this->attend)($session, 'CANCELLED_BY_STUDENT', ['pay_teacher' => true, 'teacher_pay_percent' => 50])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(($this->linesForSession)($session))->toHaveCount(1)
+        ->and((int) ($this->linesForSession)($session)->first()->amount_minor)->toBe(2500)
+        ->and((int) ($this->payoutFor)()->total_minor)->toBe(2500);
+
+    ($this->attend)($session, 'ATTENDED')->assertOk();
+    $this->asAcademy($this->academy);
+    expect((int) ($this->linesForSession)($session)->first()->amount_minor)->toBe(5000)
+        ->and((int) ($this->payoutFor)()->total_minor)->toBe(5000)
+        ->and(DB::table('sessions')->where('id', $session)->value('teacher_pay_share_bp'))->toBeNull();
+});
+
+it('takes the share on the cancel endpoint and keeps it through a reprice', function () {
+    $session = ($this->juneSession)();
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/cancel", [
+        'cancelled_by' => 'student', 'pay_teacher' => true, 'teacher_pay_percent' => 25,
+    ])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->linesForSession)($session)->first()->amount_minor)->toBe(1250);
+
+    // A recalculation of the month re-prices every line from today's rate: the share must hold.
+    $payoutId = (string) ($this->payoutFor)()->id;
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/payouts/{$payoutId}/reprice")->assertOk();
+    $this->asAcademy($this->academy);
+    expect((int) ($this->linesForSession)($session)->first()->amount_minor)->toBe(1250);
+});
+
+it('rejects a share other than a quarter, a half or the whole lesson', function () {
+    $session = ($this->juneSession)();
+    ($this->attend)($session, 'CANCELLED_BY_STUDENT', ['pay_teacher' => true, 'teacher_pay_percent' => 30])
+        ->assertStatus(422);
+});
+
 it('TC-8.7: property — only ATTENDED counts for the teacher, and the engine honors exactly that', function () {
     // Every enum value: classify().countsForTeacher is true iff ATTENDED.
     foreach (SessionStatus::cases() as $status) {

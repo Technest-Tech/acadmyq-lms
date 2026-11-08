@@ -23,5 +23,5 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function CoursePlatformPage() {
   const { locale, t } = await marketing();
 
-  return <ProductPage page={t.coursePlatform} t={t} locale={locale} />;
+  return <ProductPage page={t.coursePlatform} t={t} locale={locale} product="COURSE_PLATFORM" />;
 }

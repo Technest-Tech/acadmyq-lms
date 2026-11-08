@@ -354,6 +354,7 @@ function RequestCard({
         note: note || undefined,
         charge_student: values.charge_student,
         pay_teacher: values.pay_teacher,
+        teacher_pay_percent: values.pay_teacher ? values.teacher_pay_percent : undefined,
         reason: values.reason || undefined,
       });
       setBillingOpen(false);

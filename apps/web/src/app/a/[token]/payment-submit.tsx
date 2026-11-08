@@ -57,15 +57,19 @@ function CopyRow({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * Public payment section for an academy bill: shows the platform's InstaPay / Vodafone Cash
- * receiving details and lets the academy upload a transfer screenshot, which a Super Admin reviews.
+ * Public payment section of a client's pay link: shows the platform's InstaPay / Vodafone Cash
+ * receiving details and lets the client upload a transfer screenshot, which the owner approves on
+ * Accounts → Dues (it then lands in the book as a payment). The amount due now rides along so the
+ * proof arrives with a figure to confirm.
  */
 export function PaymentSubmit({
   token,
   methods,
+  amountMinor,
 }: {
   token: string;
   methods: ReceivingMethods;
+  amountMinor?: number;
 }) {
   const enabled = Object.entries(methods).filter(([, m]) => m?.enabled !== false);
   const [method, setMethod] = useState<string>(enabled[0]?.[0] ?? "INSTAPAY");
@@ -87,6 +91,7 @@ export function PaymentSubmit({
       body.set("method", method);
       body.set("screenshot", file);
       if (note) body.set("note", note);
+      if (amountMinor && amountMinor > 0) body.set("amount", String(amountMinor));
       const res = await fetch(`${API_BASE}/api/a/${token}/submit`, {
         method: "POST",
         body,

@@ -6,12 +6,62 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import type { TeacherPayPercent } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export interface CancellationBillingValues {
   charge_student: boolean;
   pay_teacher: boolean;
+  /** How much of the lesson the teacher is paid; meaningful only when `pay_teacher`. */
+  teacher_pay_percent: TeacherPayPercent;
   reason: string;
+}
+
+/** What the teacher is paid for the lesson: nothing, a quarter, a half or all of it. */
+type TeacherShare = 0 | TeacherPayPercent;
+const TEACHER_SHARES: TeacherShare[] = [0, 25, 50, 100];
+
+/** A four-way segmented control: nothing / a quarter / a half / the whole lesson. */
+function TeacherShareChoice({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: TeacherShare;
+  onChange: (v: TeacherShare) => void;
+  disabled?: boolean;
+}) {
+  const t = useTranslations("attendance.cancelBilling");
+  return (
+    <div
+      role="radiogroup"
+      aria-label={t("payTeacher")}
+      className="bg-muted/60 grid w-full grid-cols-4 rounded-lg p-0.5"
+      data-testid="teacher-share"
+    >
+      {TEACHER_SHARES.map((opt) => (
+        <button
+          key={opt}
+          type="button"
+          role="radio"
+          aria-checked={value === opt}
+          disabled={disabled}
+          onClick={() => onChange(opt)}
+          data-testid={`teacher-share-${opt}`}
+          className={cn(
+            "rounded-md px-2 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50",
+            value === opt
+              ? opt > 0
+                ? "bg-emerald-500 text-white shadow-sm"
+                : "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {t(`share.${opt}`)}
+        </button>
+      ))}
+    </div>
+  );
 }
 
 /** A two-option Yes/No segmented control. `null` = not answered yet (neither side lit). */
@@ -82,14 +132,14 @@ export function CancellationBillingModal({
   // lesson is recorded with the standard verdict: neither charged nor paid.
   const canBill = useAuth().can("session.bill_override");
   const [chargeStudent, setChargeStudent] = useState(false);
-  const [payTeacher, setPayTeacher] = useState(false);
+  const [teacherShare, setTeacherShare] = useState<TeacherShare>(0);
   const [reason, setReason] = useState(defaultReason);
 
   // Reset to defaults each time the modal is (re)opened so a prior cancellation never leaks in.
   useEffect(() => {
     if (open) {
       setChargeStudent(false);
-      setPayTeacher(false);
+      setTeacherShare(0);
       setReason(defaultReason);
     }
   }, [open, defaultReason]);
@@ -113,7 +163,8 @@ export function CancellationBillingModal({
             onClick={() =>
               void onConfirm({
                 charge_student: canBill && chargeStudent,
-                pay_teacher: canBill && payTeacher,
+                pay_teacher: canBill && teacherShare > 0,
+                teacher_pay_percent: teacherShare === 0 ? 100 : teacherShare,
                 reason: reason.trim(),
               })
             }
@@ -148,17 +199,17 @@ export function CancellationBillingModal({
             </div>
 
             {/* Pay the teacher */}
-            <div className="flex items-center justify-between gap-3 rounded-xl border p-3.5">
+            <div className="space-y-3 rounded-xl border p-3.5">
               <div className="flex min-w-0 items-start gap-2.5">
                 <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300">
                   <GraduationCap className="size-4" aria-hidden />
                 </span>
                 <div className="min-w-0">
                   <p className="text-sm font-semibold">{t("payTeacher")}</p>
-                  <p className="text-muted-foreground text-xs">{t("payTeacherHint")}</p>
+                  <p className="text-muted-foreground text-xs">{t("payTeacherShareHint")}</p>
                 </div>
               </div>
-              <YesNo value={payTeacher} onChange={setPayTeacher} disabled={busy} />
+              <TeacherShareChoice value={teacherShare} onChange={setTeacherShare} disabled={busy} />
             </div>
           </>
         )}

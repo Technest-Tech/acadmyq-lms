@@ -18,15 +18,23 @@ export function ProductShot({
   priority = false,
   className,
   sizes = "(min-width: 1024px) 960px, 100vw",
+  onInk = false,
 }: {
   shot: Shot;
   priority?: boolean;
   className?: string;
   sizes?: string;
+  /** Sitting on the navy hero: a deeper shadow, and the caption in light ink. */
+  onInk?: boolean;
 }) {
   return (
     <figure className={cn("group", className)}>
-      <div className="border-border bg-card overflow-hidden rounded-2xl border shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_-12px_rgba(16,24,40,0.18)]">
+      <div
+        className={cn(
+          "overflow-hidden rounded-2xl bg-white",
+          onInk ? "mk-window" : "mk-card",
+        )}
+      >
         <Image
           src={shot.src}
           alt={shot.alt}
@@ -37,7 +45,12 @@ export function ProductShot({
           className="h-auto w-full"
         />
       </div>
-      <figcaption className="text-muted-foreground mt-3 text-sm leading-relaxed">
+      <figcaption
+        className={cn(
+          "mt-3 text-sm leading-relaxed",
+          onInk ? "text-ink-foreground/65" : "text-muted-foreground",
+        )}
+      >
         {shot.caption}
       </figcaption>
     </figure>

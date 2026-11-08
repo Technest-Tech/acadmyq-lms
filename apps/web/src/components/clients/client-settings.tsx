@@ -11,7 +11,6 @@ import {
   SectionCardFooter,
 } from "@/components/admin/section-card";
 import { useAuth } from "@/components/auth-provider";
-import { ClientDomainsCard } from "@/components/clients/client-domains-card";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
@@ -53,7 +52,7 @@ export function ClientSettingsTab({
         </div>
         <AcademyOwnerSection academyId={client.id} />
       </div>
-      <ClientDomainsCard clientId={client.id} />
+      {/* The domains moved to the Connections tab, with WhatsApp and the payment gateway. */}
       <DeleteClientCard client={client} />
     </div>
   );

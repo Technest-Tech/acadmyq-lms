@@ -4,34 +4,42 @@ import { notFound } from "next/navigation";
 import { formatMoney } from "@/lib/money";
 import { PaymentSubmit, type ReceivingMethods } from "./payment-submit";
 
-// ── Academy bill DTO (mirrors app.public_academy_invoice_by_token) ────────────
+// ── The client's account as its pay link shows it (mirrors app.public_account_by_token) ──
 
-interface AcademyBillDTO {
+interface AccountDue {
   id: string;
-  status: "OPEN" | "PAID" | "OVERDUE" | "VOID";
-  period_start: string;
-  period_end: string;
+  title: string;
+  due_on: string;
+  remaining_minor: number;
   currency: string;
-  total_minor: number;
-  amount_paid_minor: number;
-  due_date: string;
-  paid_at: string | null;
-  academy_name: string;
+  overdue: boolean;
+}
+
+interface AccountDTO {
+  client_name: string;
   payment_methods: ReceivingMethods;
+  /** Every open due on the client's active agreement lines, oldest first. */
+  dues: AccountDue[];
+  /** What to pay now — everything already due plus anything falling due within a week. */
+  due_now: Array<{ currency: string; amount_minor: number }>;
+  next_due_on: string | null;
+  overdue: boolean;
+  /** A proof was uploaded and waits for the owner's review. */
+  pending_proof: boolean;
 }
 
 // `API_URL` lets a deploy point server-side fetches at an internal address; otherwise the shared
 // resolver applies (and turns a port-only value into a loopback origin — there is no page host here).
 const API_URL = process.env.API_URL ?? apiBase();
 
-async function fetchBill(token: string): Promise<AcademyBillDTO | null> {
+async function fetchAccount(token: string): Promise<AccountDTO | null> {
   const res = await fetch(`${API_URL}/api/a/${token}`, {
     cache: "no-store",
     headers: { Accept: "application/json" },
   });
   if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`Bill fetch failed: ${res.status}`);
-  return res.json() as Promise<AcademyBillDTO>;
+  if (!res.ok) throw new Error(`Account fetch failed: ${res.status}`);
+  return res.json() as Promise<AccountDTO>;
 }
 
 export const metadata: Metadata = {
@@ -50,12 +58,8 @@ function T({ en, ar }: { en: string; ar: string }) {
 function Money({ minor, currency }: { minor: number; currency: string }) {
   return (
     <>
-      <span className="ltr:inline rtl:hidden">
-        {formatMoney({ amount: minor, currency }, "en")}
-      </span>
-      <span className="rtl:inline ltr:hidden">
-        {formatMoney({ amount: minor, currency }, "ar")}
-      </span>
+      <span className="ltr:inline rtl:hidden">{formatMoney({ amount: minor, currency }, "en")}</span>
+      <span className="rtl:inline ltr:hidden">{formatMoney({ amount: minor, currency }, "ar")}</span>
     </>
   );
 }
@@ -64,94 +68,96 @@ interface PageProps {
   params: Promise<{ token: string }>;
 }
 
-export default async function AcademyPayPage({ params }: PageProps) {
+/**
+ * /a/{token} — a client's ONE pay link (Accounts, 2026-11-08). It shows what the client owes the
+ * platform now (late + due within a week) and what comes after, with the platform's receiving
+ * details and a transfer-screenshot upload. The same link works for every payment, so a client
+ * keeps one bookmark; a link to an old per-module bill opens its account too.
+ */
+export default async function AccountPayPage({ params }: PageProps) {
   const { token } = await params;
-  const bill = await fetchBill(token);
-  if (!bill) notFound();
+  const account = await fetchAccount(token);
+  if (!account) notFound();
 
-  const paid = bill.status === "PAID";
-  const balance = Math.max(0, bill.total_minor - bill.amount_paid_minor);
+  const now = account.due_now.filter((d) => d.amount_minor > 0);
+  const owesNow = now.length > 0;
+  const first = now[0];
+  const later = account.dues.filter((d) => !d.overdue).slice(0, 6);
+  const late = account.dues.filter((d) => d.overdue);
 
   return (
     <main className="mx-auto min-h-screen w-full max-w-2xl px-4 py-8 sm:py-12">
-      <div className="overflow-hidden rounded-3xl border bg-card shadow-sm ring-1 ring-foreground/[0.04]">
+      <div className="bg-card overflow-hidden rounded-3xl border shadow-sm ring-1 ring-foreground/[0.04]">
         {/* Hero */}
-        <div className="relative bg-gradient-to-br from-primary to-indigo-700 px-6 py-8 text-white sm:px-8">
-          <p className="text-sm font-medium opacity-90">{bill.academy_name}</p>
+        <div className="from-primary relative bg-gradient-to-br to-indigo-700 px-6 py-8 text-white sm:px-8">
+          <p className="text-sm font-medium opacity-90">{account.client_name}</p>
           <h1 className="mt-1 text-lg font-semibold">
-            <T en="Subscription invoice" ar="فاتورة الاشتراك" />
+            <T en="Your subscription" ar="اشتراككم" />
           </h1>
           <div className="mt-5 flex items-end justify-between gap-4">
-            <div>
-              <p className="text-xs uppercase tracking-wide opacity-80">
-                {paid ? (
-                  <T en="Amount paid" ar="المبلغ المدفوع" />
-                ) : (
-                  <T en="Amount due" ar="المبلغ المستحق" />
-                )}
+            <div className="min-w-0">
+              <p className="text-xs tracking-wide uppercase opacity-80">
+                {owesNow ? <T en="Amount due now" ar="المستحق الآن" /> : <T en="Nothing due now" ar="لا يوجد مستحق الآن" />}
               </p>
-              <p className="mt-0.5 text-3xl font-bold" dir="ltr">
-                <Money
-                  minor={paid ? bill.total_minor : balance}
-                  currency={bill.currency}
-                />
-              </p>
+              {owesNow && first ? (
+                <p className="mt-0.5 text-3xl font-bold break-words" dir="ltr">
+                  {now.map((d, i) => (
+                    <span key={d.currency}>
+                      {i > 0 ? " + " : ""}
+                      <Money minor={d.amount_minor} currency={d.currency} />
+                    </span>
+                  ))}
+                </p>
+              ) : account.next_due_on ? (
+                <p className="mt-1 text-sm font-medium" dir="ltr">
+                  <T en={`Next payment ${account.next_due_on}`} ar={`الدفعة القادمة ${account.next_due_on}`} />
+                </p>
+              ) : null}
             </div>
             <span
-              className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${
-                paid
-                  ? "bg-emerald-400/25 ring-emerald-200/50"
-                  : "bg-white/20 ring-white/30"
+              className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${
+                account.overdue ? "bg-rose-400/30 ring-rose-200/50" : owesNow ? "bg-white/20 ring-white/30" : "bg-emerald-400/25 ring-emerald-200/50"
               }`}
             >
-              {paid ? (
-                <T en="Paid" ar="مدفوعة" />
-              ) : bill.status === "OVERDUE" ? (
-                <T en="Overdue" ar="متأخرة" />
-              ) : (
-                <T en="Unpaid" ar="غير مدفوعة" />
-              )}
+              {account.overdue ? <T en="Overdue" ar="متأخر" /> : owesNow ? <T en="Due" ar="مستحق" /> : <T en="All paid" ar="مدفوع بالكامل" />}
             </span>
           </div>
         </div>
 
-        {/* Facts */}
-        <dl className="grid grid-cols-2 gap-px bg-border text-sm">
-          <div className="bg-card px-6 py-4">
-            <dt className="text-muted-foreground text-xs">
-              <T en="Billing period" ar="فترة الفوترة" />
-            </dt>
-            <dd className="mt-0.5 font-medium" dir="ltr">
-              {bill.period_start} → {bill.period_end}
-            </dd>
-          </div>
-          <div className="bg-card px-6 py-4">
-            <dt className="text-muted-foreground text-xs">
-              <T en="Due date" ar="تاريخ الاستحقاق" />
-            </dt>
-            <dd className="mt-0.5 font-medium" dir="ltr">
-              {bill.due_date}
-            </dd>
-          </div>
-        </dl>
+        {/* What it is for */}
+        {(late.length > 0 || later.length > 0) && (
+          <ul className="divide-y text-sm">
+            {[...late, ...later].map((d) => (
+              <li key={d.id} className="flex items-center justify-between gap-3 px-6 py-3 sm:px-8">
+                <div className="min-w-0">
+                  <p className="font-medium break-words">{d.title}</p>
+                  <p className={`text-xs ${d.overdue ? "text-rose-600 dark:text-rose-400" : "text-muted-foreground"}`} dir="ltr">
+                    {d.overdue ? <T en={`Overdue since ${d.due_on}`} ar={`متأخر من ${d.due_on}`} /> : <T en={`Due ${d.due_on}`} ar={`مستحق ${d.due_on}`} />}
+                  </p>
+                </div>
+                <span className="shrink-0 font-semibold tabular-nums" dir="ltr">
+                  <Money minor={d.remaining_minor} currency={d.currency} />
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
 
         {/* Payment / status */}
         <div className="border-t px-6 py-6 sm:px-8">
-          {paid ? (
+          {account.pending_proof && (
+            <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-center text-sm text-amber-800 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+              <T en="We received your payment proof and are reviewing it." ar="استلمنا إثبات الدفع وجارٍ مراجعته." />
+            </div>
+          )}
+          {account.dues.length === 0 ? (
             <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-5 text-center text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/30 dark:text-emerald-200">
               <p className="font-semibold">
-                <T en="Payment received — thank you!" ar="تم استلام الدفعة — شكراً لكم!" />
+                <T en="Everything is paid — thank you!" ar="كل المستحقات مدفوعة — شكراً لكم!" />
               </p>
             </div>
-          ) : bill.status === "VOID" ? (
-            <p className="text-muted-foreground text-center text-sm">
-              <T en="This invoice has been voided." ar="تم إلغاء هذه الفاتورة." />
-            </p>
           ) : (
-            <PaymentSubmit
-              token={token}
-              methods={bill.payment_methods}
-            />
+            <PaymentSubmit token={token} methods={account.payment_methods} amountMinor={first?.amount_minor} />
           )}
         </div>
       </div>
