@@ -1,9 +1,10 @@
 "use client";
 
-import { AlertTriangle, CalendarPlus, ChevronLeft, ChevronRight, Clock, Download, Ellipsis, MapPin, MoveRight } from "lucide-react";
+import { AlertTriangle, CalendarClock, CalendarPlus, ChevronLeft, ChevronRight, Clock, Download, Ellipsis, MapPin, MoveRight } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminNoteButton } from "@/components/attendance/admin-note-button";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { apiErrorMessage } from "@/components/groups/group-form";
@@ -21,6 +22,7 @@ import {
   listBoardLessons,
   listGroups,
   rescheduleGroupLesson,
+  setGroupLessonAdminNote,
   updateGroup,
   type BoardLesson,
   type GroupRow,
@@ -564,6 +566,10 @@ export function TimetableBoard() {
                                 onSheet={() => setModal({ kind: "sheet", lesson: r.lesson })}
                                 onMove={() => setModal({ kind: "move", lesson: r.lesson })}
                                 onRoom={() => setModal({ kind: "room", lesson: r.lesson })}
+                                onNote={async (note) => {
+                                  const res = await setGroupLessonAdminNote(r.lesson.id, note);
+                                  setLessons((prev) => prev.map((x) => (x.id === r.lesson.id ? { ...x, admin_note: res.admin_note } : x)));
+                                }}
                               />
                             ))}
                           </tbody>
@@ -662,6 +668,7 @@ function TimetableRowView({
   onSheet,
   onMove,
   onRoom,
+  onNote,
 }: {
   row: TimetableRow;
   clash: boolean;
@@ -670,6 +677,7 @@ function TimetableRowView({
   onSheet: () => void;
   onMove: () => void;
   onRoom: () => void;
+  onNote: (note: string | null) => Promise<void>;
 }) {
   const t = useTranslations("groups");
   const l = row.lesson;
@@ -709,10 +717,19 @@ function TimetableRowView({
       </td>
       <td className="px-3 py-2">
         <div className="flex items-center justify-end gap-1">
+          {canManage && l.status === "SCHEDULED" && (
+            <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={onMove} data-testid={`timetable-reschedule-${l.id}`}>
+              <CalendarClock className="size-3.5" aria-hidden />
+              {t("lessons.reschedule")}
+            </Button>
+          )}
           {canMark && l.status !== "CANCELLED" && (
             <Button type="button" size="sm" variant={l.status === "HELD" ? "outline" : "default"} onClick={onSheet}>
               {l.status === "HELD" ? t("lessons.editSheet") : t("lessons.takeAttendance")}
             </Button>
+          )}
+          {l.admin_note !== undefined && l.status === "HELD" && (
+            <AdminNoteButton size="sm" note={l.admin_note ?? null} onSave={onNote} testId={`timetable-admin-note-${l.id}`} />
           )}
           {canManage && (
             <DropdownMenu>

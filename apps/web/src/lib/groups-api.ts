@@ -34,12 +34,7 @@ export interface GroupPricing {
   month_minutes: number | null;
   /** Hours group only: a lesson with ONE student on the roster counts this long against their hours; null = its real length. */
   solo_billed_minutes: number | null;
-  /** MONTHLY only: the two-month offer — what two months cost together; null = twice the month. */
-  two_month_price_minor?: number | null;
 }
-
-/** A monthly member pays one month or two at a time. */
-export type MonthsPerCharge = 1 | 2;
 
 export type GroupShareBasis = "BILLED" | "COLLECTED";
 
@@ -148,8 +143,6 @@ export interface GroupMember {
   attendance: MemberAttendance | null;
   /** This member's own price (null = the group's, or hidden). Minor units. */
   price_minor: number | null;
-  /** A monthly group: each of their charges buys one month or two. */
-  months_per_charge?: MonthsPerCharge;
   /**
    * An hours group, for whoever sees money: the months bought so far and the minutes they bought
    * (carried-in hours included) against the minutes the group has held for them. null otherwise.
@@ -261,7 +254,6 @@ export interface GroupInput {
   prorate_join?: boolean;
   month_minutes?: number | null;
   solo_billed_minutes?: number | null;
-  two_month_price_minor?: number | null;
   teacher_pay_mode?: GroupTeacherPayMode;
   teacher_pay_minor?: number | null;
   teacher_share_bp?: number | null;
@@ -335,7 +327,7 @@ export function deleteGroup(id: string): Promise<{ ok: boolean }> {
 
 export function addGroupMembers(
   id: string,
-  input: { student_ids: string[]; joined_on?: string; allow_over_capacity?: boolean; months_per_charge?: MonthsPerCharge },
+  input: { student_ids: string[]; joined_on?: string; allow_over_capacity?: boolean },
 ): Promise<{ added: number; group: GroupDetail }> {
   return apiFetch(`/api/groups/${id}/members`, { method: "POST", body: JSON.stringify(input) });
 }
@@ -354,7 +346,7 @@ export function removeGroupMember(
 export function updateGroupMember(
   id: string,
   studentId: string,
-  input: { price_minor?: number | null; joined_on?: string; months_per_charge?: MonthsPerCharge },
+  input: { price_minor?: number | null; joined_on?: string },
 ): Promise<{ group: GroupDetail }> {
   return apiFetch(`/api/groups/${id}/members/${studentId}`, { method: "PATCH", body: JSON.stringify(input) });
 }
@@ -592,8 +584,6 @@ export interface BoardMember {
   status: "ACTIVE" | "LEFT";
   /** Why they left: "PAUSED[: note]", "STOPPED[: note]" or free text ("Moved to A2"). */
   left_reason: string | null;
-  /** A monthly group: each of their charges buys one month or two. */
-  months_per_charge?: MonthsPerCharge;
   /** Listed for one student: true when it can still be undone as a mistake (nothing held, no closed bill). */
   deletable?: boolean | null;
   attendance: MemberAttendance;

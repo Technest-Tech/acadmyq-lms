@@ -1,10 +1,11 @@
 "use client";
 
-import { AlertTriangle, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, ClipboardCheck, LayoutGrid, MapPin, Sun, UserRoundCog, Video } from "lucide-react";
+import { AlertTriangle, CalendarClock, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, ClipboardCheck, LayoutGrid, MapPin, Sun, UserRoundCog, Video } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminNoteButton } from "@/components/attendance/admin-note-button";
+import { RescheduleLessonModal } from "@/components/groups/reschedule-lesson-modal";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { BoardFilters, useBoardFilterOptions } from "@/components/groups/board/board-filters";
@@ -64,6 +65,7 @@ export function LessonsBoard() {
   const [notice, setNotice] = useState<string | null>(null);
   const [sheet, setSheet] = useState<BoardLesson | null>(null);
   const [substituting, setSubstituting] = useState<BoardLesson | null>(null);
+  const [rescheduling, setRescheduling] = useState<BoardLesson | null>(null);
   const options = useBoardFilterOptions();
 
   const load = useCallback(async () => {
@@ -266,6 +268,19 @@ export function LessonsBoard() {
                             <UserRoundCog className="size-4" />
                           </button>
                         )}
+                        {canManage && l.status === "SCHEDULED" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5"
+                            onClick={() => setRescheduling(l)}
+                            data-testid={`board-reschedule-${l.id}`}
+                          >
+                            <CalendarClock className="size-3.5" />
+                            {t("lessons.reschedule")}
+                          </Button>
+                        )}
                         {canMark && l.status !== "CANCELLED" && (
                           <Button
                             type="button"
@@ -367,6 +382,19 @@ export function LessonsBoard() {
                             <UserRoundCog className="size-4" />
                           </button>
                         )}
+                        {canManage && l.status === "SCHEDULED" && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="gap-1.5"
+                            onClick={() => setRescheduling(l)}
+                            data-testid={`board-reschedule-${l.id}`}
+                          >
+                            <CalendarClock className="size-3.5" />
+                            {t("lessons.reschedule")}
+                          </Button>
+                        )}
                         {canMark && l.status !== "CANCELLED" && (
                           <Button
                             type="button"
@@ -413,6 +441,16 @@ export function LessonsBoard() {
           }}
         />
       )}
+
+      <RescheduleLessonModal
+        lesson={rescheduling}
+        onClose={() => setRescheduling(null)}
+        onDone={(warnings) => {
+          setRescheduling(null);
+          setNotice([t("lessons.movedNotice"), ...warnings.map((w) => w.message)].join(" "));
+          void load();
+        }}
+      />
 
       <Modal open={sheet !== null} onClose={() => setSheet(null)} title={t("sheet.title")} size="lg">
         {sheet && (

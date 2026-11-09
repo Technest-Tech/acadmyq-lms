@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Plus, Receipt, Search, Wallet } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Receipt, Search, Wallet, HelpCircle } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -9,6 +9,7 @@ import { CollectModal, type CollectTarget } from "@/components/accounting/collec
 import { ExportButton } from "@/components/accounting/export-button";
 import { PayerPicker } from "@/components/accounting/payer-picker";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
+import { UnknownCollectModal } from "@/components/accounting/unknown-collect-modal";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
@@ -43,6 +44,7 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
   const [picking, setPicking] = useState(false);
+  const [unknownOpen, setUnknownOpen] = useState(false);
   const [collect, setCollect] = useState<CollectTarget | null>(null);
 
   const load = useCallback(async () => {
@@ -93,6 +95,12 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
   const actions = (
     <div className="flex flex-wrap gap-2">
       <ExportButton name="receipts" sheetName={t("register.title")} columns={sheet} rows={allReceipts} count={data?.meta.total ?? 0} />
+      {can("invoice.mark_paid") && (
+        <Button type="button" variant="outline" className="gap-1.5" onClick={() => setUnknownOpen(true)} data-testid="register-unknown">
+          <HelpCircle className="size-4" aria-hidden />
+          {t("unknown.action")}
+        </Button>
+      )}
       {can("invoice.mark_paid") && (
         <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setPicking(true)} data-testid="register-record">
           <Plus className="size-4" aria-hidden />
@@ -148,6 +156,7 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
             <option value="active">{t("register.statusActive")}</option>
             <option value="void">{t("register.statusVoid")}</option>
             <option value="all">{t("register.statusAll")}</option>
+            <option value="unknown">{t("unknown.status")}</option>
           </select>
         </label>
         <label className="text-muted-foreground text-xs">
@@ -288,6 +297,7 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
         }}
       />
       <CollectModal open={collect !== null} target={collect} onClose={() => setCollect(null)} onRecorded={() => void load()} />
+      <UnknownCollectModal open={unknownOpen} onClose={() => setUnknownOpen(false)} onRecorded={() => void load()} />
       <ReceiptDetailModal receiptId={receiptId} onClose={() => setReceiptId(null)} onChanged={() => void load()} />
     </div>
   );

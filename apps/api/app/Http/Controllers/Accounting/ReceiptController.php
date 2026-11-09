@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Accounting;
 
 use App\Http\Controllers\Controller;
+use App\Services\GroupBilling;
 use App\Services\Ledger;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
@@ -55,7 +56,7 @@ final class ReceiptController extends Controller
             'guardian_id' => ['sometimes', 'nullable', 'uuid'],
             'student_id' => ['sometimes', 'nullable', 'uuid'],
             'q' => ['sometimes', 'nullable', 'string', 'max:120'],
-            'status' => ['sometimes', 'nullable', Rule::in(['active', 'void', 'all'])],
+            'status' => ['sometimes', 'nullable', Rule::in(['active', 'void', 'all', 'unknown'])],
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'min:10', 'max:200'],
         ]);
@@ -65,6 +66,10 @@ final class ReceiptController extends Controller
         $from = $data['from'] ?? $today->copy()->startOfMonth()->format('Y-m-d');
         $to = $data['to'] ?? $today->format('Y-m-d');
         $status = $data['status'] ?? 'active';
+        // Unclaimed money waits whatever its day: the tab lists every one still unknown.
+        if ($status === 'unknown' && ! isset($data['from'])) {
+            $from = '2000-01-01';
+        }
 
         $base = $this->registerQuery()
             ->whereBetween('r.received_on', [$from, $to])
@@ -101,6 +106,7 @@ final class ReceiptController extends Controller
 
         $listed = (clone $base)
             ->when($status === 'active', fn ($q) => $q->whereNull('r.voided_at'))
+            ->when($status === 'unknown', fn ($q) => $q->whereNull('r.voided_at')->where('r.payer_unknown', true))
             ->when($status === 'void', fn ($q) => $q->whereNotNull('r.voided_at'));
 
         $perPage = (int) ($data['per_page'] ?? 50);
@@ -133,9 +139,11 @@ final class ReceiptController extends Controller
         $tz = $this->timezone($academyId);
 
         $data = $request->validate([
-            'guardian_id' => ['nullable', 'uuid', 'required_without_all:student_id,invoice_id'],
+            'guardian_id' => ['nullable', 'uuid', 'required_without_all:student_id,invoice_id,unknown_payer'],
             'student_id' => ['nullable', 'uuid'],
             'invoice_id' => ['nullable', 'uuid'],
+            // Money in before anyone said whose: kept as "unknown" until assigned (assign()).
+            'unknown_payer' => ['sometimes', 'boolean'],
             'amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000'],
             'currency' => ['nullable', 'string', 'size:3'],
             'method' => ['required', Rule::in(Ledger::METHODS)],
@@ -147,9 +155,15 @@ final class ReceiptController extends Controller
             'line_ids' => ['nullable', 'array', 'max:500'],
             'line_ids.*' => ['uuid'],
             'apply_rest' => ['nullable', 'boolean'],
+            // The two-month offer, per subject: this monthly group charge becomes this month and
+            // the next for the amount agreed (GroupBilling::applyTwoMonthOffer), and is paid first.
+            'two_month_offers' => ['nullable', 'array', 'max:20'],
+            'two_month_offers.*.line_id' => ['required', 'uuid'],
+            'two_month_offers.*.amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000'],
         ]);
 
-        $payer = $this->ledger->resolvePayer($academyId, $data['guardian_id'] ?? null, $data['student_id'] ?? null);
+        $unknown = (bool) ($data['unknown_payer'] ?? false);
+        $payer = $unknown ? ['guardian_id' => null, 'student_id' => null] : $this->ledger->resolvePayer($academyId, $data['guardian_id'] ?? null, $data['student_id'] ?? null);
 
         $currency = $data['currency'] ?? null;
         if (isset($data['invoice_id'])) {
@@ -167,18 +181,28 @@ final class ReceiptController extends Controller
         }
 
         $ctx = app(AuthContext::class);
-        $receipt = $this->ledger->record($academyId, $payer, (int) $data['amount_minor'], strtoupper((string) $currency), [
+        $offers = $unknown ? [] : ($data['two_month_offers'] ?? []);
+        $receipt = DB::transaction(function () use ($offers, $academyId, $payer, $data, $currency, $proofPath, $unknown, $ctx) {
+            $offerLines = [];
+            foreach ($offers as $offer) {
+                $line = app(GroupBilling::class)->applyTwoMonthOffer((string) $offer['line_id'], (int) $offer['amount_minor'], $ctx->userId, $ctx->role);
+                $offerLines[] = (string) $line->id;
+            }
+
+            return $this->ledger->record($academyId, $payer, (int) $data['amount_minor'], strtoupper((string) $currency), [
             'invoice_id' => $data['invoice_id'] ?? null,
             'method' => (string) $data['method'],
             'reference' => $data['reference'] ?? null,
             'note' => $data['note'] ?? null,
             'received_on' => $data['received_on'] ?? null,
             'proof_path' => is_string($proofPath) && $proofPath !== '' ? $proofPath : null,
-            'line_ids' => $data['line_ids'] ?? [],
+            'line_ids' => array_values(array_unique([...$offerLines, ...($data['line_ids'] ?? [])])),
             'apply_rest' => array_key_exists('apply_rest', $data) && $data['apply_rest'] !== null ? (bool) $data['apply_rest'] : true,
+            'unknown' => $unknown,
             'received_by' => $ctx->userId,
             'actor_role' => $ctx->role,
-        ]);
+            ]);
+        });
 
         return response()->json(['receipt' => $this->detail((string) $receipt->id)], 201);
     }
@@ -214,6 +238,22 @@ final class ReceiptController extends Controller
         $ctx = app(AuthContext::class);
 
         $this->ledger->amend($id, $data, $ctx->userId, $ctx->role);
+
+        return response()->json(['receipt' => $this->detail($id)]);
+    }
+
+    /** POST /receipts/{id}/assign { guardian_id | student_id, line_ids? } — whose an "unknown" receipt is. */
+    public function assign(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $data = $request->validate([
+            'guardian_id' => ['nullable', 'uuid', 'required_without:student_id'],
+            'student_id' => ['nullable', 'uuid'],
+            'line_ids' => ['nullable', 'array', 'max:500'],
+            'line_ids.*' => ['uuid'],
+        ]);
+        $ctx = app(AuthContext::class);
+        $this->ledger->assignPayer($id, $data['guardian_id'] ?? null, $data['student_id'] ?? null, $data['line_ids'] ?? [], $ctx->userId, $ctx->role);
 
         return response()->json(['receipt' => $this->detail($id)]);
     }
@@ -321,6 +361,8 @@ final class ReceiptController extends Controller
                 'group_id' => $l->class_group_id !== null ? (string) $l->class_group_id : null,
                 'group_name' => $l->class_group_id !== null ? ($groupNames[(string) $l->class_group_id] ?? null) : null,
                 'group_charge' => $l->group_charge,
+                // 2 = this charge already covers two months (the offer); null = one.
+                'group_months' => isset($l->group_months) ? (int) $l->group_months : null,
                 'date' => $l->session_date !== null ? Carbon::parse($l->session_date)->format('Y-m-d') : null,
                 'period' => sprintf('%04d-%02d', (int) $l->period_year, (int) $l->period_month),
                 'amount_minor' => (int) $l->amount_minor,
@@ -441,6 +483,7 @@ final class ReceiptController extends Controller
             'created_at' => $r->created_at,
             'payer_name' => $r->payer_display,
             'payer_kind' => $r->guardian_id !== null ? 'GUARDIAN' : ($r->student_id !== null ? 'STUDENT' : 'NAME'),
+            'payer_unknown' => (bool) ($r->payer_unknown ?? false),
             'guardian_id' => $r->guardian_id,
             'student_id' => $r->student_id,
             'amount_minor' => (int) $r->amount_minor,

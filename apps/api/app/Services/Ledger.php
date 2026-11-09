@@ -37,6 +37,9 @@ use Illuminate\Validation\ValidationException;
  */
 final class Ledger
 {
+    /** The name an unclaimed receipt carries until its family is known. */
+    public const UNKNOWN_PAYER = 'مجهول / Unknown';
+
     public const METHODS = ['CASH', 'INSTAPAY', 'WALLET', 'BANK_TRANSFER', 'CARD', 'OTHER'];
 
     public const SOURCE_MANUAL = 'MANUAL';
@@ -171,6 +174,16 @@ final class Ledger
         if ($amountMinor <= 0) {
             throw ValidationException::withMessages(['amount_minor' => ['The amount must be more than zero. / المبلغ يجب أن يكون أكبر من صفر.']]);
         }
+        // Money nobody has claimed yet: kept under "unknown", paying nothing until it is assigned.
+        $unknown = (bool) ($opts['unknown'] ?? false);
+        if ($unknown) {
+            $receipt = $this->insertReceipt($academyId, ['guardian_id' => null, 'student_id' => null, 'payer_name' => self::UNKNOWN_PAYER], $amountMinor, $currency, $opts + ['payer_unknown' => true]);
+            Audit::log('receipt.recorded', 'receipt', (string) $receipt->id, $academyId, $opts['received_by'] ?? null, $opts['actor_role'] ?? null, after: [
+                'number' => $receipt->number, 'amount_minor' => $amountMinor, 'currency' => $currency, 'method' => $receipt->method, 'payer_unknown' => true,
+            ]);
+
+            return DB::table('receipts')->where('id', $receipt->id)->first();
+        }
         $payer = $this->normalisePayer($payer);
         $invoiceId = $opts['invoice_id'] ?? null;
         if ($invoiceId !== null && $payer === ['guardian_id' => null, 'student_id' => null, 'payer_name' => null]) {
@@ -223,6 +236,57 @@ final class Ledger
         app(GroupPayroll::class)->syncCollectedShares($academyId);
 
         return DB::table('receipts')->where('id', $receipt->id)->first();
+    }
+
+    /**
+     * The family of an "unknown" receipt is known now: it becomes theirs and pays their charges —
+     * the ones the desk ticked first, then everything else they owe, oldest first (or it stays as
+     * their credit). Only once: an assigned receipt is an ordinary receipt.
+     *
+     * @param  list<string>  $lineIds
+     */
+    public function assignPayer(string $receiptId, ?string $guardianId, ?string $studentId, array $lineIds, ?string $actorUserId, ?string $actorRole): object
+    {
+        return DB::transaction(function () use ($receiptId, $guardianId, $studentId, $lineIds, $actorUserId, $actorRole): object {
+            $r = DB::table('receipts')->where('id', $receiptId)->lockForUpdate()->first();
+            if ($r === null) {
+                abort(404, 'Receipt not found.');
+            }
+            if (! (bool) $r->payer_unknown || $r->voided_at !== null) {
+                throw ValidationException::withMessages(['receipt' => ['Only a live receipt from an unknown payer can be assigned. / يُحدَّد الدافع لإيصال «مجهول» قائم فقط.']]);
+            }
+            $academyId = (string) $r->academy_id;
+            $payer = $this->resolvePayer($academyId, $guardianId, $studentId) + ['payer_name' => null];
+            $this->lockPayer($academyId, $payer, null);
+
+            DB::table('receipts')->where('id', $r->id)->update([
+                'guardian_id' => $payer['guardian_id'], 'student_id' => $payer['student_id'], 'payer_name' => null,
+                'payer_unknown' => false, 'updated_at' => now(),
+            ]);
+            $receipt = DB::table('receipts')->where('id', $r->id)->first();
+
+            $lineIds = array_values(array_unique($lineIds));
+            if ($lineIds !== []) {
+                $chosen = $this->openLines($academyId, $payer, (string) $receipt->currency)
+                    ->whereIn('id', $lineIds)
+                    ->sortBy(fn ($l) => array_search((string) $l->id, $lineIds, true))
+                    ->values();
+                if ($chosen->count() !== count($lineIds)) {
+                    throw ValidationException::withMessages(['line_ids' => [
+                        'One of the chosen charges is already paid or is not this payer’s. / أحد البنود المختارة مدفوع بالفعل أو لا يخص هذا الدافع.',
+                    ]]);
+                }
+                $this->allocateFifo($receipt, $chosen);
+            }
+            $this->applyCredit($academyId, $payer, (string) $receipt->currency);
+
+            Audit::log('receipt.payer_assigned', 'receipt', (string) $r->id, $academyId, $actorUserId, $actorRole,
+                before: ['payer_unknown' => true], after: ['guardian_id' => $payer['guardian_id'], 'student_id' => $payer['student_id'], 'line_ids' => $lineIds]);
+            app(RenewalPolicy::class)->release($academyId, RenewalPolicy::studentsOf($payer), $actorUserId, $actorRole);
+            app(GroupPayroll::class)->syncCollectedShares($academyId);
+
+            return DB::table('receipts')->where('id', $r->id)->first();
+        });
     }
 
     /**
@@ -620,7 +684,7 @@ final class Ledger
             ->select([
                 'li.id', 'li.invoice_id', 'li.description', 'li.amount_minor', 'li.currency', 'li.student_id',
                 'li.list_amount_minor', 'li.discount_minor', 'li.discount_label',
-                'st.full_name as student_name', 'li.session_date', 'li.class_group_id', 'li.group_charge', 'li.group_period',
+                'st.full_name as student_name', 'li.session_date', 'li.class_group_id', 'li.group_charge', 'li.group_period', 'li.group_months',
                 'i.period_year', 'i.period_month', 'i.status as invoice_status', 'i.kind as invoice_kind',
                 DB::raw('coalesce(a.allocated, 0) as allocated'),
             ]);
@@ -784,6 +848,7 @@ final class Ledger
             'guardian_id' => $payer['guardian_id'],
             'student_id' => $payer['student_id'],
             'payer_name' => $payer['payer_name'],
+            'payer_unknown' => (bool) ($opts['payer_unknown'] ?? false),
             'amount_minor' => $amountMinor,
             'currency' => strtoupper($currency),
             'method' => $method,

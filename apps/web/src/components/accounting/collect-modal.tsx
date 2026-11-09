@@ -71,6 +71,8 @@ export function CollectModal({
   const [proof, setProof] = useState<File | null>(null);
   const [note, setNote] = useState("");
   const [keepCredit, setKeepCredit] = useState(false);
+  // The two-month offer, per subject: a monthly group charge → the amount typed for its two months.
+  const [offers, setOffers] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<ReceiptDetail | null>(null);
@@ -92,6 +94,7 @@ export function CollectModal({
     setProof(null);
     setNote("");
     setKeepCredit(false);
+    setOffers({});
     setAmountTouched(false);
 
     getPayerAccount({ guardian_id: target.guardian_id, student_id: target.student_id, invoice_id: target.invoice_id })
@@ -113,7 +116,18 @@ export function CollectModal({
     };
   }, [open, target, t]);
 
-  const lines = useMemo(() => (account?.lines ?? []).filter((l) => l.currency === currency), [account, currency]);
+  // A charge on the two-month offer costs what was typed for both months.
+  const lines = useMemo(
+    () =>
+      (account?.lines ?? [])
+        .filter((l) => l.currency === currency)
+        .map((l) => {
+          if (offers[l.id] === undefined) return l;
+          const offer = toMinor(offers[l.id] ?? "");
+          return offer > 0 ? { ...l, amount_minor: offer, remaining_minor: Math.max(0, offer - l.paid_minor) } : l;
+        }),
+    [account, currency, offers],
+  );
   const currencies = useMemo(() => {
     const set = new Set<string>([...(account?.lines ?? []).map((l) => l.currency), ...(account?.balance ?? []).map((b) => b.currency)]);
     return [...set];
@@ -178,6 +192,9 @@ export function CollectModal({
         proof,
         line_ids: selectedLines.map((l) => l.id),
         apply_rest: !keepCredit,
+        two_month_offers: Object.entries(offers)
+          .map(([line_id, text]) => ({ line_id, amount_minor: toMinor(text) }))
+          .filter((o) => o.amount_minor > 0 && lines.some((l) => l.id === o.line_id)),
       });
       setDone(res.receipt);
       onRecorded?.(res.receipt);
@@ -377,6 +394,51 @@ export function CollectModal({
                               {l.group_name && <span className="bg-muted rounded px-1.5 py-0.5">{l.group_name}</span>}
                               {l.paid_minor > 0 && <span className="text-amber-700 dark:text-amber-300">{t("collect.partlyPaid", { paid: fmt(l.paid_minor), of: fmt(l.amount_minor) })}</span>}
                             </span>
+                            {/* The two-month offer for this subject: one amount, this month and the next. */}
+                            {l.group_charge === "MONTHLY" && !l.group_months && l.invoice_status === "OPEN" && (
+                              <span className="mt-1.5 flex flex-wrap items-center gap-1.5" onClick={(e) => e.preventDefault()}>
+                                <button
+                                  type="button"
+                                  className={cn(
+                                    "rounded-full border px-2.5 py-0.5 text-xs font-semibold transition-colors",
+                                    offers[l.id] !== undefined ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
+                                  )}
+                                  onClick={() => {
+                                    const base = (account?.lines ?? []).find((x) => x.id === l.id);
+                                    setOffers((o) => {
+                                      const next = { ...o };
+                                      if (next[l.id] !== undefined) delete next[l.id];
+                                      else next[l.id] = toMajorText(2 * (base?.amount_minor ?? l.amount_minor));
+                                      return next;
+                                    });
+                                    if (!selected.includes(l.id)) toggle(l.id);
+                                    setAmountTouched(false);
+                                  }}
+                                  data-testid={`collect-offer-${l.id}`}
+                                >
+                                  {t("collect.twoMonthOffer")}
+                                </button>
+                                {offers[l.id] !== undefined && (
+                                  <>
+                                    <input
+                                      type="text"
+                                      inputMode="decimal"
+                                      dir="ltr"
+                                      aria-label={t("collect.twoMonthAmount")}
+                                      className="border-input bg-background h-7 w-28 rounded-lg border px-2 text-xs font-semibold tabular-nums"
+                                      value={offers[l.id]}
+                                      onChange={(e) => {
+                                        const v = e.target.value;
+                                        setOffers((o) => ({ ...o, [l.id]: v }));
+                                        setAmountTouched(false);
+                                      }}
+                                      data-testid={`collect-offer-amount-${l.id}`}
+                                    />
+                                    <span className="text-muted-foreground text-xs">{t("collect.twoMonthHint")}</span>
+                                  </>
+                                )}
+                              </span>
+                            )}
                           </span>
                           <span className="shrink-0 text-sm font-semibold tabular-nums">{fmt(l.remaining_minor)}</span>
                         </label>

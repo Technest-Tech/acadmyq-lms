@@ -1361,6 +1361,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/receipts', [ReceiptController::class, 'store']);
             Route::get('/receipts/{id}', [ReceiptController::class, 'show'])->whereUuid('id');
             Route::post('/receipts/{id}/amend', [ReceiptController::class, 'amend'])->whereUuid('id');
+            Route::post('/receipts/{id}/assign', [ReceiptController::class, 'assign'])->whereUuid('id');
             Route::post('/receipts/{id}/void', [ReceiptController::class, 'void'])->whereUuid('id');
             Route::post('/receipts/{id}/send', [ReceiptController::class, 'send'])->whereUuid('id');
             Route::get('/receipts/{id}/proof', [ReceiptController::class, 'proof'])->whereUuid('id');

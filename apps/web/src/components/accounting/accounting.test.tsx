@@ -124,6 +124,32 @@ describe("Collect", () => {
     await waitFor(() => expect(amount.value).toBe("450"));
   });
 
+  it("takes the two-month offer on one subject only: its charge becomes the amount typed, the other subject stays", async () => {
+    getPayerAccount.mockResolvedValue(account([line("l-eng", "2026-06", 45000), line("l-math", "2026-06", 40000, 0, { group_id: "g2", group_name: "Maths", description: "Maths — 2026-06" })]));
+    recordReceipt.mockResolvedValue({ receipt: receipt({ amount_minor: 120000 }) });
+    render(withAuth(owner(), <CollectModal open target={{ guardian_id: "gd1" }} onClose={() => {}} />));
+
+    const amount = (await screen.findByTestId("collect-amount")) as HTMLInputElement;
+    await waitFor(() => expect(amount.value).toBe("850"));
+    await userEvent.click(screen.getByTestId("collect-offer-l-eng"));
+    // Suggested at twice the month; the desk types the offer.
+    const offer = screen.getByTestId("collect-offer-amount-l-eng") as HTMLInputElement;
+    expect(offer.value).toBe("900");
+    await userEvent.clear(offer);
+    await userEvent.type(offer, "800");
+    await waitFor(() => expect(amount.value).toBe("1200"));
+    await userEvent.click(screen.getByTestId("collect-submit"));
+    await waitFor(() => expect(recordReceipt).toHaveBeenCalledTimes(1));
+    expect(recordReceipt.mock.calls[0]![0]).toMatchObject({ amount_minor: 120000, two_month_offers: [{ line_id: "l-eng", amount_minor: 80000 }] });
+  });
+
+  it("offers no two-month deal on a charge that already covers two months", async () => {
+    getPayerAccount.mockResolvedValue(account([line("l-two", "2026-06", 80000, 0, { group_months: 2 })]));
+    render(withAuth(owner(), <CollectModal open target={{ guardian_id: "gd1" }} onClose={() => {}} />));
+    await screen.findByTestId("collect-amount");
+    expect(screen.queryByTestId("collect-offer-l-two")).toBeNull();
+  });
+
   it("keeps what is beyond every charge as credit, and records one receipt for it", async () => {
     getPayerAccount.mockResolvedValue(account([line("l-jun", "2026-06", 45000)]));
     recordReceipt.mockResolvedValue({ receipt: receipt({ amount_minor: 60000, unallocated_minor: 15000 }) });

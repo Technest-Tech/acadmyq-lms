@@ -221,8 +221,6 @@ export function GroupForm({
   const [monthHours, setMonthHours] = useState(savedMonthMinutes != null ? hoursText(savedMonthMinutes) : "");
   // Hours group only: what a lesson counts against a student's hours when they are alone in it.
   const [soloMinutes, setSoloMinutes] = useState(group?.pricing?.solo_billed_minutes != null ? String(group.pricing.solo_billed_minutes) : "");
-  // MONTHLY only: the two-month offer — what two months cost together. Empty = twice the month.
-  const [twoMonthPrice, setTwoMonthPrice] = useState(fromMinor(group?.pricing?.two_month_price_minor));
   // A centre counts a month in lessons and prices it by the lesson — 8 lessons × "40 minutes for 90"
   // — and the month's price is worked out (2026-10-25, lessons 2026-10-29). The length starts at the
   // group's own lesson length; the month is still kept in minutes (lessons × length).
@@ -351,7 +349,6 @@ export function GroupForm({
     if (capacity && (!Number.isInteger(Number(capacity)) || Number(capacity) < 1)) return t("form.errors.capacity");
     if (canPrice && price.trim() !== "" && (toMinor(price) ?? -1) < 0) return t("form.errors.price");
     if (canPrice && byLesson() && lessonPrice.trim() !== "" && (toMinor(lessonPrice) ?? -1) < 0) return t("form.errors.price");
-    if (canPrice && billingMode === "MONTHLY" && twoMonthPrice.trim() !== "" && (toMinor(twoMonthPrice) ?? -1) < 0) return t("form.errors.price");
     if (canPrice && billingMode === "MONTHLY" && monthText.trim() !== "" && monthMinutes() === null) {
       return t("form.errors.monthHours");
     }
@@ -428,7 +425,6 @@ export function GroupForm({
             prorate_join: prorateJoin,
             month_minutes: billingMode === "MONTHLY" ? monthMinutes() : null,
             solo_billed_minutes: billingMode === "MONTHLY" && monthMinutes() !== null && soloMinutes.trim() !== "" ? Number(soloMinutes) : null,
-            two_month_price_minor: billingMode === "MONTHLY" && twoMonthPrice.trim() !== "" ? toMinor(twoMonthPrice) : null,
           }
         : {}),
       ...(canPay
@@ -849,18 +845,6 @@ export function GroupForm({
                 />
                 <span className="text-muted-foreground text-xs">{t("form.minutes")}</span>
               </div>
-            </Field>
-          )}
-          {billingMode === "MONTHLY" && (
-            <Field label={t("money.twoMonthPrice")} icon={Coins} hint={t("money.twoMonthPriceHint")}>
-              <input
-                className={cn(fieldClass, "sm:w-48")}
-                inputMode="decimal"
-                value={twoMonthPrice}
-                onChange={(e) => setTwoMonthPrice(e.target.value)}
-                placeholder={t("money.twoMonthPricePlaceholder")}
-                data-testid="group-two-month-price"
-              />
             </Field>
           )}
           {billingMode === "MONTHLY" && editing && (savedMonthMinutes === null) !== (monthText.trim() === "") && (

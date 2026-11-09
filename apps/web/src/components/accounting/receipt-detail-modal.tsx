@@ -1,16 +1,18 @@
 "use client";
 
-import { Ban, ExternalLink, FileImage, Link2, Loader2, MessageSquare, Pencil } from "lucide-react";
+import { Ban, ExternalLink, FileImage, Link2, Loader2, MessageSquare, Pencil, UserCheck } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { AmendReceiptForm } from "@/components/accounting/amend-receipt-form";
+import { PayerPicker } from "@/components/accounting/payer-picker";
+import { useAuth } from "@/components/auth-provider";
 import { CopyLinkButton, MethodBadge, dayLabel, waLink } from "@/components/accounting/accounting-ui";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { fetchReceiptProof, getReceipt, sendReceipt, voidReceipt, type ReceiptDetail } from "@/lib/accounting-api";
+import { assignReceipt, fetchReceiptProof, getReceipt, sendReceipt, voidReceipt, type ReceiptDetail } from "@/lib/accounting-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -35,6 +37,9 @@ export function ReceiptDetailModal({
   const [error, setError] = useState<string | null>(null);
   const [voiding, setVoiding] = useState(false);
   const [amending, setAmending] = useState(false);
+  // "Unknown" money: the family is known now — pick a student of theirs.
+  const [assigning, setAssigning] = useState(false);
+  const { can } = useAuth();
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
@@ -57,6 +62,23 @@ export function ReceiptDetailModal({
   }, [receiptId, t]);
 
   const money = (minor: number) => formatMoney({ amount: minor, currency: receipt?.currency ?? "EGP" }, locale);
+
+  async function doAssign(studentId: string) {
+    if (!receipt) return;
+    setAssigning(false);
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await assignReceipt(receipt.id, { student_id: studentId });
+      setReceipt(res.receipt);
+      setNotice(t("unknown.assigned"));
+      onChanged?.();
+    } catch (err) {
+      setError(apiErrorMessage(err, t("unknown.assignFailed")));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function doVoid() {
     if (!receipt || reason.trim().length < 3) return;
@@ -247,6 +269,12 @@ export function ReceiptDetailModal({
                   {t("detail.proof")}
                 </Button>
               )}
+              {receipt.payer_unknown && !receipt.voided && can("invoice.mark_paid") && (
+                <Button type="button" onClick={() => setAssigning(true)} disabled={busy} className="gap-1.5" data-testid="receipt-assign">
+                  <UserCheck className="size-4" aria-hidden />
+                  {t("unknown.assign")}
+                </Button>
+              )}
               {receipt.can_amend && (
                 <Button type="button" variant="outline" onClick={() => setAmending(true)} className="ms-auto gap-1.5" data-testid="receipt-amend">
                   <Pencil className="size-4" aria-hidden />
@@ -263,6 +291,7 @@ export function ReceiptDetailModal({
           )}
         </div>
       )}
+      <PayerPicker open={assigning} onClose={() => setAssigning(false)} onPick={(studentId) => void doAssign(studentId)} title={t("unknown.assignTitle")} hint={t("unknown.assignHint")} />
     </Modal>
   );
 }

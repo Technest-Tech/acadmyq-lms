@@ -7690,7 +7690,10 @@
       "duration": "Minutes",
       "timezoneHint": "Times are in the group's timezone ({tz}).",
       "reason": "Reason",
-      "reasonPlaceholder": "Optional"
+      "reasonPlaceholder": "Optional",
+      "reschedule": "Reschedule",
+      "rescheduleTitle": "Reschedule this lesson",
+      "rescheduleFailed": "Couldn’t reschedule."
     },
     "sheet": {
       "title": "Attendance",
@@ -7863,10 +7866,7 @@
       "shareBasisHint": {
         "BILLED": "Worked out from the month's bills, paid or not.",
         "COLLECTED": "Worked out from what came in during the month, and follows every receipt. A finalized statement does not change."
-      },
-      "twoMonthPrice": "Two-month offer price (optional)",
-      "twoMonthPriceHint": "For a student who pays two months together. Empty = twice the month.",
-      "twoMonthPricePlaceholder": "e.g. 800"
+      }
     },
     "moneyTab": {
       "loadFailed": "Could not load the group's money.",
@@ -8022,14 +8022,6 @@
         "export": "Download Excel",
         "exportFile": "Groups timetable"
       }
-    },
-    "months": {
-      "label": "Payment",
-      "one": "1 month",
-      "two": "2 months",
-      "twoOffer": "2 months (offer)",
-      "everyTwo": "Pays every 2 months",
-      "forwardHint": "Applies from the next payment; charges already raised stay as they are."
     }
   },
   "academyRoles": {
@@ -10355,7 +10347,10 @@
       "noPhone": "This payer has no WhatsApp number — copy the link instead.",
       "sendFailed": "The receipt couldn't be sent.",
       "required": "required",
-      "proofNeeded": "Upload the transfer receipt before saving."
+      "proofNeeded": "Upload the transfer receipt before saving.",
+      "twoMonthOffer": "2-month offer",
+      "twoMonthAmount": "Amount for two months",
+      "twoMonthHint": "Covers this month and next, for this subject only"
     },
     "detail": {
       "title": "Receipt {number}",
@@ -11065,6 +11060,19 @@
       "failed": "Could not update the receipt.",
       "hint": "The amount and what it paid stay. To change the amount, void it and record a new one. A new method moves the money to that method's account.",
       "historyHint": "A card or carried-over receipt: only the note and reference change."
+    },
+    "unknown": {
+      "action": "Money from unknown",
+      "title": "Money in from an unknown payer",
+      "hint": "The money arrived but the parent hasn’t sent the receipt yet? Record it as “unknown”: it lands in the treasury and pays nothing until you set the family from the receipt itself.",
+      "submit": "Record as unknown",
+      "status": "Unknown (payer not set)",
+      "notePlaceholder": "e.g. InstaPay transfer 11:20 from a number ending 45",
+      "assign": "Set the payer",
+      "assignTitle": "Whose money is this?",
+      "assignHint": "Pick one of the family’s students: the receipt becomes theirs and pays their charges oldest first; the rest is credit.",
+      "assigned": "Payer set; their charges are paid.",
+      "assignFailed": "Couldn’t set the payer."
     }
   },
   "doneBy": {

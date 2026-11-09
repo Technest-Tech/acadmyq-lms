@@ -22,8 +22,7 @@ import { Modal } from "@/components/ui/modal";
 import { ProfileCard } from "@/components/ui/profile-card";
 import { getStudentRenewalPolicy, setStudentRenewalPolicy, type StudentRenewalPolicy } from "@/lib/accounting-api";
 import { useCapability } from "@/lib/capabilities";
-import { MonthsChoice } from "@/components/groups/months-choice";
-import { addGroupMembers, getGroup, listBoardMembers, listGroups, undoGroupMember, type BoardMember, type GroupDetail, type GroupRow, type MonthsPerCharge } from "@/lib/groups-api";
+import { addGroupMembers, getGroup, listBoardMembers, listGroups, undoGroupMember, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
 import { listSubscriptions, subscriptionScope, type SubscriptionRow } from "@/lib/subscriptions-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -188,7 +187,6 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                         {[
                           m.teacher_name,
                           m.status === "ACTIVE" ? t("subscriptions.since", { date: dayLabel(m.joined_on, locale) }) : t("subscriptions.left", { date: dayLabel(m.left_on ?? m.joined_on, locale) }),
-                          m.status === "ACTIVE" && m.months_per_charge === 2 ? tg("months.everyTwo") : null,
                           m.status !== "ACTIVE" && m.left_reason ? leftReasonText(m.left_reason, tg) : null,
                         ]
                           .filter(Boolean)
@@ -405,9 +403,6 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
   const [groups, setGroups] = useState<GroupRow[] | null>(null);
   const [groupId, setGroupId] = useState("");
   const [joinedOn, setJoinedOn] = useState(todayLocal());
-  // A monthly group: pay one month or two at a time.
-  const [months, setMonths] = useState<MonthsPerCharge>(1);
-  const picked = groups?.find((g) => g.id === groupId);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -424,7 +419,7 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
     setBusy(true);
     setError(null);
     try {
-      await addGroupMembers(groupId, { student_ids: [studentId], joined_on: joinedOn, ...(picked?.pricing?.billing_mode === "MONTHLY" && months === 2 ? { months_per_charge: 2 as const } : {}) });
+      await addGroupMembers(groupId, { student_ids: [studentId], joined_on: joinedOn });
       onDone();
     } catch (err) {
       setError(apiErrorMessage(err, t("subscriptions.joinFailed")));
@@ -480,12 +475,6 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
           {t("subscriptions.joinedOn")}
           <input type="date" className={cn(fieldClass, "mt-1.5")} value={joinedOn} onChange={(e) => setJoinedOn(e.target.value)} />
         </label>
-        {picked?.pricing?.billing_mode === "MONTHLY" && (
-          <div className="space-y-1.5">
-            <span className="block text-sm font-medium">{tg("months.label")}</span>
-            <MonthsChoice pricing={picked.pricing} value={months} onChange={setMonths} testId="subs-join-months" />
-          </div>
-        )}
         {error && <AlertBanner variant="error" message={error} />}
       </form>
     </Modal>

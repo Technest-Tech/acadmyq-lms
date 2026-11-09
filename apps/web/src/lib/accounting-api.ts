@@ -37,6 +37,8 @@ export interface OpenLine {
   group_id: string | null;
   group_name: string | null;
   group_charge: string | null;
+  /** 2 = this charge already covers two months (the two-month offer); null = one. */
+  group_months?: number | null;
   date: string | null;
   /** YYYY-MM — the invoice's month. */
   period: string;
@@ -70,6 +72,8 @@ export interface ReceiptRow {
   created_at: string;
   payer_name: string | null;
   payer_kind: PayerKind;
+  /** Money nobody has claimed yet — assign it to its family (assignReceipt). */
+  payer_unknown?: boolean;
   guardian_id: string | null;
   student_id: string | null;
   amount_minor: number;
@@ -136,7 +140,7 @@ export interface ReceiptFilters {
   guardian_id?: string;
   student_id?: string;
   q?: string;
-  status?: "active" | "void" | "all";
+  status?: "active" | "void" | "all" | "unknown";
   page?: number;
   per_page?: number;
 }
@@ -156,6 +160,10 @@ export interface RecordReceiptInput {
   line_ids?: string[];
   /** Spend what is left on their other unpaid charges (default true); false keeps it as credit. */
   apply_rest?: boolean;
+  /** Money in before anyone said whose: kept as "unknown", paying nothing, until assigned. */
+  unknown_payer?: boolean;
+  /** The two-month offer per subject: this monthly group charge covers this month and the next for `amount_minor`. */
+  two_month_offers?: { line_id: string; amount_minor: number }[];
 }
 
 function query(params: Record<string, string | number | undefined | null>): string {
@@ -189,7 +197,17 @@ export function recordReceipt(input: RecordReceiptInput): Promise<{ receipt: Rec
   if (input.proof) body.set("proof", input.proof);
   for (const id of input.line_ids ?? []) body.append("line_ids[]", id);
   if (input.apply_rest === false) body.set("apply_rest", "0");
+  if (input.unknown_payer) body.set("unknown_payer", "1");
+  (input.two_month_offers ?? []).forEach((o, i) => {
+    body.set(`two_month_offers[${i}][line_id]`, o.line_id);
+    body.set(`two_month_offers[${i}][amount_minor]`, String(o.amount_minor));
+  });
   return apiFetch(`/api/receipts`, { method: "POST", body });
+}
+
+/** The family of an "unknown" receipt is known: it becomes theirs and pays their charges, oldest first. */
+export function assignReceipt(id: string, input: { guardian_id?: string | null; student_id?: string | null; line_ids?: string[] }): Promise<{ receipt: ReceiptDetail }> {
+  return apiFetch(`/api/receipts/${id}/assign`, { method: "POST", body: JSON.stringify(input) });
 }
 
 export interface AmendReceiptInput {
