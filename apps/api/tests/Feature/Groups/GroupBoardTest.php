@@ -227,3 +227,39 @@ it('warns a centre when a moved or added lesson lands in a room another group ho
     $free = $this->postJson("/api/groups/{$this->theirs}/lessons", ['local_datetime' => '2026-07-01 17:00', 'duration_minutes' => 60])->assertCreated();
     expect(collect($free->json('warnings'))->pluck('type'))->not->toContain('room');
 });
+
+it('asks no attendance for a group nobody is enrolled in, until a student joins — the timetable still shows it', function () {
+    $empty = $this->postJson('/api/groups', [
+        'name' => 'Science (new)', 'teacher_id' => $this->teacher, 'start_date' => '2026-06-01',
+        'slots' => [['weekday' => 3, 'start_time_local' => '15:00', 'duration_minutes' => 60]],
+    ])->assertCreated()->json('group.id');
+    $names = fn (string $q) => collect($this->getJson("/api/group-lessons?{$q}")->assertOk()->json('lessons'))->pluck('group.name')->unique()->values()->all();
+
+    expect($names('view=owed'))->not->toContain('Science (new)')
+        ->and($names('view=day&date=2026-06-17'))->not->toContain('Science (new)')
+        ->and($names('view=week&date=2026-06-15'))->toContain('Science (new)');
+    $summary = $this->getJson('/api/group-lessons/summary')->assertOk()->json();
+
+    // A student joins from the start: every lesson since is owed a sheet.
+    $this->postJson("/api/groups/{$empty}/members", ['student_ids' => [$this->kids['Bassel']], 'joined_on' => '2026-06-01'])->assertCreated();
+    expect($names('view=owed'))->toContain('Science (new)')
+        ->and($names('view=day&date=2026-06-17'))->toContain('Science (new)');
+    // Wednesdays 3 and 10 June are owed now (the 17th at 15:00 Cairo is still to come).
+    expect($this->getJson('/api/group-lessons/summary')->json('owed'))->toBe($summary['owed'] + 2);
+});
+
+it('keeps the office’s note on a group lesson away from the teacher', function () {
+    $lesson = boardLesson($this, $this->mine, '2026-06-15');
+    $this->postJson("/api/group-lessons/{$lesson->id}/attendance")->assertOk();
+    $this->patchJson("/api/group-lessons/{$lesson->id}/admin-note", ['admin_note' => '  Room was cold; two came late  '])->assertOk()->assertJsonPath('admin_note', 'Room was cold; two came late');
+    $day = collect($this->getJson('/api/group-lessons?view=day&date=2026-06-15')->json('lessons'))->firstWhere('id', $lesson->id);
+    expect($day['admin_note'])->toBe('Room was cold; two came late');
+
+    Sanctum::actingAs($this->teacherUser);
+    $seen = collect($this->getJson('/api/group-lessons?view=day&date=2026-06-15')->assertOk()->json('lessons'))->firstWhere('id', $lesson->id);
+    expect($seen)->not->toHaveKey('admin_note');
+    $this->patchJson("/api/group-lessons/{$lesson->id}/admin-note", ['admin_note' => 'x'])->assertForbidden();
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/group-lessons/{$lesson->id}/admin-note", ['admin_note' => ''])->assertOk()->assertJsonPath('admin_note', null);
+});

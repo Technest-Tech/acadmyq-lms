@@ -9,6 +9,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
 use App\Services\ClassGroups;
 use App\Support\Audit;
+use App\Support\OfficeNote;
 use App\Support\TimeHelper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -244,5 +245,22 @@ final class ClassGroupLessonController extends Controller
             Audit::log('class_group_lesson.attendance_override', 'class_group_lesson', (string) $lesson->id, (string) $lesson->academy_id,
                 $this->ctx()->userId, $this->ctx()->role, after: ['scheduled_at_utc' => $start->toIso8601String(), 'override' => true]);
         }
+    }
+
+    /** PATCH /api/group-lessons/{id}/admin-note { admin_note } — the office's own note on the lesson. */
+    public function adminNote(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('session.mark_attendance');
+        if (! OfficeNote::visible($this->ctx()->role)) {
+            abort(403, 'Office only.');
+        }
+        $data = $request->validate(['admin_note' => ['present', 'nullable', 'string', 'max:'.OfficeNote::MAX]]);
+        $lesson = $this->findLesson($id);
+        $note = OfficeNote::clean($data['admin_note']);
+        DB::table('class_group_lessons')->where('id', $lesson->id)->update(['admin_note' => $note, 'updated_at' => now()]);
+        Audit::log('class_group_lesson.admin_note', 'class_group_lesson', (string) $lesson->id, (string) $lesson->academy_id, $this->ctx()->userId, $this->ctx()->role,
+            before: ['admin_note' => $lesson->admin_note ?? null], after: ['admin_note' => $note]);
+
+        return response()->json(['admin_note' => $note]);
     }
 }

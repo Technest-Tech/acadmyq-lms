@@ -8,6 +8,7 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\CentreSubscriptionRows;
 use App\Services\CourseTerm;
 use Carbon\CarbonImmutable;
+use App\Support\GroupRoster;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -60,6 +61,8 @@ final class CentreDashboardController extends Controller
         $groupToday = DB::table('class_group_lessons as l')
             ->join('class_groups as g', 'g.id', '=', 'l.group_id')
             ->where('l.status', '<>', 'CANCELLED')
+            // A class nobody is enrolled in yet is not on today's attendance.
+            ->whereRaw(GroupRoster::hasStudentsSql('l'))
             ->whereRaw('(l.scheduled_at_utc at time zone g.timezone)::date = ?::date', [$today])
             ->selectRaw('count(*) as total')
             ->selectRaw("count(*) filter (where l.status = 'SCHEDULED' and l.scheduled_at_utc < ?) as unmarked", [$nowUtc])

@@ -54,7 +54,7 @@ import {
   type ProfitSummary,
 } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
-import { groupLessonsAsSessions } from "@/lib/group-calendar";
+import { groupLessonsAsSessions, attendedGroupLessons } from "@/lib/group-calendar";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { numeralLocale } from "@/lib/numerals";
@@ -157,7 +157,7 @@ export function ModernDashboard() {
       can("invoice.read") && !isTeacher ? getInvoiceSummary().then(setInvoices) : Promise.resolve(),
       readsLessons
         ? getCalendar({ from, to })
-            .then((r) => setWeek([...r.sessions, ...groupLessonsAsSessions(r.group_lessons ?? [])]))
+            .then((r) => setWeek([...r.sessions, ...groupLessonsAsSessions(attendedGroupLessons(r.group_lessons ?? []))]))
             .catch(() => setWeek([]))
         : Promise.resolve(),
       // Both trial statuses: a learner is TRIAL_BOOKED the moment their trial is on the calendar.

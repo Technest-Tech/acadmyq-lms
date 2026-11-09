@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
 use App\Services\ClassGroups;
 use App\Services\Ledger;
+use App\Support\GroupRoster;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -56,6 +57,11 @@ final class GroupBoardController extends Controller
         $to = $view === 'week' ? Carbon::parse($date)->addDays(6)->format('Y-m-d') : $date;
 
         $query = $this->lessonQuery($data);
+        // The attendance views (a day, the sheets owed) skip a lesson nobody is enrolled in yet; the
+        // week is the timetable, where the room is taken either way.
+        if ($view !== 'week') {
+            $query->whereRaw(GroupRoster::hasStudentsSql('l'));
+        }
         if ($view === 'owed') {
             $query->where('l.status', 'SCHEDULED')
                 ->where('l.scheduled_at_utc', '<', now()->utc()->format('Y-m-d H:i:sP'))
@@ -106,10 +112,12 @@ final class GroupBoardController extends Controller
         $today = Carbon::now($tz)->format('Y-m-d');
 
         $owed = $this->lessonQuery([])
+            ->whereRaw(GroupRoster::hasStudentsSql('l'))
             ->where('l.status', 'SCHEDULED')
             ->where('l.scheduled_at_utc', '<', now()->utc()->format('Y-m-d H:i:sP'))
             ->count();
         $todayCount = $this->lessonQuery([])
+            ->whereRaw(GroupRoster::hasStudentsSql('l'))
             ->where('l.status', '!=', 'CANCELLED')
             ->whereRaw('(l.scheduled_at_utc at time zone g.timezone)::date = ?::date', [$today])
             ->count();

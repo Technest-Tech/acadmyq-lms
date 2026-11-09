@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Groups\Concerns;
 use App\Domain\OutcomeLock;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Support\Entitlement;
+use App\Support\OfficeNote;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -196,7 +197,7 @@ trait InteractsWithClassGroups
             'outcome_locked' => OutcomeLock::locks($this->ctx()->role, $this->ctx()->userId, (string) $l->status === 'SCHEDULED',
                 isset($l->outcome_set_by) ? (string) $l->outcome_set_by : null),
             'counts' => $counts,
-        ];
+        ] + (OfficeNote::visible($this->ctx()->role) ? ['admin_note' => $l->admin_note ?? null] : []);
     }
 
     private function groupTeacherName(string $groupId): ?string

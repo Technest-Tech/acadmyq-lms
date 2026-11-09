@@ -12,9 +12,11 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\Payroll;
 use App\Support\Audit;
+use App\Support\OfficeNote;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -205,5 +207,25 @@ final class AttendanceController extends Controller
             Audit::log('session.attendance_override', 'session', (string) $session->id, $academyId, $this->ctx()->userId, $this->ctx()->role,
                 after: ['scheduled_at_utc' => $startUtc->toIso8601String(), 'override' => true]);
         }
+    }
+
+    /**
+     * PATCH /api/sessions/{id}/admin-note { admin_note } — the office's own note on a lesson, written
+     * after its attendance (lingo, 2026-11-09). Never shown to the teacher or the family.
+     */
+    public function adminNote(Request $request, string $sessionId): JsonResponse
+    {
+        Gate::authorize('session.mark_attendance');
+        if (! OfficeNote::visible($this->ctx()->role)) {
+            abort(403, 'Office only.');
+        }
+        $data = $request->validate(['admin_note' => ['present', 'nullable', 'string', 'max:'.OfficeNote::MAX]]);
+        $session = $this->findOwnedSession($sessionId);
+        $note = OfficeNote::clean($data['admin_note']);
+        DB::table('sessions')->where('id', $session->id)->update(['admin_note' => $note, 'updated_at' => now()]);
+        Audit::log('session.admin_note', 'session', (string) $session->id, (string) $session->academy_id, $this->ctx()->userId, $this->ctx()->role,
+            before: ['admin_note' => $session->admin_note ?? null], after: ['admin_note' => $note]);
+
+        return response()->json(['admin_note' => $note]);
     }
 }

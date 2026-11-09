@@ -35,7 +35,7 @@ import { FollowControl, type FollowInfo } from "@/components/attendance/follow-c
 import { useAuth } from "@/components/auth-provider";
 import { MyLessonsToday } from "@/components/dashboard/my-lessons-today";
 import { useCapability } from "@/lib/capabilities";
-import { groupLessonsAsSessions } from "@/lib/group-calendar";
+import { groupLessonsAsSessions, attendedGroupLessons } from "@/lib/group-calendar";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
 import { MyQualityPanel } from "@/components/quality/my-quality-panel";
@@ -905,13 +905,13 @@ export function AcademyDashboard() {
       const fromM = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
       const toM = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0));
       getCalendar({ from: fromM, to: toM })
-        .then((r) => setMonthSessions([...r.sessions, ...groupLessonsAsSessions(r.group_lessons ?? [])]))
+        .then((r) => setMonthSessions([...r.sessions, ...groupLessonsAsSessions(attendedGroupLessons(r.group_lessons ?? []))]))
         .catch(() => setMonthSessions([]))
         .finally(() => setLdMonth(false));
 
       const { from, to } = getCurrentWeek();
       getCalendar({ from, to })
-        .then((r) => setWeekSessions([...r.sessions, ...groupLessonsAsSessions(r.group_lessons ?? [])]))
+        .then((r) => setWeekSessions([...r.sessions, ...groupLessonsAsSessions(attendedGroupLessons(r.group_lessons ?? []))]))
         .catch(() => setWeekSessions([]))
         .finally(() => setLdWeek(false));
     } else {

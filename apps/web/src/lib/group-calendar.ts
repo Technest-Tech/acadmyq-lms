@@ -23,3 +23,11 @@ export function groupLessonsAsSessions(lessons: CalendarGroupLesson[]): Calendar
     group: gl,
   }));
 }
+
+/**
+ * The group lessons a dashboard counts: a class nobody is enrolled in yet asks for no attendance,
+ * so it is neither today's work nor a sheet owed (lingo, 2026-11-09). The calendar still shows it.
+ */
+export function attendedGroupLessons(lessons: CalendarGroupLesson[]): CalendarGroupLesson[] {
+  return lessons.filter((gl) => gl.member_count > 0);
+}

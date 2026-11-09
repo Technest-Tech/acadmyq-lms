@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminNoteButton } from "@/components/attendance/admin-note-button";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { SubstituteModal } from "@/components/holidays/substitute-modal";
@@ -43,6 +44,7 @@ import {
   listGroupLessons,
   rescheduleGroupLesson,
   revertGroupLesson,
+  setGroupLessonAdminNote,
   type GroupDetail,
   type GroupLesson,
 } from "@/lib/groups-api";
@@ -250,6 +252,17 @@ export function GroupLessonsPanel({ group, onChanged }: { group: GroupDetail; on
               <ClipboardCheck className="size-3.5" />
               {lesson.status === "HELD" ? t("lessons.editSheet") : t("lessons.takeAttendance")}
             </Button>
+          )}
+          {lesson.admin_note !== undefined && lesson.status === "HELD" && (
+            <AdminNoteButton
+              size="sm"
+              note={lesson.admin_note ?? null}
+              onSave={async (note) => {
+                const res = await setGroupLessonAdminNote(lesson.id, note);
+                setLessons((prev) => prev.map((x) => (x.id === lesson.id ? { ...x, admin_note: res.admin_note } : x)));
+              }}
+              testId={`lesson-admin-note-${lesson.id}`}
+            />
           )}
           {menu.length > 0 && (
             <DropdownMenu>

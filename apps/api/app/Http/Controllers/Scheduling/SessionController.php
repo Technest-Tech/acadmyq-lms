@@ -17,6 +17,7 @@ use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
 use App\Support\DoneBy;
 use App\Support\Entitlement;
+use App\Support\OfficeNote;
 use App\Support\ReportFields;
 use App\Support\StudentTeachers;
 use Illuminate\Database\Query\Builder;
@@ -823,6 +824,11 @@ final class SessionController extends Controller
         // the only guard against a pathological month. Ask for one row beyond it: if it comes
         // back, the caller is told the window was cut rather than being shown a silently short
         // list it would read as "these are all the lessons".
+        // The office's own note on the lesson: only for the office.
+        if (OfficeNote::visible($this->ctx()->role)) {
+            $query->addSelect('se.admin_note');
+        }
+
         $rows = $query->limit(self::DAY_WINDOW_LIMIT + 1)->get();
         $truncated = $rows->count() > self::DAY_WINDOW_LIMIT;
         $rows = $rows->take(self::DAY_WINDOW_LIMIT)->values()->map(fn ($r) => $this->presentRowTimes($r));

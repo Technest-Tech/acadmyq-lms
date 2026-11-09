@@ -47,6 +47,7 @@ import {
   useOverdueLessons,
 } from "@/components/attendance/overdue-lessons";
 import { RescheduleModal } from "@/components/attendance/reschedule-modal";
+import { AdminNoteButton } from "@/components/attendance/admin-note-button";
 import { RevertOutcomeDialog } from "@/components/attendance/revert-outcome-dialog";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { useAuth } from "@/components/auth-provider";
@@ -71,6 +72,7 @@ import {
   listTeachers,
   type DaySession,
   type TeacherRow,
+  setSessionAdminNote,
 } from "@/lib/api";
 import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { fetchRoster } from "@/lib/roster";
@@ -276,6 +278,12 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const [selected, setSelected] = useState<Selected>(null);
   const [rescheduling, setRescheduling] = useState<DaySession | null>(null);
   const [reverting, setReverting] = useState<DaySession | null>(null);
+  // The office's notes saved on this page, over what the list loaded (null = cleared).
+  const [noteOverrides, setNoteOverrides] = useState<Record<string, string | null>>({});
+  async function saveAdminNote(sessionId: string, note: string | null) {
+    const res = await setSessionAdminNote(sessionId, note);
+    setNoteOverrides((m) => ({ ...m, [sessionId]: res.admin_note }));
+  }
   const [deleting, setDeleting] = useState<DaySession | null>(null);
   const [creating, setCreating] = useState(false);
   // Optimistic status overrides: updated immediately when attendance is recorded so
@@ -1403,6 +1411,13 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                           {t("revert.action")}
                                         </Button>
                                       )}
+                                    {s.admin_note !== undefined && isRecorded && displayStatus !== "RESCHEDULED" && (
+                                      <AdminNoteButton
+                                        note={noteOverrides[s.id] !== undefined ? noteOverrides[s.id]! : (s.admin_note ?? null)}
+                                        onSave={(note) => saveAdminNote(s.id, note)}
+                                        testId={`row-admin-note-${s.id}`}
+                                      />
+                                    )}
                                     {canDelete && !isTrial && (
                                       <Button
                                         type="button"
@@ -1602,6 +1617,13 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
                                     {t("revert.action")}
                                   </Button>
                                 )}
+                              {s.admin_note !== undefined && displayStatus !== "SCHEDULED" && displayStatus !== "RESCHEDULED" && (
+                                <AdminNoteButton
+                                  note={noteOverrides[s.id] !== undefined ? noteOverrides[s.id]! : (s.admin_note ?? null)}
+                                  onSave={(note) => saveAdminNote(s.id, note)}
+                                  testId={`card-admin-note-${s.id}`}
+                                />
+                              )}
                               {canDelete && !isTrial && (
                                 <Button
                                   type="button"

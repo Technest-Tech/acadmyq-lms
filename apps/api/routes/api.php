@@ -1010,6 +1010,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/groups/{id}/lessons', [ClassGroupController::class, 'addLesson'])->whereUuid(['id']);
         Route::get('/group-lessons/{id}', [ClassGroupLessonController::class, 'show'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/attendance', [ClassGroupLessonController::class, 'attendance'])->whereUuid(['id']);
+        Route::patch('/group-lessons/{id}/admin-note', [ClassGroupLessonController::class, 'adminNote'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/attendance/revert', [ClassGroupLessonController::class, 'revert'])->whereUuid(['id']);
         Route::post('/group-lessons/{id}/students/{studentId}/remove', [ClassGroupLessonController::class, 'removeStudent'])->whereUuid(['id', 'studentId']);
         Route::post('/group-lessons/{id}/cancel', [ClassGroupLessonController::class, 'cancel'])->whereUuid(['id']);
@@ -1283,6 +1284,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/sessions/{id}/duration-preview', [SessionController::class, 'durationPreview']);
     Route::patch('/sessions/{id}/duration', [SessionController::class, 'updateDuration']);
     Route::post('/sessions/{id}/attendance', [AttendanceController::class, 'store']);
+    // The office's own note on a lesson (never shown to the teacher or the family).
+    Route::patch('/sessions/{id}/admin-note', [AttendanceController::class, 'adminNote'])->whereUuid('id');
     // Take back a recorded outcome (session.revert_attendance — owners/supervisors, never a
     // teacher). Puts the lesson back to SCHEDULED, reversing the invoice line and the payout with
     // it, which is what makes a mis-marked lesson reschedulable again.

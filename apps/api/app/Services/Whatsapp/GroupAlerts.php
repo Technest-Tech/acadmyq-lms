@@ -8,6 +8,7 @@ use App\Jobs\FlagOverdueReportsJob;
 use App\Support\AcademyUrl;
 use App\Support\AuthContext;
 use App\Support\Entitlement;
+use App\Support\GroupRoster;
 use App\Support\Tenancy;
 use App\Support\TenantContext;
 use Carbon\CarbonImmutable;
@@ -427,6 +428,8 @@ final class GroupAlerts
             ->where('l.academy_id', $academyId)
             ->where('l.status', 'SCHEDULED')
             ->where('g.status', 'ACTIVE')
+            // Nobody enrolled on that date: no sheet is owed, so nothing to chase.
+            ->whereRaw(GroupRoster::hasStudentsSql('l'))
             // A coarse bound on the raw column keeps the calendar index in play; the exact due-time
             // window below it is what decides.
             ->where('l.scheduled_at_utc', '>=', $lowerDue->subMinutes($afterMinutes)->subDay()->format(self::TS))

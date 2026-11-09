@@ -5,6 +5,7 @@ declare(strict_types=1);
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -130,4 +131,29 @@ it('carries the recorded reason, and a pending cancel request\'s reason', functi
     expect($rows->firstWhere('id', $this->regularSession)['status_reason'])->toBe('سفر');
     expect($rows->firstWhere('id', $this->trialSession)['status_reason'])->toBeNull();
     expect($rows->firstWhere('id', $this->trialSession)['pending_cancel_reason'])->toBe('مرض المعلمة');
+});
+
+// ── The office's own note on a marked lesson (lingo, 2026-11-09) ─────────────
+it('keeps the office’s note on a lesson for the office only', function () {
+    Carbon::setTestNow('2026-06-11 12:00:00'); // the 10:00 lesson is over
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$this->regularSession}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->patchJson("/api/sessions/{$this->regularSession}/admin-note", ['admin_note' => ' Came 20 minutes late; mother called '])
+        ->assertOk()->assertJsonPath('admin_note', 'Came 20 minutes late; mother called');
+    $row = collect($this->getJson(dayUrl())->assertOk()->json('sessions'))->firstWhere('id', $this->regularSession);
+    expect($row['admin_note'])->toBe('Came 20 minutes late; mother called');
+
+    // The teacher never gets the key, and may not write it.
+    $teacherUser = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-note@test.local']);
+    $this->asAcademy($this->academy);
+    DB::table('teachers')->where('id', $this->teacher2)->update(['user_id' => $teacherUser->getKey()]);
+    $this->clearTenantContext();
+    Sanctum::actingAs($teacherUser);
+    $mine = collect($this->getJson(dayUrl())->assertOk()->json('sessions'))->firstWhere('id', $this->regularSession);
+    expect($mine)->not->toHaveKey('admin_note');
+    $this->patchJson("/api/sessions/{$this->regularSession}/admin-note", ['admin_note' => 'x'])->assertForbidden();
+
+    // Cleared with an empty note.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/sessions/{$this->regularSession}/admin-note", ['admin_note' => '   '])->assertOk()->assertJsonPath('admin_note', null);
 });

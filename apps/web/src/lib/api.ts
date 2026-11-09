@@ -4027,6 +4027,11 @@ export function markAttendance(
  *
  * Gated by `session.revert_attendance`, which a teacher does not hold.
  */
+/** PATCH /api/sessions/{id}/admin-note — the office's own note (null clears it). */
+export function setSessionAdminNote(sessionId: string, adminNote: string | null): Promise<{ admin_note: string | null }> {
+  return apiFetch(`/api/sessions/${sessionId}/admin-note`, { method: "PATCH", body: JSON.stringify({ admin_note: adminNote }) });
+}
+
 export function revertAttendance(sessionId: string): Promise<{
   status: string;
   billed: boolean;
@@ -4151,6 +4156,8 @@ export interface DaySession extends PendingSession {
   teacher_override?: boolean | null;
   /** The share of it, in basis points (10000 = whole lesson); null = the whole lesson. */
   teacher_pay_share_bp?: number | null;
+  /** The office's own note on the lesson — the key is present only for the office. */
+  admin_note?: string | null;
   /** Who recorded the outcome (attended, absent, cancelled, free); null while still pending. */
   done_by_user_id?: string | null;
   done_by_name?: string | null;

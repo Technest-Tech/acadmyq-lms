@@ -4,6 +4,7 @@ import { AlertTriangle, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, 
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { AdminNoteButton } from "@/components/attendance/admin-note-button";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { BoardFilters, useBoardFilterOptions } from "@/components/groups/board/board-filters";
@@ -17,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { useCapability, useModernLook } from "@/lib/capabilities";
-import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
+import { listBoardLessons, setGroupLessonAdminNote, type BoardLesson } from "@/lib/groups-api";
 import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -278,6 +279,17 @@ export function LessonsBoard() {
                             {l.status === "HELD" ? t("lessons.editSheet") : t("lessons.takeAttendance")}
                           </Button>
                         )}
+                        {l.admin_note !== undefined && l.status === "HELD" && (
+                          <AdminNoteButton
+                            size="sm"
+                            note={l.admin_note ?? null}
+                            onSave={async (note) => {
+                              const res = await setGroupLessonAdminNote(l.id, note);
+                              setLessons((prev) => prev.map((x) => (x.id === l.id ? { ...x, admin_note: res.admin_note } : x)));
+                            }}
+                            testId={`board-admin-note-${l.id}`}
+                          />
+                        )}
                       </div>
                     </li>
                   );
@@ -367,6 +379,17 @@ export function LessonsBoard() {
                             {overdue && <AlertTriangle className="size-3.5" />}
                             {l.status === "HELD" ? t("lessons.editSheet") : t("lessons.takeAttendance")}
                           </Button>
+                        )}
+                        {l.admin_note !== undefined && l.status === "HELD" && (
+                          <AdminNoteButton
+                            size="sm"
+                            note={l.admin_note ?? null}
+                            onSave={async (note) => {
+                              const res = await setGroupLessonAdminNote(l.id, note);
+                              setLessons((prev) => prev.map((x) => (x.id === l.id ? { ...x, admin_note: res.admin_note } : x)));
+                            }}
+                            testId={`board-admin-note-${l.id}`}
+                          />
                         )}
                       </div>
                     </li>

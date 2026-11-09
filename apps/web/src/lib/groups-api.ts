@@ -197,6 +197,8 @@ export interface GroupLesson {
   outcome_set_at: string | null;
   /** The office saved this sheet and the caller is a teacher: read-only for them. */
   outcome_locked?: boolean;
+  /** The office's own note on the lesson — the key is present only for the office. */
+  admin_note?: string | null;
   counts: GroupLessonCounts | null;
 }
 
@@ -410,6 +412,11 @@ export function saveGroupAttendance(
   },
 ): Promise<GroupLessonSheet> {
   return apiFetch(`/api/group-lessons/${id}/attendance`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** PATCH /api/group-lessons/{id}/admin-note — the office's own note (null clears it). */
+export function setGroupLessonAdminNote(id: string, adminNote: string | null): Promise<{ admin_note: string | null }> {
+  return apiFetch(`/api/group-lessons/${id}/admin-note`, { method: "PATCH", body: JSON.stringify({ admin_note: adminNote }) });
 }
 
 export function revertGroupLesson(id: string): Promise<GroupLessonSheet> {
