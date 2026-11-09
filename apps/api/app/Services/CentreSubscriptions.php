@@ -412,12 +412,7 @@ final class CentreSubscriptions
                 return true;
             }
             $sub = $this->lock((string) $row->subscription_id);
-            $reopened = false;
-            if ($sub->status === 'FINISHED' && $this->used((string) $sub->id) < (int) $sub->lessons_sold) {
-                DB::table('centre_subscriptions')->where('id', $sub->id)->update(['status' => 'OPEN', 'finished_at' => null, 'updated_at' => now()]);
-                $this->clearAlert('SUBSCRIPTION_FINISHED', (string) $sub->id);
-                $reopened = true;
-            }
+            $reopened = $this->reopen($sub) === 'reopened';
             Audit::log(self::ENTITY.'.uncounted', self::ENTITY, (string) $sub->id, $academyId, null, 'SUPER_ADMIN',
                 after: ['session_id' => (string) $session->id, 'reopened' => $reopened]);
 
@@ -466,12 +461,8 @@ final class CentreSubscriptions
 
             $reopened = false;
             if ($from !== null) {
-                $old = $locked[$from];
-                if ($old->status === 'FINISHED' && $this->used($from) < (int) $old->lessons_sold) {
-                    DB::table('centre_subscriptions')->where('id', $from)->update(['status' => 'OPEN', 'finished_at' => null, 'updated_at' => now()]);
-                    $this->clearAlert('SUBSCRIPTION_FINISHED', $from);
-                    $reopened = true;
-                }
+                // Never refill the seat with the very lesson the desk just moved off it.
+                $reopened = $this->reopen(DB::table('centre_subscriptions')->where('id', $from)->first(), $sessionId) === 'reopened';
             } elseif ($this->outsideCount((string) $row->student_id) === 0) {
                 $this->clearAlert('LESSON_OUTSIDE_SUBSCRIPTION', (string) $row->student_id);
             }
@@ -757,11 +748,55 @@ final class CentreSubscriptions
     {
         $n = DB::table('centre_subscription_lessons')->where('subscription_id', $sub->id)->where('lesson_on', '<', (string) $sub->starts_on)
             ->update(['subscription_id' => null, 'counted_at' => null]);
-        if ($n > 0 && $sub->status === 'FINISHED' && $this->used((string) $sub->id) < (int) $sub->lessons_sold) {
-            DB::table('centre_subscriptions')->where('id', $sub->id)->update(['status' => 'OPEN', 'finished_at' => null, 'updated_at' => now()]);
+        if ($n > 0) {
+            $this->reopen(DB::table('centre_subscriptions')->where('id', $sub->id)->first());
         }
 
         return $n;
+    }
+
+    /**
+     * A FINISHED block that lost a counted lesson (undone, moved, dated before its start) has a
+     * seat free again. It reopens — unless the student already has an OPEN block for the same
+     * subject (the next one sold): only one block per subject may be open, so instead the earliest
+     * lesson counted on that open block (on or after this block's start) comes back to fill the
+     * seat, keeping lessons in the order they were taken. With nothing to take, the seat stays
+     * free on the finished block (lessons_left shows it). Lingo 2026-11-09: reopening blindly hit
+     * the one-open-block index and every such undo was a Server Error.
+     *
+     * @return 'reopened'|'refilled'|'kept'|'none'
+     */
+    private function reopen(?object $sub, ?string $exceptSessionId = null): string
+    {
+        if ($sub === null || $sub->status !== 'FINISHED' || $this->used((string) $sub->id) >= (int) $sub->lessons_sold) {
+            return 'none';
+        }
+        $open = DB::table('centre_subscriptions')
+            ->where('student_id', $sub->student_id)->where('status', 'OPEN')->where('id', '<>', $sub->id)
+            ->when($sub->teacher_id !== null,
+                fn ($q) => $q->where('teacher_id', $sub->teacher_id)->whereRaw("lower(coalesce(course, '')) = lower(coalesce(?, ''))", [$sub->course]),
+                fn ($q) => $q->whereNull('teacher_id'))
+            ->lockForUpdate()->first();
+        if ($open === null) {
+            DB::table('centre_subscriptions')->where('id', $sub->id)->update(['status' => 'OPEN', 'finished_at' => null, 'updated_at' => now()]);
+            $this->clearAlert('SUBSCRIPTION_FINISHED', (string) $sub->id);
+
+            return 'reopened';
+        }
+
+        $free = (int) $sub->lessons_sold - $this->used((string) $sub->id);
+        $ids = DB::table('centre_subscription_lessons')->where('subscription_id', $open->id)
+            ->where('lesson_on', '>=', (string) $sub->starts_on)
+            ->when($exceptSessionId !== null, fn ($q) => $q->where('session_id', '<>', $exceptSessionId))
+            ->orderBy('lesson_on')->orderBy('created_at')->limit($free)->pluck('id')->all();
+        if ($ids === []) {
+            return 'kept';
+        }
+        DB::table('centre_subscription_lessons')->whereIn('id', $ids)->update(['subscription_id' => $sub->id, 'counted_at' => now()->toIso8601String()]);
+        Audit::log(self::ENTITY.'.refilled', self::ENTITY, (string) $sub->id, (string) $sub->academy_id, null, 'SUPER_ADMIN',
+            after: ['from_subscription_id' => (string) $open->id, 'lessons' => count($ids)]);
+
+        return 'refilled';
     }
 
     private function finishIfFull(object $sub): void

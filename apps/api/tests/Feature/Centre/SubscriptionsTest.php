@@ -508,6 +508,39 @@ it('deletes a block sold by mistake — voids its bill, gives receipts back as c
     expect(($this->sub)($hand)->status)->toBe('OPEN');
 });
 
+it('undoes a lesson on a finished block while the next block is open — no Server Error (lingo, 2026-11-09)', function () {
+    $first = ($this->sell)(['lessons_sold' => 2])->assertCreated()->json('subscription.id');
+    ($this->attend)('2026-06-01 10:00:00+00');
+    $second = ($this->attend)('2026-06-02 10:00:00+00');
+    expect(($this->sub)($first)->status)->toBe('FINISHED');
+    $next = ($this->sell)(['lessons_sold' => 4, 'starts_on' => '2026-06-01'])->assertCreated()->json('subscription.id');
+
+    // Nothing counted on the open block yet: the old one keeps its free seat, stays finished.
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$second}/attendance/revert")->assertOk();
+    expect(($this->sub)($first)->status)->toBe('FINISHED')
+        ->and(($this->used)($first))->toBe(1)
+        ->and(($this->sub)($next)->status)->toBe('OPEN');
+
+    // Marked again it lands on the open block; a later lesson there too, and a third.
+    $this->postJson("/api/sessions/{$second}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $third = ($this->attend)('2026-06-04 10:00:00+00');
+    $fourth = ($this->attend)('2026-06-05 10:00:00+00');
+    expect(($this->used)($next))->toBe(3);
+    // Undoing the old block's lesson frees its second seat too: the open block's earliest
+    // lessons come back to fill both, in the order they were taken; the latest stays.
+    $firstLesson = csTenant($this->academy, fn () => DB::table('centre_subscription_lessons')->where('subscription_id', $first)->value('session_id'));
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$firstLesson}/attendance/revert")->assertOk();
+    $on = fn (string $s) => csTenant($this->academy, fn () => DB::table('centre_subscription_lessons')->where('session_id', $s)->value('subscription_id'));
+    expect(($this->sub)($first)->status)->toBe('FINISHED')
+        ->and(($this->used)($first))->toBe(2)
+        ->and(($this->used)($next))->toBe(1)
+        ->and($on($second))->toBe($first)
+        ->and($on($third))->toBe($first)
+        ->and($on($fourth))->toBe($next);
+});
+
 // ── Pay first ────────────────────────────────────────────────────────────────
 
 it('holds a sale while the last block of the subject is unpaid under pay-first, names the bill, and sells on override with a warning', function () {
