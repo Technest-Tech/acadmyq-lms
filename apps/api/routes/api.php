@@ -950,9 +950,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
 
     // ── Levels / grades (docs/centre-profile, Phase 2.1) ─────────────────────────────────────
     // The academy's own ordered list of levels (Settings, specialization.manage to change), the
-    // level a student stands at, and the promotion that moves them up with a history. A centre's
-    // only (entitled:centre): a Quran academy's student and group endpoints never see a level.
-    Route::middleware('entitled:centre')->group(function () {
+    // level a student stands at, and the promotion that moves them up with a history. A centre's,
+    // and since 2026-11-10 any Quran academy that switched levels on in Settings (`levels.on`).
+    Route::middleware('levels.on')->group(function () {
         Route::get('/levels', [LevelController::class, 'index']);
         Route::post('/levels', [LevelController::class, 'store']);
         Route::patch('/levels/{id}', [LevelController::class, 'update'])->whereUuid('id');

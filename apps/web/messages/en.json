@@ -4381,6 +4381,7 @@
       "groups": "Group classes — groups, members, timetable & attendance",
       "accounting": "Accounting — numbered receipts, partial payments & collection sheets",
       "modern_look": "Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy's own colours",
+      "courses_art": "Courses & curricula picture — the modern dashboard banner shows books and a course screen instead of the mushaf and mosque",
       "centre": "Centre mode — lesson subscriptions, groups first, any student on a manual lesson, salary blocks"
     }
   },
@@ -11085,6 +11086,14 @@
     "everyone": "Everyone"
   },
   "levels": {
+    "switch": {
+      "title": "Levels",
+      "hint": "Optional: sort your students into levels (e.g. Foundation, Level 1, Juz Amma…) and pick each student's level when you add them.",
+      "label": "Turn on levels",
+      "onHint": "On — shown when adding a student, on their profile and as a filter on the students list.",
+      "offHint": "Off — not shown anywhere.",
+      "failed": "Could not save the setting. Try again."
+    },
     "cardTitle": "{word, select, GRADE {Grades} YEAR {Years} other {Levels / grades}}",
     "hint": "The academy's ordered list of levels (A1…C2, or school grades). Students and groups point at it, and a student is promoted from one to the next.",
     "add": "Add",

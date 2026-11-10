@@ -32,3 +32,17 @@ export function wordOf(label: string | null | undefined): LevelLabel {
 export function useLevelWord(): LevelLabel {
   return levelWord(useContext(AuthContext)?.session);
 }
+
+/**
+ * Does the academy keep a levels list? A centre always does; a Quran academy once it switched levels
+ * on in Settings (2026-11-10). Off, the student form, profile and list show no level at all. An older
+ * session without the flag falls back to "is a centre", which is what every screen asked before.
+ */
+export function levelsOn(session: Session | null | undefined): boolean {
+  return session?.academy?.levelsEnabled ?? (session?.capabilities?.includes("centre") ?? false);
+}
+
+/** `levelsOn` for a component; safe outside an AuthProvider. */
+export function useLevelsOn(): boolean {
+  return levelsOn(useContext(AuthContext)?.session);
+}

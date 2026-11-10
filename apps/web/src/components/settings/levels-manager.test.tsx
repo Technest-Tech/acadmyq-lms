@@ -5,7 +5,7 @@ import arMessages from "../../../messages/ar.json";
 import { makeSession, withAuth } from "@/test/auth";
 import { forWord } from "@/test/level-word";
 import type { Level } from "@/lib/levels-api";
-import { LevelsManager } from "./levels-manager";
+import { LevelsManager, LevelsSwitch } from "./levels-manager";
 
 /**
  * Settings → levels / grades (docs/centre-profile, Phase 2.1): the list in order, adding one,
@@ -26,9 +26,11 @@ vi.mock("@/lib/levels-api", async (importOriginal) => ({
 }));
 
 const updateAcademyLevelLabel = vi.fn();
+const updateAcademyLevelsEnabled = vi.fn();
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   updateAcademyLevelLabel: (label: unknown) => updateAcademyLevelLabel(label),
+  updateAcademyLevelsEnabled: (on: unknown) => updateAcademyLevelsEnabled(on),
 }));
 
 const ar = arMessages.levels;
@@ -62,6 +64,35 @@ beforeEach(() => {
   updateLevel.mockResolvedValue({ ok: true });
   deleteLevel.mockResolvedValue({ ok: true });
   updateAcademyLevelLabel.mockResolvedValue({ ok: true });
+  updateAcademyLevelsEnabled.mockResolvedValue({ ok: true });
+});
+
+const quranSession = (levelsEnabled: boolean) =>
+  makeSession("ACADEMY_OWNER", {
+    academy: { name: "EnglishSpirit", displayName: "EnglishSpirit", logoUrl: null, country: "EG", defaultCurrency: "EGP", profile: "QURAN", levelsEnabled },
+    capabilities: ["invoicing", "packages"],
+  });
+
+describe("LevelsSwitch (a Quran academy's own choice)", () => {
+  it("starts off with no list, and switching on saves and shows the list", async () => {
+    const user = userEvent.setup();
+    render(withAuth(quranSession(false), <LevelsSwitch />));
+
+    const toggle = screen.getByTestId("levels-enabled");
+    expect(toggle).not.toBeChecked();
+    expect(screen.queryByTestId("levels-manager")).toBeNull();
+    expect(listLevels).not.toHaveBeenCalled();
+
+    await user.click(toggle);
+    await waitFor(() => expect(updateAcademyLevelsEnabled).toHaveBeenCalledWith(true));
+    expect(await screen.findByTestId("levels-list")).toBeInTheDocument();
+  });
+
+  it("shows the list straight away when the academy already switched it on", async () => {
+    render(withAuth(quranSession(true), <LevelsSwitch />));
+    expect(screen.getByTestId("levels-enabled")).toBeChecked();
+    expect(await screen.findByTestId("levels-list")).toBeInTheDocument();
+  });
 });
 
 describe("LevelsManager", () => {

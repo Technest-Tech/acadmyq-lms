@@ -194,7 +194,7 @@ final class AuthController extends Controller
 
         $academy = DB::table('academies')
             ->where('id', $academyId)
-            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'country', 'default_currency', 'level_label']);
+            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'country', 'default_currency', 'level_label', 'levels_enabled']);
 
         if ($academy === null) {
             return null;
@@ -226,6 +226,9 @@ final class AuthController extends Controller
             // What the classification is called — LEVEL, GRADE or YEAR (null has always read as
             // LEVEL): every label naming it on the web reads through lib/levels.ts.
             'levelLabel' => AcademyLevelLabel::of($academy->level_label ?? null),
+            // Does the academy keep a levels list? A centre always does; anyone else once they switch
+            // it on in Settings → Levels. The student form's level picker hangs on it.
+            'levelsEnabled' => (bool) ($academy->levels_enabled ?? false) || Entitlement::hasCapability($academyId, 'centre'),
             // Does it teach online (the setting, else worked out)? A centre's Enter button, teacher
             // meeting link and Punctuality tab hang on it; nobody else's screens read it.
             'onlineLessons' => OnlineLessons::forAcademy($academyId),

@@ -35,7 +35,7 @@ final class AcademyProfileController extends Controller
         }
 
         $row = DB::table('academies')
-            ->select(['id', 'name', 'timezone', 'default_currency', 'country', 'invoice_grouping', 'billing_day', 'level_label', 'online_lessons'])
+            ->select(['id', 'name', 'timezone', 'default_currency', 'country', 'invoice_grouping', 'billing_day', 'level_label', 'online_lessons', 'levels_enabled'])
             ->first();
 
         if ($row === null) {
@@ -57,7 +57,9 @@ final class AcademyProfileController extends Controller
     {
         // The classification's word sits on the levels card, under the course catalogue a
         // supervisor keeps (specialization.manage); every other field is the owner's settings.
-        $onlyLabel = $request->has('level_label') && array_diff(array_keys($request->all()), ['level_label']) === [];
+        // So does the levels switch beside it (a Quran academy turning its levels list on).
+        $levelKeys = ['level_label', 'levels_enabled'];
+        $onlyLabel = $request->hasAny($levelKeys) && array_diff(array_keys($request->all()), $levelKeys) === [];
         if ($onlyLabel) {
             if (! Gate::any(['settings.manage', 'specialization.manage'])) {
                 abort(403, 'This action is unauthorized.');
@@ -76,6 +78,8 @@ final class AcademyProfileController extends Controller
             'level_label' => ['sometimes', Rule::in(AcademyLevelLabel::ALL)],
             // Whether Enter, meeting links and Punctuality exist: on, off, or null = automatic.
             'online_lessons' => ['sometimes', 'nullable', 'boolean'],
+            // A Quran academy's levels list, on or off (a centre always has it).
+            'levels_enabled' => ['sometimes', 'boolean'],
         ]);
 
         $ctx = app(AuthContext::class);
@@ -84,7 +88,7 @@ final class AcademyProfileController extends Controller
         }
 
         $before = DB::table('academies')
-            ->select(['name', 'timezone', 'country', 'default_currency', 'level_label', 'online_lessons'])
+            ->select(['name', 'timezone', 'country', 'default_currency', 'level_label', 'online_lessons', 'levels_enabled'])
             ->first();
 
         $name = isset($data['name']) ? trim($data['name']) : (string) ($before->name ?? '');
@@ -106,8 +110,9 @@ final class AcademyProfileController extends Controller
         $onlineLessons = ! array_key_exists('online_lessons', $data)
             ? null
             : ($data['online_lessons'] === null ? 'AUTO' : ($request->boolean('online_lessons') ? 'ON' : 'OFF'));
-        if (array_key_exists('country', $data) || isset($data['default_currency']) || $levelLabel !== null || $onlineLessons !== null) {
-            DB::selectOne('select app.update_academy_defaults(?, ?, ?, ?) as ok', [$country, $currency, $levelLabel, $onlineLessons]);
+        $levelsEnabled = array_key_exists('levels_enabled', $data) ? $request->boolean('levels_enabled') : null;
+        if (array_key_exists('country', $data) || isset($data['default_currency']) || $levelLabel !== null || $onlineLessons !== null || $levelsEnabled !== null) {
+            DB::selectOne('select app.update_academy_defaults(?, ?, ?, ?, ?::boolean) as ok', [$country, $currency, $levelLabel, $onlineLessons, $levelsEnabled === null ? null : ($levelsEnabled ? 'true' : 'false')]);
         }
 
         Audit::log(
@@ -117,8 +122,8 @@ final class AcademyProfileController extends Controller
             $ctx->academyId,
             $ctx->userId,
             $ctx->role,
-            before: ['name' => $before?->name, 'timezone' => $before?->timezone, 'country' => $before?->country, 'default_currency' => $before?->default_currency, 'level_label' => $before?->level_label, 'online_lessons' => $before?->online_lessons],
-            after: ['name' => $name, 'timezone' => $timezone, 'country' => $country ?: null, 'default_currency' => $currency, 'level_label' => $levelLabel ?? $before?->level_label, 'online_lessons' => $onlineLessons ?? $before?->online_lessons],
+            before: ['name' => $before?->name, 'timezone' => $before?->timezone, 'country' => $before?->country, 'default_currency' => $before?->default_currency, 'level_label' => $before?->level_label, 'online_lessons' => $before?->online_lessons, 'levels_enabled' => $before?->levels_enabled],
+            after: ['name' => $name, 'timezone' => $timezone, 'country' => $country ?: null, 'default_currency' => $currency, 'level_label' => $levelLabel ?? $before?->level_label, 'online_lessons' => $onlineLessons ?? $before?->online_lessons, 'levels_enabled' => $levelsEnabled ?? $before?->levels_enabled],
         );
 
         return response()->json(['ok' => true]);

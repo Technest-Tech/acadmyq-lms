@@ -216,6 +216,8 @@ export interface SessionAcademy {
   profile?: AcademyKind;
   /** What the classification is called (lib/levels.ts `levelWord`); absent on an older session ⇒ LEVEL. */
   levelLabel?: "LEVEL" | "GRADE" | "YEAR";
+  /** Does it keep a levels list (a centre always; anyone else once switched on in Settings)? Read through `useLevelsOn`. */
+  levelsEnabled?: boolean;
   /** Does it teach online (the setting, else worked out); read through `useOnlineLessons`. */
   onlineLessons?: boolean;
 }
@@ -9853,5 +9855,13 @@ export function updateAcademyLevelLabel(levelLabel: "LEVEL" | "GRADE" | "YEAR"):
   return apiFetch("/api/academy", {
     method: "PATCH",
     body: JSON.stringify({ level_label: levelLabel }),
+  });
+}
+
+/** Switch a Quran academy's levels list on or off (Settings → Levels); a centre always has it. */
+export function updateAcademyLevelsEnabled(on: boolean): Promise<{ ok: boolean }> {
+  return apiFetch("/api/academy", {
+    method: "PATCH",
+    body: JSON.stringify({ levels_enabled: on }),
   });
 }

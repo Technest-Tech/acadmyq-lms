@@ -165,6 +165,14 @@ describe("DashboardHome — the modern look for a Quran academy", () => {
     expect(api.getOverdueSessions).not.toHaveBeenCalled();
   });
 
+  it("swaps the mushaf and mosque for the courses picture when the client has courses_art", async () => {
+    render(withAuth(owner(["invoicing", "packages", "payroll", "trials", "modern_look", "courses_art"]), <DashboardHome />));
+    const hero = await screen.findByTestId("modern-hero");
+    expect(within(hero).getByTestId("courses-hero-art")).toBeInTheDocument();
+    expect(within(hero).queryByTestId("quran-hero-art")).toBeNull();
+    await counted(84);
+  });
+
   it("gives a teacher their own day and pay, not the academy's people and money", async () => {
     api.listMyPayouts.mockResolvedValue({ rows: [] });
     render(

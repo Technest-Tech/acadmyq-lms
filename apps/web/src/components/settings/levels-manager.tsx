@@ -6,14 +6,78 @@ import { useCallback, useEffect, useState } from "react";
 import { SectionCard } from "@/components/settings/section-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import { useAuth } from "@/components/auth-provider";
-import { ApiError, updateAcademyLevelLabel } from "@/lib/api";
+import { ApiError, updateAcademyLevelLabel, updateAcademyLevelsEnabled } from "@/lib/api";
 import { createLevel, deleteLevel, listLevels, type Level, updateLevel } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
-import { LEVEL_LABELS, type LevelLabel, useLevelWord } from "@/lib/levels";
+import { LEVEL_LABELS, type LevelLabel, useLevelsOn, useLevelWord } from "@/lib/levels";
 
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
+
+/**
+ * Settings → levels for an academy that is not a centre (2026-11-10): off until the academy switches
+ * it on here. On, the levels list below appears, and so does the level picker on the student form,
+ * the level on the profile and the list's level filter. Off again, they all hide; the levels and
+ * every student's level stay as they were, so switching back on brings them back.
+ */
+export function LevelsSwitch() {
+  const t = useTranslations("levels");
+  const { refresh: refreshSession } = useAuth();
+  const sessionOn = useLevelsOn();
+  // The choice made here, ahead of the session catching up (it re-reads after the save).
+  const [picked, setPicked] = useState<boolean | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const on = picked ?? sessionOn;
+
+  async function toggle(next: boolean) {
+    if (saving) return;
+    setError(null);
+    setPicked(next);
+    setSaving(true);
+    try {
+      await updateAcademyLevelsEnabled(next);
+      await refreshSession();
+    } catch (err) {
+      setPicked(null);
+      setError(err instanceof ApiError ? err.message : t("switch.failed"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <SectionCard
+        icon={Layers}
+        title={t("switch.title")}
+        description={t("switch.hint")}
+        iconClassName="bg-gradient-to-br from-sky-500 to-indigo-500 shadow-sky-500/25"
+        testId="levels-switch"
+      >
+        <div className="space-y-3">
+          {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+          <div className="flex items-center justify-between gap-3 rounded-xl border px-3.5 py-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium">{t("switch.label")}</p>
+              <p className="text-muted-foreground text-xs">{on ? t("switch.onHint") : t("switch.offHint")}</p>
+            </div>
+            <Switch
+              checked={on}
+              disabled={saving}
+              onChange={(e) => void toggle(e.target.checked)}
+              aria-label={t("switch.label")}
+              data-testid="levels-enabled"
+            />
+          </div>
+        </div>
+      </SectionCard>
+      {on && <LevelsManager />}
+    </div>
+  );
+}
 
 /**
  * Settings → the academy's levels / grades (docs/centre-profile, Phase 2.1): add, rename, move up

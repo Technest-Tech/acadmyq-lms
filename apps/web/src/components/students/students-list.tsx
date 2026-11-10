@@ -38,7 +38,7 @@ import { type Level, listLevels } from "@/lib/levels-api";
 import { formatMoney } from "@/lib/money";
 import { usePlanLabel } from "@/lib/plan-label";
 import { cn } from "@/lib/utils";
-import { useLevelWord } from "@/lib/levels";
+import { useLevelsOn, useLevelWord } from "@/lib/levels";
 
 /** The four stages a student record moves through — the server's `students.status`. */
 const STUDENT_STAGES = [
@@ -223,6 +223,7 @@ export function StudentsList({
   // A centre's levels / grades: the badge on each row and the filter (docs/centre-profile, Phase 2.1).
   const tLevels = useTranslations("levels");
   const word = useLevelWord();
+  const levelsOn = useLevelsOn();
   const [levels, setLevels] = useState<Level[]>([]);
   const actors = useTeamActors();
 
@@ -233,11 +234,11 @@ export function StudentsList({
   }, []);
 
   useEffect(() => {
-    if (!centre) return;
+    if (!levelsOn) return;
     void listLevels()
       .then((r) => setLevels(r.levels))
       .catch(() => setLevels([]));
-  }, [centre]);
+  }, [levelsOn]);
 
   const priceSuffix = useMemo(
     () => ({
@@ -271,7 +272,7 @@ export function StudentsList({
                   <span className="truncate font-semibold">{r.full_name}</span>
                   <StageBadge status={r.status} />
                   {/* A centre's level / grade, as the academy names it. */}
-                  {centre && r.level_name && (
+                  {levelsOn && r.level_name && (
                     <span className="inline-flex shrink-0 items-center rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" data-testid={`student-level-${r.id}`}>
                       {r.level_name}
                     </span>
@@ -480,7 +481,7 @@ export function StudentsList({
 
       return cols;
     },
-    [t, tDone, locale, isTeacher, canPrice, priceSuffix, centre, planLabel],
+    [t, tDone, locale, isTeacher, canPrice, priceSuffix, centre, levelsOn, planLabel],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -519,7 +520,7 @@ export function StudentsList({
         })),
       },
       // A centre's level / grade — only once the academy has written its list.
-      ...(centre && levels.length > 0
+      ...(levelsOn && levels.length > 0
         ? [{ key: "level_id", label: tLevels("filter", { word }), options: levels.map((l) => ({ value: l.id, label: l.name })) }]
         : []),
       // Set only by the "Trials" tile above the table — TRIAL and TRIAL_BOOKED at once, which no
@@ -532,7 +533,7 @@ export function StudentsList({
       },
       ...addedByFilter(actors, tDone),
     ],
-    [t, tDone, tLevels, word, teachers, actors, centre, levels],
+    [t, tDone, tLevels, word, teachers, actors, levelsOn, levels],
   );
 
   const exportColumns = useMemo<ExcelColumn<StudentRow>[]>(() => {

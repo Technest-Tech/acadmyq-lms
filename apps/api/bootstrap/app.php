@@ -3,9 +3,10 @@
 declare(strict_types=1);
 
 use App\Http\Middleware\AuthenticateWhatsAppApiKey;
-use App\Http\Middleware\EnsureEntitled;
 use App\Http\Middleware\EnsureCourseSiteOpen;
+use App\Http\Middleware\EnsureEntitled;
 use App\Http\Middleware\EnsureLearner;
+use App\Http\Middleware\EnsureLevelsOn;
 use App\Http\Middleware\ForceJsonResponse;
 use App\Http\Middleware\ResolveAcademyContext;
 use App\Http\Middleware\TenantContextMiddleware;
@@ -91,6 +92,8 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'tenant.context' => TenantContextMiddleware::class,
             'entitled' => EnsureEntitled::class,
+            // The levels list: a centre's, or any academy that switched it on (Settings → Levels).
+            'levels.on' => EnsureLevelsOn::class,
             // HMAC guard for the public inbound webhook from the self-hosted WhatsApp gateway.
             'wa.webhook' => VerifyWhatsAppWebhook::class,
             // JWT/body-hash guard for the public inbound webhook from the self-hosted LiveKit server.

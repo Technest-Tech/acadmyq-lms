@@ -75,6 +75,7 @@ import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { useCapability } from "@/lib/capabilities";
+import { useLevelsOn } from "@/lib/levels";
 import { cn } from "@/lib/utils";
 
 // The manually-settable active states. Terminal states (GRADUATED/WITHDRAWN) are not editable
@@ -172,7 +173,7 @@ export function StudentDetail({
   const locale = useLocale();
   const { can } = useAuth();
   // A centre's level / grade: the badge up top and the promotion card (docs/centre-profile, Phase 2.1).
-  const centre = useCapability("centre");
+  const levelsOn = useLevelsOn();
 
   const [data, setData] = useState<StudentDetailData | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
@@ -243,7 +244,7 @@ export function StudentDetail({
                 {data.subscription.plan_label}
               </span>
             )}
-            {centre && typeof data.student.level_name === "string" && data.student.level_name !== "" && (
+            {levelsOn && typeof data.student.level_name === "string" && data.student.level_name !== "" && (
               <span className="inline-flex items-center gap-1 rounded-md bg-sky-100 px-2 py-0.5 text-xs font-semibold text-sky-700 dark:bg-sky-950/40 dark:text-sky-300" data-testid="student-level-badge">
                 <Layers className="size-3" />
                 {data.student.level_name}
@@ -275,8 +276,8 @@ export function StudentDetail({
       {/* ── Subscriptions: a centre's view of everything the student pays for ── */}
       <SubscriptionsCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />
 
-      {/* ── Level / grade: where the student stands, "ترقية", and the trail of promotions — a centre's only ── */}
-      {centre && <LevelCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />}
+      {/* ── Level / grade: where the student stands, "ترقية", and the trail of promotions — once the academy keeps levels ── */}
+      {levelsOn && <LevelCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />}
 
       {/* ── Alerts ──────────────────────────────────────────────────── */}
       {error && (

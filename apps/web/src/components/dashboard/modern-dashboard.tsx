@@ -37,6 +37,7 @@ import {
 import { MyLessonsToday } from "@/components/dashboard/my-lessons-today";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
 import { MyQualityPanel } from "@/components/quality/my-quality-panel";
+import { CoursesHeroArt } from "@/components/courses-art";
 import { QuranHeroArt } from "@/components/quran-art";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -123,6 +124,8 @@ export function ModernDashboard() {
   const groupsOn = useCapability("groups") && can("group.read");
   const accountingOn = useCapability("accounting");
   const trialsOn = useCapability("trials") && can("trial.read");
+  // Opt-in, so strict: no capability list means the Quran picture.
+  const coursesArt = session?.capabilities?.includes("courses_art") ?? false;
   const readsLessons = can("schedule.read") || can("session.read");
   const marksLessons = can("session.mark_attendance") || can("session.read");
 
@@ -308,7 +311,12 @@ export function ModernDashboard() {
 
       {/* ── The opening banner: the centre's layout, with the mushaf, the mosque and the lantern ── */}
       <section className="centre-hero relative overflow-hidden rounded-[1.25rem] px-5 py-5 sm:px-8 sm:py-7" data-testid="modern-hero">
-        <QuranHeroArt className="pointer-events-none absolute end-4 bottom-0 hidden h-[92%] max-w-[46%] lg:block" />
+        {/* An academy teaching courses and curricula, not the Quran, gets its own picture (`courses_art`). */}
+        {coursesArt ? (
+          <CoursesHeroArt className="pointer-events-none absolute end-4 bottom-0 hidden h-[92%] max-w-[46%] lg:block" />
+        ) : (
+          <QuranHeroArt className="pointer-events-none absolute end-4 bottom-0 hidden h-[92%] max-w-[46%] lg:block" />
+        )}
         <div className="relative max-w-xl">
           <h1 className="text-2xl leading-tight font-extrabold tracking-tight break-words sm:text-[2rem]">
             {t("hero.greeting", { greeting, name: firstName })} <span aria-hidden>👋</span>

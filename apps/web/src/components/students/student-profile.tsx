@@ -46,7 +46,7 @@ import {
 } from "@/lib/api";
 import { useCapability } from "@/lib/capabilities";
 import { usePlanLabel } from "@/lib/plan-label";
-import { useLevelWord } from "@/lib/levels";
+import { useLevelsOn, useLevelWord } from "@/lib/levels";
 import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -78,6 +78,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   // behind the switch, so a Quran academy's profile never fetches it. The legacy student-detail
   // page rendered them; this page — the one the route opens — did not.
   const centre = useCapability("centre");
+  const levelsOn = useLevelsOn();
 
   const [data, setData] = useState<StudentDetailData | null>(null);
   const [teachers, setTeachers] = useState<TeacherRow[]>([]);
@@ -225,7 +226,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
                 {planLabel(sub.plan_label)}
               </HeroBadge>
             )}
-            {centre && typeof data.student.level_name === "string" && data.student.level_name !== "" && (
+            {levelsOn && typeof data.student.level_name === "string" && data.student.level_name !== "" && (
               <HeroBadge>
                 <Layers className="size-3" aria-hidden />
                 <span data-testid="student-level-badge" title={tLevels("select.label", { word })}>
@@ -409,8 +410,8 @@ export function StudentProfile({ studentId }: { studentId: string }) {
             }}
             onError={setError}
           />
-          {/* Level / grade: where the student stands, "ترقية", and the trail of promotions — a centre's only. */}
-          {centre && <LevelCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />}
+          {/* Level / grade: where the student stands, "ترقية", and the trail of promotions — once the academy keeps levels. */}
+          {levelsOn && <LevelCard studentId={studentId} studentName={data.student.full_name} onChanged={() => void refresh()} />}
         </div>
       )}
 

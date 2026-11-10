@@ -45,7 +45,7 @@ import { LevelSelect } from "@/components/levels/level-select";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { useLevelWord } from "@/lib/levels";
+import { useLevelsOn, useLevelWord } from "@/lib/levels";
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -283,7 +283,9 @@ export function StudentForm({
   const billing: Billing =
     billingPick ?? (groupsOnlyChoice ? "none" : subscriptionAvailable ? "subscription" : centre && packagesAvailable ? "package" : "monthly");
   const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
-  // A centre's level / grade (docs/centre-profile, Phase 2.1) — optional, from the academy's list.
+  // The student's level / grade (docs/centre-profile, Phase 2.1) — optional, from the academy's
+  // list: a centre's always, a Quran academy's once it switched levels on in Settings.
+  const levelsOn = useLevelsOn();
   const [levelId, setLevelId] = useState("");
   // Each group picked, from the day the student joins it.
   const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string }[]>([]);
@@ -468,7 +470,7 @@ export function StudentForm({
             }
           : {}),
         status: enrolling ? "REGULAR" : "TRIAL",
-        ...(centre && levelId ? { level_id: levelId } : {}),
+        ...(levelsOn && levelId ? { level_id: levelId } : {}),
         ...(links.length > 0 ? { teachers: links } : {}),
         // The package path opens the package in the same request, which also creates the
         // student's package-billing subscription — so it sends no `subscription` of its own.
@@ -754,8 +756,8 @@ export function StudentForm({
         />
       </Field>
 
-      {/* ── Level / grade — a centre's classification, from its own list (Settings) ── */}
-      {centre && (
+      {/* ── Level / grade — the academy's classification, from its own list (Settings) ── */}
+      {levelsOn && (
         <Field label={tLevels("select.label", { word })}>
           <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="student-level" />
         </Field>

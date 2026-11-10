@@ -14,7 +14,7 @@ import { useLevelWord } from "@/lib/levels";
 /**
  * The student page's level card (docs/centre-profile, Phase 2.1): where they stand, the "ترقية"
  * button, and the trail of every promotion — from which level and group to which, from when. A
- * centre's only; the page renders it behind `useCapability("centre")`, so a Quran academy's profile
+ * centre's, or a Quran academy's that switched levels on (`useLevelsOn`); otherwise a profile
  * never fetches it.
  */
 export function LevelCard({
