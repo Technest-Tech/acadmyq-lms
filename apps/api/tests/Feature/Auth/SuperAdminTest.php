@@ -93,3 +93,50 @@ it('lists all academies for a Super Admin and 403s for an Owner', function () {
     $res = $this->getJson('/api/admin/academies')->assertOk();
     expect(collect($res->json('academies'))->pluck('id'))->toContain($this->A);
 });
+
+// ── An entered academy's own row, never "the first one RLS lets me see" ───────
+// academies_select admits a Super Admin to EVERY academy, so GET /api/academy once answered with
+// another client's name/timezone/currency inside the entered academy, and a Settings save wrote
+// that other client's name over the entered one.
+it('reads and keeps the ENTERED academy\'s profile, not another client\'s', function () {
+    // Two other clients exist before and after A, so an unfiltered first() cannot land on A.
+    $before = $this->createAcademy(overrides: ['name' => 'Other Before', 'timezone' => 'Asia/Riyadh']);
+    $B = $this->createAcademy(overrides: ['name' => 'Entered Academy', 'timezone' => 'Africa/Cairo']);
+    $this->createAcademy(overrides: ['name' => 'Other After', 'timezone' => 'Europe/London']);
+
+    actingFrontend($this->admin)
+        ->withSession(['entered_academy_id' => $B])
+        ->getJson('/api/academy')
+        ->assertOk()
+        ->assertJsonPath('academy.id', $B)
+        ->assertJsonPath('academy.name', 'Entered Academy')
+        ->assertJsonPath('academy.timezone', 'Africa/Cairo');
+
+    // A save that changes only the country keeps B's own name and timezone.
+    actingFrontend($this->admin)
+        ->withSession(['entered_academy_id' => $B])
+        ->patchJson('/api/academy', ['country' => 'SA'])
+        ->assertOk();
+
+    $this->asSuperAdmin();
+    $row = DB::table('academies')->where('id', $B)->first(['name', 'timezone', 'country']);
+    expect($row->name)->toBe('Entered Academy')
+        ->and($row->timezone)->toBe('Africa/Cairo')
+        ->and($row->country)->toBe('SA');
+    expect(DB::table('academies')->where('id', $before)->value('name'))->toBe('Other Before');
+});
+
+it('gives a platform Super Admin with no academy entered no academy profile', function () {
+    actingFrontend($this->admin)->getJson('/api/academy')->assertNotFound();
+});
+
+// A sign-in always starts on the platform, whatever an earlier session had entered.
+it('starts every sign-in on the platform view', function () {
+    $this->withHeader('Origin', 'http://localhost:3000')
+        ->withSession(['entered_academy_id' => $this->A])
+        ->postJson('/api/auth/login', ['email' => $this->admin->email, 'password' => $this->userPassword])
+        ->assertOk()
+        ->assertJsonPath('academyId', null);
+
+    expect(session('entered_academy_id'))->toBeNull();
+});

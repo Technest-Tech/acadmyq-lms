@@ -835,6 +835,9 @@ const NAV: ReadonlyArray<{
   },
 ];
 
+/** Platform pages filed under the "system" group: hidden, like the platform group, inside an entered academy. */
+const PLATFORM_ONLY_KEYS: ReadonlySet<NavKey> = new Set<NavKey>(["platformSettings", "roles"]);
+
 /**
  * The platform Super Admin sidebar (R2, docs/superadmin-modules/04-CLIENT-FIRST-REDESIGN §3): a
  * SHORT FLAT list — one item per job, ordered by how often the owner needs it. The Phase-4 module
@@ -1393,6 +1396,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return required.every((cap) => capabilities.includes(cap));
   };
 
+  // A Super Admin inside an academy works in it as its owner would. The platform's own pages are not
+  // part of that academy: listed beside its pages they doubled the sidebar (eleven platform links,
+  // two of them only redirects) and opened platform screens in the academy's chrome. "Exit" is the
+  // way back to them.
+  const inEnteredAcademy =
+    session.role === "SUPER_ADMIN" && session.academyId !== null;
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
     if (item.key === "staff" && !can("staff.read") && !can("role.manage")) return false;
@@ -1403,6 +1412,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     )
       return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
+    if (inEnteredAcademy && (item.group === "platform" || PLATFORM_ONLY_KEYS.has(item.key))) return false;
     // The Audit Log link is Super-Admin-only in the sidebar. Academy owners retain
     // audit.read (the page and API stay reachable) — this just keeps it out of the
     // owner panel's navigation.
@@ -1442,9 +1452,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
     return [...list].sort((a, b) => rank(a.key) - rank(b.key));
   };
-  const inEnteredAcademy =
-    session.role === "SUPER_ADMIN" && session.academyId !== null;
-
   // The panel's own identity (see the Brand block below). A platform Super Admin has no academy, so
   // these fall back to the platform's mark; an academy with no logo uploaded gets its initials.
   const academyName = session.academy?.displayName || "Acadmyq";

@@ -109,6 +109,9 @@ final class AuthController extends Controller
         }
 
         $request->session()->regenerate();
+        // A sign-in always starts on the platform: regenerate() keeps the session's data, so an
+        // academy a Super Admin entered earlier in this browser would otherwise still be "entered".
+        $request->session()->forget('entered_academy_id');
 
         // Stamp + audit the login. Both touch the RLS users/audit tables with no tenant
         // context, so the last-login write goes through the BYPASSRLS function.

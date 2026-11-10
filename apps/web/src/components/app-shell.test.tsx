@@ -180,6 +180,44 @@ describe("AppShell header (TC-2.26)", () => {
     expect(indicator).toHaveTextContent(arMessages.header.exit);
   });
 
+  it("lists only the academy's own pages for a Super Admin inside an academy", async () => {
+    // The real entered session: the platform set merged with everything the owner can do.
+    renderShell("SUPER_ADMIN", {
+      academyId: "academy-1",
+      permissions: [
+        "academy.read",
+        "academy.enter",
+        "platform.manage",
+        "user.read_platform",
+        "automation.manage",
+        "staff_department.manage",
+        "audit.read",
+        "student.read",
+        "invoice.read",
+        "specialization.manage",
+      ],
+    });
+    await ready();
+
+    const keys = navKeys();
+    expect(keys).toEqual(expect.arrayContaining(["dashboard", "students", "invoices", "settings"]));
+    for (const platformKey of [
+      "adminHome",
+      "clients",
+      "users",
+      "staffDepartments",
+      "adminAutomation",
+      "adminVideo",
+      "adminLms",
+      "demoRequests",
+      "adminFinance",
+      "platformSettings",
+      "roles",
+    ]) {
+      expect(keys).not.toContain(platformKey);
+    }
+  });
+
   it("hides the entered-academy indicator on the platform view", async () => {
     renderShell("SUPER_ADMIN", { academyId: null });
     await ready();

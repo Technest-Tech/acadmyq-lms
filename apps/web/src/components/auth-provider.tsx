@@ -17,6 +17,7 @@ import {
   SESSION_EXPIRED_EVENT,
   type Session,
 } from "@/lib/api";
+import { rememberWorkspace } from "@/lib/branding";
 import { setLatinDigits } from "@/lib/numerals";
 
 interface AuthValue {
@@ -115,10 +116,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setSession((prev) => (prev ? { ...prev, locale } : prev));
   }, []);
 
+  // Leaving an academy is a context switch, not a re-read: re-reading the session left the admin on
+  // the academy page they were on (/students, /invoices…), now rendered for the platform — its
+  // requests refused, its numbers stale, the academy's look still on the page. A full load onto the
+  // client they came from starts the platform clean. The platform wears the modern look, so it is
+  // remembered first and the page does not flash the academy's palette on the way.
+  const academyId = session?.academyId ?? null;
   const exitAcademy = useCallback(async () => {
     await apiExitAcademy();
-    await refresh();
-  }, [refresh]);
+    rememberWorkspace("modern");
+    window.location.assign(academyId !== null ? `/admin/clients/${academyId}` : "/admin");
+  }, [academyId]);
 
   return (
     <AuthContext.Provider

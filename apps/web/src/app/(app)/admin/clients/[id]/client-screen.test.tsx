@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NextIntlClientProvider } from "next-intl";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -41,6 +41,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   whatsappStatus: vi.fn(),
   suspendAcademy: vi.fn(),
   reactivateAcademy: vi.fn(),
+  enterAcademy: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -295,5 +296,28 @@ describe("ClientScreen", () => {
     );
     expect(await screen.findByTestId("client-reactivate")).toBeInTheDocument();
     expect(screen.getByTestId("issue-suspended")).toBeInTheDocument();
+  });
+
+  // Entering opens the client's own home — a course platform's is /lms, not the school dashboard.
+  it.each([
+    ["MANAGEMENT", "/dashboard"],
+    ["LMS", "/lms"],
+  ] as const)("enters a %s client on %s", async (clientType, home) => {
+    const user = userEvent.setup();
+    const base = detail();
+    vi.mocked(api.getClient).mockResolvedValue({
+      ...base,
+      client: { ...base.client, client_type: clientType },
+    });
+    vi.mocked(api.enterAcademy).mockResolvedValue({ enteredAcademyId: "c1" });
+    render(wrap(["academy.read", "academy.enter"]));
+    await heading();
+
+    await user.click(screen.getByRole("button", { name: "Enter academy" }));
+    const dialog = await screen.findByRole("dialog");
+    await user.click(within(dialog).getByRole("button", { name: "Enter academy" }));
+
+    await waitFor(() => expect(nav.push).toHaveBeenCalledWith(home));
+    expect(api.enterAcademy).toHaveBeenCalledWith("c1");
   });
 });

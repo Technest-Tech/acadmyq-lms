@@ -153,7 +153,11 @@ export function ClientScreen({ clientId }: { clientId: string }) {
     try {
       await enterAcademy(clientId);
       await refreshSession();
-      router.push("/dashboard");
+      // Straight to the client's own home: a course platform's is /lms, and /dashboard would first
+      // load the school dashboard there (its invoice and payroll calls all refused) before the
+      // shell bounced it on.
+      const type = data?.client.client_type;
+      router.push(type === "LMS" ? "/lms" : type === "VIDEO" ? "/video-classroom" : "/dashboard");
       return true;
     } catch (e) {
       setBusy(false);

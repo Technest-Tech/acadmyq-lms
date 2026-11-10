@@ -9133,6 +9133,8 @@
       "enrollmentsHint": "{total} all time",
       "codes": "Active codes",
       "codesHint": "{redeemed} redeemed",
+      "books": "Books & files",
+      "booksHint": "{published} published · {owners} buyers",
       "certificates": "Certificates issued",
       "storage": "Media storage",
       "storageUncapped": "Uncapped on your plan",

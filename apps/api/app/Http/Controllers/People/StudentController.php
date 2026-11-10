@@ -17,6 +17,7 @@ use App\Services\SessionGenerator;
 use App\Services\StudentLevels;
 use App\Services\StudentMonth;
 use App\Support\Audit;
+use App\Support\CurrentSubscription;
 use App\Support\DataTable;
 use App\Support\DoneBy;
 use App\Support\Entitlement;
@@ -978,13 +979,12 @@ final class StudentController extends Controller
      */
     private function baseListQuery(): Builder
     {
-        return DB::table('students as s')
-            ->leftJoin('guardians as g', 'g.id', '=', 's.guardian_id')
-            ->leftJoin('subscriptions as sub', function ($j): void {
-                $j->on('sub.student_id', '=', 's.id')
-                    ->whereNull('sub.deleted_at')
-                    ->where('sub.status', '=', 'ACTIVE');
-            })
+        $query = DB::table('students as s')
+            ->leftJoin('guardians as g', 'g.id', '=', 's.guardian_id');
+        // One row per student, even one holding two ACTIVE subscriptions (CurrentSubscription).
+        CurrentSubscription::join($query);
+
+        return $query
             ->leftJoinSub(StudentTeachers::summary(), 'sta', 'sta.student_id', '=', 's.id')
             // The centre's level / grade — null, with no rows, for an academy that keeps none.
             ->leftJoin('academy_levels as lv', 'lv.id', '=', 's.level_id')

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -133,4 +135,41 @@ it('ignores an unknown filter key', function () {
     makeStudent('Safe', $this->teacher1, 10000);
 
     $this->getJson('/api/students?filter[evil]=1')->assertOk()->assertJsonPath('total', 1);
+});
+
+// A student is meant to hold one ACTIVE subscription, but older package setups left some with two
+// (the monthly one + an "Hours package" one). Every list must still show them ONCE, with the newest
+// subscription — the one their profile shows — not once per subscription.
+it('lists a student holding two ACTIVE subscriptions once, with the newest one', function () {
+    Sanctum::actingAs($this->owner);
+    $sid = makeStudent('Twice Subscribed', $this->teacher1, 10000);
+    makeStudent('Single', $this->teacher1, 10000);
+
+    $this->asAcademy($this->academy);
+    DB::table('subscriptions')->where('student_id', $sid)->update(['created_at' => now()->subMonths(2)]);
+    DB::table('subscriptions')->insert([
+        'id' => (string) Str::uuid(),
+        'academy_id' => $this->academy,
+        'student_id' => $sid,
+        'plan_label' => 'Hours package',
+        'price_minor' => 20000,
+        'currency' => 'EGP',
+        'price_basis' => 'PER_PACKAGE',
+        'status' => 'ACTIVE',
+        'start_date' => '2026-09-01',
+        'created_at' => now(),
+        'updated_at' => now(),
+    ]);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->getJson('/api/students')->assertOk();
+    $rows = collect($res->json('rows'))->where('id', $sid)->values();
+    expect($rows)->toHaveCount(1)
+        ->and($rows[0]['plan_label'])->toBe('Hours package')
+        ->and($res->json('total'))->toBe(2);
+
+    $children = collect($this->getJson("/api/guardians/{$this->guardian}")->assertOk()->json('children'))
+        ->where('id', $sid);
+    expect($children)->toHaveCount(1);
 });

@@ -12,6 +12,7 @@ use App\Services\FamilyCharges;
 use App\Services\SessionGenerator;
 use App\Support\AcademySettings;
 use App\Support\Audit;
+use App\Support\CurrentSubscription;
 use App\Support\DataTable;
 use App\Support\DoneBy;
 use App\Support\Entitlement;
@@ -170,12 +171,10 @@ final class GuardianController extends Controller
 
         $seesPricing = Gate::allows('student.set_price');
 
-        $children = DB::table('students as s')
-            ->leftJoin('subscriptions as sub', function ($j): void {
-                $j->on('sub.student_id', '=', 's.id')
-                    ->whereNull('sub.deleted_at')
-                    ->where('sub.status', '=', 'ACTIVE');
-            })
+        $children = DB::table('students as s');
+        // One row per child, even one holding two ACTIVE subscriptions (CurrentSubscription).
+        CurrentSubscription::join($children);
+        $children = $children
             // Pre-aggregated, so a child with two teachers is still one child.
             ->leftJoinSub(StudentTeachers::summary(), 'sta', 'sta.student_id', '=', 's.id')
             ->where('s.guardian_id', $id)

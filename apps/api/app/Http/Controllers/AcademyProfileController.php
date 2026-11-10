@@ -34,7 +34,17 @@ final class AcademyProfileController extends Controller
             abort(403, 'This action is unauthorized.');
         }
 
+        // Always by id, never "the one row RLS lets me see": academies_select also admits a Super
+        // Admin to EVERY academy, so an unfiltered first() inside an entered academy answered with
+        // whichever academy came first — another client's name, timezone and currency on this
+        // academy's Settings, written back over this academy on the next save.
+        $academyId = app(AuthContext::class)->academyId;
+        if ($academyId === null) {
+            abort(404, 'Academy not found.');
+        }
+
         $row = DB::table('academies')
+            ->where('id', $academyId)
             ->select(['id', 'name', 'timezone', 'default_currency', 'country', 'invoice_grouping', 'billing_day', 'level_label', 'online_lessons', 'levels_enabled'])
             ->first();
 
@@ -87,7 +97,9 @@ final class AcademyProfileController extends Controller
             abort(403, 'Enter an academy to update its settings.');
         }
 
+        // By id (see show()): the fallback name/timezone below come from this row.
         $before = DB::table('academies')
+            ->where('id', $ctx->academyId)
             ->select(['name', 'timezone', 'country', 'default_currency', 'level_label', 'online_lessons', 'levels_enabled'])
             ->first();
 

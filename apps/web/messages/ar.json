@@ -9133,6 +9133,8 @@
       "enrollmentsHint": "{total} إجمالاً",
       "codes": "الأكواد النشطة",
       "codesHint": "{redeemed} مستخدم",
+      "books": "الكتب والملفات",
+      "booksHint": "{published} منشور · {owners} مشترٍ",
       "certificates": "الشهادات الصادرة",
       "storage": "مساحة الوسائط",
       "storageUncapped": "غير محدودة في خطتك",

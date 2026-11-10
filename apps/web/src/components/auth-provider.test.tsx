@@ -1,4 +1,5 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextIntlClientProvider } from "next-intl";
 import arMessages from "../../messages/ar.json";
@@ -14,9 +15,10 @@ vi.mock("next/navigation", () => ({
 }));
 
 const getMe = vi.fn();
+const exitAcademy = vi.fn();
 vi.mock("@/lib/api", async () => {
   const actual = await vi.importActual<typeof import("@/lib/api")>("@/lib/api");
-  return { ...actual, getMe: () => getMe() };
+  return { ...actual, getMe: () => getMe(), exitAcademy: () => exitAcademy() };
 });
 
 /** Mirrors the real tree: root layout supplies ThemeProvider, (app)/layout the auth + shell. */
@@ -102,5 +104,34 @@ describe("AuthProvider route protection (AC-2.13)", () => {
     vi.unstubAllGlobals();
 
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/login"));
+  });
+});
+
+describe("AuthProvider — leaving an entered academy", () => {
+  it("returns to the client's page with a full load, not the academy page it was on", async () => {
+    const assign = vi.fn();
+    const original = window.location;
+    Object.defineProperty(window, "location", { configurable: true, value: { ...original, assign } });
+    try {
+      getMe.mockResolvedValue({
+        user: { id: "u1", fullName: "Platform Admin", email: "a@x.test" },
+        role: "SUPER_ADMIN",
+        academyId: "acad-7",
+        permissions: ["academy.read", "academy.enter", "student.read"],
+        locale: "ar",
+        capabilities: [],
+        academy: { name: "Al-Furqan", displayName: "Al-Furqan", logoUrl: null },
+      });
+      exitAcademy.mockResolvedValue({ ok: true });
+
+      renderApp();
+      const banner = await screen.findByTestId("entered-academy");
+      await userEvent.click(within(banner).getByRole("button"));
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/admin/clients/acad-7"));
+      expect(exitAcademy).toHaveBeenCalledTimes(1);
+    } finally {
+      Object.defineProperty(window, "location", { configurable: true, value: original });
+    }
   });
 });

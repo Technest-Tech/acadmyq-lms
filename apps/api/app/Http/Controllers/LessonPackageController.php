@@ -15,6 +15,7 @@ use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
+use App\Support\CurrentSubscription;
 use App\Support\Entitlement;
 use App\Support\PackagePurpose;
 use App\Support\StudentTeachers;
@@ -258,12 +259,10 @@ final class LessonPackageController extends Controller
     {
         Gate::authorize('package.read');
 
-        $rows = DB::table('students as s')
-            ->leftJoin('subscriptions as sub', function ($join): void {
-                $join->on('sub.student_id', '=', 's.id')
-                    ->where('sub.status', '=', 'ACTIVE')
-                    ->whereNull('sub.deleted_at');
-            })
+        $rows = DB::table('students as s');
+        // One row per student, even one holding two ACTIVE subscriptions (CurrentSubscription).
+        CurrentSubscription::join($rows);
+        $rows = $rows
             // The untied open block only: with blocks per subject a student may hold several, and
             // they are listed under `open_subjects` instead of multiplying the row.
             ->leftJoin('lesson_packages as p', function ($join): void {
