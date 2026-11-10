@@ -998,17 +998,16 @@ function formatDate(date: string, locale: string): string {
 
 /**
  * "15 upcoming" next to "9 left" read as 15 left (EnglishSpirit, 2026-11-10): the timetable runs on
- * past the block's end. On a running block the lessons past its balance are named apart.
+ * past the block's end. A running block counts only the upcoming lessons it still covers; the ones
+ * past its end are not shown at all (every academy).
  */
 export function upcomingHint(
   row: Pick<LessonPackageRow, "status" | "upcoming_lesson_count" | "upcoming_in_package_count">,
   t: (key: string, values?: Record<string, string | number>) => string,
 ): string | undefined {
-  const upcoming = row.upcoming_lesson_count;
-  if (upcoming <= 0) return undefined;
-  const covered = row.upcoming_in_package_count;
-  if (row.status !== "ACTIVE" || covered === undefined || covered >= upcoming) {
-    return t("card.upcomingCount", { count: upcoming });
-  }
-  return t("card.upcomingSplit", { inPackage: covered, after: upcoming - covered });
+  const count =
+    row.status === "ACTIVE" && row.upcoming_in_package_count !== undefined
+      ? Math.min(row.upcoming_in_package_count, row.upcoming_lesson_count)
+      : row.upcoming_lesson_count;
+  return count > 0 ? t("card.upcomingCount", { count }) : undefined;
 }

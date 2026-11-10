@@ -473,7 +473,7 @@ function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: 
         </div>
         <div className="truncate">
           {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
-          {row.upcoming_lesson_count > 0 && ` · ${upcomingHint(row, t)}`}
+          {upcomingHint(row, t) && ` · ${upcomingHint(row, t)}`}
         </div>
         <div className="flex min-w-0 items-center gap-1">
           <CalendarClock className="size-3 shrink-0" aria-hidden />
