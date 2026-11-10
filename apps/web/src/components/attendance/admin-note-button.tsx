@@ -45,8 +45,11 @@ export function AdminNoteButton({
     }
   }
 
+  // The rows it sits on open their lesson on any click — and a modal's clicks bubble through the
+  // React tree to them even from its portal (lingo, 2026-11-10: typing a note opened the lesson).
+  // Nothing inside this control may reach the row.
   return (
-    <>
+    <span className="contents" onClick={(e) => e.stopPropagation()} data-testid={`${testId}-scope`}>
       <Button
         type="button"
         size={size}
@@ -98,6 +101,6 @@ export function AdminNoteButton({
         />
         {error && <AlertBanner variant="error" message={error} />}
       </Modal>
-    </>
+    </span>
   );
 }

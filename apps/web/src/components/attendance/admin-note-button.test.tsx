@@ -27,6 +27,24 @@ describe("AdminNoteButton — the office's note on a lesson (lingo)", () => {
     expect(onSave).toHaveBeenCalledWith("Came late");
   });
 
+  it("never lets a click inside the note reach the row it sits on (the row opens the lesson)", async () => {
+    const onRow = vi.fn();
+    const onSave = vi.fn(async () => {});
+    render(
+      <NextIntlClientProvider locale="en" messages={enMessages}>
+        <div onClick={onRow}>
+          <AdminNoteButton note={null} onSave={onSave} />
+        </div>
+      </NextIntlClientProvider>,
+    );
+    await userEvent.click(screen.getByTestId("admin-note"));
+    await userEvent.click(screen.getByTestId("admin-note-text"));
+    await userEvent.type(screen.getByTestId("admin-note-text"), "Late");
+    await userEvent.click(screen.getByTestId("admin-note-save"));
+    expect(onSave).toHaveBeenCalledWith("Late");
+    expect(onRow).not.toHaveBeenCalled();
+  });
+
   it("shows a saved note on the button and can remove it", async () => {
     const onSave = renderButton("Mother called");
     expect(screen.getByTestId("admin-note")).toHaveTextContent("Mother called");
