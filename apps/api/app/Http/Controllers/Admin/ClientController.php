@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Services\ClientPurge;
 use App\Services\FinanceLedger;
 use App\Services\ModuleBilling;
+use App\Services\ProfileSwitch;
 use App\Support\AcademyProfile;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -302,6 +303,29 @@ final class ClientController extends Controller
         });
 
         return response()->json(['subscription' => $sub]);
+    }
+
+    /**
+     * PUT /admin/clients/{id}/profile — move the client onto the other type (Quran academy ↔ centre),
+     * with its preset ({@see ProfileSwitch}). `dry_run` answers what would change and whether the
+     * move is blocked, and changes nothing; the panel shows that before the admin confirms.
+     */
+    public function updateProfile(Request $request, string $id, ProfileSwitch $switch): JsonResponse
+    {
+        Gate::authorize('academy_billing.manage');
+        $this->assertAcademyExists($id);
+
+        $data = $request->validate([
+            'profile' => ['required', 'string', Rule::in(AcademyProfile::ALL)],
+            'dry_run' => ['sometimes', 'boolean'],
+        ]);
+        $ctx = app(AuthContext::class);
+
+        $plan = $this->inAcademyContext($id, fn () => $request->boolean('dry_run')
+            ? $switch->preview($id, $data['profile'])
+            : $switch->apply($id, $data['profile'], $ctx->userId));
+
+        return response()->json($plan);
     }
 
     /**

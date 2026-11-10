@@ -760,6 +760,29 @@ export function deleteClient(
   });
 }
 
+/** What moving a client onto the other type does to its switches (PUT /admin/clients/{id}/profile). */
+export interface ClientProfileChange {
+  from: "QURAN" | "CENTRE";
+  to: "QURAN" | "CENTRE";
+  turned_on: string[];
+  turned_off: string[];
+  /** Live money the move would strand: active hour packages, or open centre subscriptions. */
+  blocker: { code: "open_packages" | "open_subscriptions"; count: number } | null;
+  has_management: boolean;
+}
+
+/** Change a client's type (Quran academy ↔ centre) with its preset; `dryRun` only previews it. */
+export function updateClientProfile(
+  id: string,
+  profile: "QURAN" | "CENTRE",
+  dryRun = false,
+): Promise<ClientProfileChange> {
+  return apiFetch(`/api/admin/clients/${id}/profile`, {
+    method: "PUT",
+    body: JSON.stringify({ profile, dry_run: dryRun }),
+  });
+}
+
 /**
  * Provision a WHATSAPP-ONLY external client (R4, M-CLI-2): a lightweight client with NO owner
  * login — connected by QR from its client page and served over the external API.

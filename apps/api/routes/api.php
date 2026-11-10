@@ -528,6 +528,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/admin/clients', [ClientController::class, 'store']); // WhatsApp-only external client (M-CLI-2)
     Route::get('/admin/clients/{id}', [ClientController::class, 'show']);
     Route::delete('/admin/clients/{id}', [ClientController::class, 'destroy']); // permanent wipe — name-confirmed
+    Route::put('/admin/clients/{id}/profile', [ClientController::class, 'updateProfile']); // Quran academy ↔ centre (+ preset)
     Route::post('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'enableModule']);
     Route::put('/admin/clients/{id}/modules/{module}/subscription', [ClientController::class, 'updateModule']);
     Route::put('/admin/clients/{id}/modules/{module}/features', [ClientController::class, 'updateModuleFeatures']);

@@ -825,7 +825,27 @@
       "settings": {
         "generalHint": "The client's name, brand and platform address.",
         "brandNameHint": "Shown on the client's sign-in page and course site instead of the name.",
-        "dangerTitle": "Danger zone"
+        "dangerTitle": "Danger zone",
+        "profile": {
+          "title": "Academy type",
+          "hint": "Sets how the workspace looks (menu and home) and the features it starts with.",
+          "current": "Current",
+          "QURAN": "Quran academy",
+          "CENTRE": "Centre",
+          "QURANDesc": "Private lessons, hour packages, supervision and the memorisation report.",
+          "CENTREDesc": "Groups, lesson subscriptions and numbered receipts.",
+          "change": "Switch to {type}",
+          "modalTitle": "Switch {name} to {type}?",
+          "loading": "Working out what changes…",
+          "turnedOn": "Will be switched on",
+          "turnedOff": "Will be switched off",
+          "nothing": "No feature changes — only the type.",
+          "keepsData": "Nothing is deleted: students, lessons and bills stay as they are. You can switch back any time, and adjust any feature afterwards on the Features tab.",
+          "blocked_open_packages": "Can't switch yet: the academy has {count} active hour packages. They must be moved onto centre subscriptions first (on the server).",
+          "blocked_open_subscriptions": "Can't switch yet: the academy has {count} open centre subscriptions. Close them first.",
+          "confirm": "Switch",
+          "done": "{name} is now a {type}"
+        }
       },
       "moduleHint": {
         "MANAGEMENT": "Students, lessons, invoices, payroll and reports",

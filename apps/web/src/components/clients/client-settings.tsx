@@ -1,9 +1,17 @@
 "use client";
 
-import { Building2, ImageIcon, Trash2, Upload } from "lucide-react";
+import {
+  ArrowLeftRight,
+  Building2,
+  Check,
+  ImageIcon,
+  School,
+  Trash2,
+  Upload,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { AcademyOwnerSection } from "@/components/academies/academy-owner-section";
 import { Field, fieldClass } from "@/components/admin/field";
 import {
@@ -19,10 +27,13 @@ import {
   deleteAcademyLogo,
   deleteClient,
   updateAcademy,
+  updateClientProfile,
   uploadAcademyLogo,
   type ClientDetail,
+  type ClientProfileChange,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useFeatureLabels } from "./feature-labels";
 import {
   RESERVED_SUBDOMAINS,
   SUBDOMAIN_RE,
@@ -52,6 +63,13 @@ export function ClientSettingsTab({
         </div>
         <AcademyOwnerSection academyId={client.id} />
       </div>
+      {client.client_type === "MANAGEMENT" && (
+        <ClientProfileCard
+          client={client}
+          profile={data.profile ?? "QURAN"}
+          onSaved={onSaved}
+        />
+      )}
       {/* The domains moved to the Connections tab, with WhatsApp and the payment gateway. */}
       <DeleteClientCard client={client} />
     </div>
@@ -323,6 +341,233 @@ function LogoField({
           className={cn(fieldClass, "font-mono text-xs")}
         />
       </Field>
+    </div>
+  );
+}
+
+type Profile = "QURAN" | "CENTRE";
+const PROFILES: Profile[] = ["QURAN", "CENTRE"];
+
+/**
+ * The client's type — a Quran academy or a centre — and the way to switch it after creation. The
+ * switch previews first (what turns on, what turns off, and whether live money blocks it: active
+ * hour packages onto a centre, open centre subscriptions back to Quran), then moves on confirm.
+ */
+export function ClientProfileCard({
+  client,
+  profile,
+  onSaved,
+}: {
+  client: ClientRecord;
+  profile: Profile;
+  onSaved: () => void;
+}) {
+  const t = useTranslations("clients.detail.settings.profile");
+  const { can } = useAuth();
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
+
+  if (!can("academy_billing.manage")) return null;
+
+  const target: Profile = profile === "CENTRE" ? "QURAN" : "CENTRE";
+
+  return (
+    <>
+      <SectionCard
+        icon={School}
+        title={t("title")}
+        description={t("hint")}
+        action={
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setOpen(true)}
+            data-testid="client-profile-open"
+          >
+            <ArrowLeftRight className="size-4" aria-hidden />
+            {t("change", { type: t(target) })}
+          </Button>
+        }
+        testId="client-profile-card"
+      >
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {PROFILES.map((p) => (
+            <div
+              key={p}
+              className={cn(
+                "rounded-xl border p-4",
+                p === profile
+                  ? "border-primary bg-primary/5"
+                  : "text-muted-foreground border-dashed",
+              )}
+              data-testid={`client-profile-${p}`}
+              data-current={p === profile ? "true" : undefined}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-foreground text-sm font-semibold">
+                  {t(p)}
+                </span>
+                {p === profile && (
+                  <span className="bg-primary text-primary-foreground inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium">
+                    <Check className="size-3" aria-hidden />
+                    {t("current")}
+                  </span>
+                )}
+              </div>
+              <p className="mt-1 text-xs leading-relaxed">{t(`${p}Desc`)}</p>
+            </div>
+          ))}
+        </div>
+      </SectionCard>
+      <Modal
+        open={open}
+        onClose={close}
+        title={t("modalTitle", { name: client.name, type: t(target) })}
+        size="md"
+      >
+        {/* Mounted only while open, so every opening asks the server afresh. */}
+        {open && (
+          <ProfileSwitchForm
+            client={client}
+            target={target}
+            onCancel={close}
+            onDone={() => {
+              close();
+              onSaved();
+            }}
+          />
+        )}
+      </Modal>
+    </>
+  );
+}
+
+function ProfileSwitchForm({
+  client,
+  target,
+  onCancel,
+  onDone,
+}: {
+  client: ClientRecord;
+  target: Profile;
+  onCancel: () => void;
+  onDone: () => void;
+}) {
+  const t = useTranslations("clients.detail.settings.profile");
+  const ts = useTranslations("clients");
+  const labels = useFeatureLabels();
+  const toast = useToast();
+  const [plan, setPlan] = useState<ClientProfileChange | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    updateClientProfile(client.id, target, true)
+      .then((p) => live && setPlan(p))
+      .catch((e) => {
+        if (!live) return;
+        toast.error(e instanceof ApiError ? e.message : String(e));
+        onCancel();
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- one preview per opening
+  }, [client.id, target]);
+
+  const confirm = async () => {
+    if (busy || plan === null || plan.blocker !== null) return;
+    setBusy(true);
+    try {
+      await updateClientProfile(client.id, target);
+      toast.success(t("done", { name: client.name, type: t(target) }));
+      onDone();
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  if (plan === null) {
+    return (
+      <p
+        className="text-muted-foreground py-6 text-center text-sm"
+        data-testid="client-profile-loading"
+      >
+        {t("loading")}
+      </p>
+    );
+  }
+
+  const chips = (keys: string[], tone: "on" | "off") => (
+    <div className="flex flex-wrap gap-1.5">
+      {keys.map((k) => (
+        <span
+          key={k}
+          className={cn(
+            "rounded-full px-2.5 py-1 text-xs font-medium",
+            tone === "on"
+              ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : "bg-muted text-muted-foreground line-through decoration-1",
+          )}
+        >
+          {labels.capability(k, k)}
+        </span>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="space-y-4" data-testid="client-profile-plan">
+      {plan.blocker !== null ? (
+        <p
+          className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm leading-relaxed text-red-800 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"
+          role="alert"
+          data-testid="client-profile-blocked"
+        >
+          {t(`blocked_${plan.blocker.code}`, { count: plan.blocker.count })}
+        </p>
+      ) : (
+        <>
+          {plan.turned_on.length === 0 && plan.turned_off.length === 0 ? (
+            <p className="text-sm">{t("nothing")}</p>
+          ) : (
+            <div className="space-y-3">
+              {plan.turned_on.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold">{t("turnedOn")}</p>
+                  {chips(plan.turned_on, "on")}
+                </div>
+              )}
+              {plan.turned_off.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-xs font-semibold">{t("turnedOff")}</p>
+                  {chips(plan.turned_off, "off")}
+                </div>
+              )}
+            </div>
+          )}
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            {t("keepsData")}
+          </p>
+        </>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>
+          {ts("subs.cancel")}
+        </Button>
+        <Button
+          size="sm"
+          disabled={busy || plan.blocker !== null}
+          onClick={() => void confirm()}
+          data-testid="client-profile-confirm"
+        >
+          {busy && (
+            <span className="size-3.5 animate-spin rounded-full border border-current border-t-transparent" />
+          )}
+          {t("confirm")}
+        </Button>
+      </div>
     </div>
   );
 }
