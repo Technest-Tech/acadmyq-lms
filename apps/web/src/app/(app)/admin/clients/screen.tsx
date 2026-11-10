@@ -89,14 +89,21 @@ function inSegment(row: Row, s: Segment): boolean {
   return row.client.status === s;
 }
 
+/** Words almost every client name starts with — they say nothing about which client it is. */
+const GENERIC_NAME_WORDS = new Set(["أكاديمية", "اكاديمية", "أكاديميه", "اكاديميه", "مركز", "سنتر", "academy", "center", "centre"]);
+
+/**
+ * The avatar letters. "أكاديمية التوبة" gives "ت", not "أأ"/"أت": the generic first word is skipped,
+ * and Arabic gets ONE letter because two Arabic letters side by side join into a word-like shape.
+ * A Latin name keeps two ("Luqman Academy" → "LA").
+ */
 function initials(name: string): string {
-  return name
-    .trim()
-    .split(/\s+/)
-    .slice(0, 2)
-    .map((word) => Array.from(word)[0] ?? "")
-    .join("")
-    .toUpperCase();
+  const all = name.trim().split(/\s+/).filter(Boolean);
+  const words = all.filter((w) => !GENERIC_NAME_WORDS.has(w.toLowerCase()));
+  const picked = words.length > 0 ? words : all;
+  const first = (w: string | undefined) => (w === undefined ? "" : (Array.from(w.replace(/^ال/, ""))[0] ?? ""));
+  if (/[؀-ۿ]/.test(picked[0] ?? "")) return first(picked[0]);
+  return (first(all[0]) + first(all[1])).toUpperCase();
 }
 
 export function ClientsScreen() {
@@ -343,10 +350,10 @@ export function ClientsScreen() {
         <table className="w-full text-sm lg:min-w-[880px]">
           <thead>
             <tr className={TR_HEAD}>
-              <Th>{tr("columns.client")}</Th>
+              <Th className="lg:w-[26%]">{tr("columns.client")}</Th>
               <Th className="hidden lg:table-cell">{tr("columns.modules")}</Th>
               <Th className="hidden sm:table-cell">{tr("columns.state")}</Th>
-              <Th>{tr("columns.revenue")}</Th>
+              <Th className="whitespace-nowrap">{tr("columns.revenue")}</Th>
               <Th className="hidden md:table-cell">{tr("columns.students")}</Th>
               <Th className="hidden w-10 sm:table-cell" />
             </tr>
@@ -392,8 +399,10 @@ export function ClientsScreen() {
                           {initials(c.name)}
                         </span>
                         <div className="min-w-0">
-                          <p className="truncate font-bold" dir="auto">
-                            {c.name}
+                          {/* <bdi>, not dir="auto" on the line: an English name keeps its own letter order
+                              but the line stays in the page's direction, so it lines up with the email. */}
+                          <p className="truncate font-bold">
+                            <bdi>{c.name}</bdi>
                           </p>
                           <p className="text-muted-foreground truncate text-xs">
                             {contact !== null ? <span dir="ltr">{contact}</span> : tr("noOwner")}
@@ -426,15 +435,25 @@ export function ClientsScreen() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3.5 font-bold tabular-nums">{revenueLabel(c)}</td>
+                    <td className="px-4 py-3.5 font-bold whitespace-nowrap tabular-nums">{revenueLabel(c)}</td>
                     <td className="hidden px-4 py-3.5 md:table-cell">
-                      <p className="font-bold tabular-nums">{formatNumber(c.student_count, locale)}</p>
-                      <p className="text-muted-foreground text-xs">
-                        {tr("teachers", { count: formatNumber(c.teacher_count, locale) })}
-                      </p>
-                      <p className="text-muted-foreground text-xs">
-                        {tr("lessons", { count: formatNumber(c.lessons_this_month ?? 0, locale) })}
-                      </p>
+                      {/* Three labelled numbers side by side — a bare "21" on its own read as nothing. */}
+                      <dl className="flex items-start gap-4" data-testid={`client-usage-${c.id}`}>
+                        {(
+                          [
+                            ["students", c.student_count],
+                            ["teachers", c.teacher_count],
+                            ["lessons", c.lessons_this_month ?? 0],
+                          ] as const
+                        ).map(([key, n]) => (
+                          <div key={key} className="flex min-w-[2.75rem] flex-col-reverse items-center text-center">
+                            <dt className="text-muted-foreground mt-0.5 text-[11px] leading-tight whitespace-nowrap">{tr(`usage.${key}`)}</dt>
+                            <dd className={cn("text-base leading-tight font-extrabold tabular-nums", n === 0 && "text-muted-foreground/60")}>
+                              {formatNumber(n, locale)}
+                            </dd>
+                          </div>
+                        ))}
+                      </dl>
                     </td>
                     <td className="hidden px-3 py-3.5 sm:table-cell">
                       <ChevronRight

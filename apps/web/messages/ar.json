@@ -928,7 +928,7 @@
         "modules": "الوحدات",
         "state": "الحالة",
         "revenue": "الإيراد",
-        "students": "الطلاب"
+        "students": "الاستخدام"
       },
       "clock": {
         "suspended": "موقوف",
@@ -948,10 +948,13 @@
         "neverLoggedIn": "لم يسجّل أحد الدخول بعد"
       },
       "trialTag": "تجربة",
-      "teachers": "{count} معلم",
       "shown": "{shown} من {total} عميل",
       "noOwner": "لا يوجد حساب مالك",
-      "lessons": "{count} حصة هذا الشهر"
+      "usage": {
+        "students": "طالب",
+        "teachers": "معلم",
+        "lessons": "حصة هذا الشهر"
+      }
     },
     "create": {
       "title": "عميل جديد",

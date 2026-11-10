@@ -928,7 +928,7 @@
         "modules": "Modules",
         "state": "State",
         "revenue": "Revenue",
-        "students": "Students"
+        "students": "Usage"
       },
       "clock": {
         "suspended": "Suspended",
@@ -948,10 +948,13 @@
         "neverLoggedIn": "Nobody has signed in yet"
       },
       "trialTag": "Trial",
-      "teachers": "{count} teachers",
       "shown": "{shown} of {total} clients",
       "noOwner": "No owner login",
-      "lessons": "{count} lessons this month"
+      "usage": {
+        "students": "students",
+        "teachers": "teachers",
+        "lessons": "lessons this month"
+      }
     },
     "create": {
       "title": "New client",
