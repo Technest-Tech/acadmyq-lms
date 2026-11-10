@@ -401,11 +401,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
                 ? t("card.noneScheduled")
                 : formatDateTime(row.next_lesson_at, timezone, locale)
             }
-            hint={
-              row.upcoming_lesson_count > 0
-                ? t("card.upcomingCount", { count: row.upcoming_lesson_count })
-                : undefined
-            }
+            hint={upcomingHint(row, t)}
           />
           <InfoRow
             icon={Receipt}
@@ -998,4 +994,21 @@ function formatDate(date: string, locale: string): string {
     numeralLocale(locale),
     { dateStyle: "medium", timeZone: "UTC" },
   ).format(new Date(`${date}T00:00:00Z`));
+}
+
+/**
+ * "15 upcoming" next to "9 left" read as 15 left (EnglishSpirit, 2026-11-10): the timetable runs on
+ * past the block's end. On a running block the lessons past its balance are named apart.
+ */
+export function upcomingHint(
+  row: Pick<LessonPackageRow, "status" | "upcoming_lesson_count" | "upcoming_in_package_count">,
+  t: (key: string, values?: Record<string, string | number>) => string,
+): string | undefined {
+  const upcoming = row.upcoming_lesson_count;
+  if (upcoming <= 0) return undefined;
+  const covered = row.upcoming_in_package_count;
+  if (row.status !== "ACTIVE" || covered === undefined || covered >= upcoming) {
+    return t("card.upcomingCount", { count: upcoming });
+  }
+  return t("card.upcomingSplit", { inPackage: covered, after: upcoming - covered });
 }

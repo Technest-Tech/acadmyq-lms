@@ -191,6 +191,27 @@ it('counts only its own subject\'s upcoming lessons on a block tied to a subject
         ->and(substr((string) $rows[$adel]['next_lesson_at'], 0, 10))->toBe('2026-06-21');
 });
 
+it('names the upcoming lessons past a block\'s balance apart (EnglishSpirit, 2026-11-10)', function () {
+    $student = ($this->packageStudent)('Doaa');
+    $block = ($this->open)($student, 3);
+    ($this->attend)($student, 60, '2026-06-02 10:00:00+00');
+
+    // 120 minutes left. A lesson never splits: one that starts with any balance lands on the block,
+    // so 90 + 90 are both covered (the second overdraws), the 60 after is past its end. A hidden
+    // lesson is not upcoming at all.
+    $this->asAcademy($this->academy);
+    foreach ([['2026-06-20 15:00:00+00', 90], ['2026-06-22 15:00:00+00', 90], ['2026-06-24 15:00:00+00', 60]] as [$at, $min]) {
+        $this->createSession($this->academy, $student, $this->teacher, ['scheduled_at_utc' => $at, 'duration_minutes' => $min, 'status' => 'SCHEDULED']);
+    }
+    $this->createSession($this->academy, $student, $this->teacher, ['scheduled_at_utc' => '2026-06-26 15:00:00+00', 'duration_minutes' => 60, 'status' => 'SCHEDULED', 'hidden_at' => now()]);
+
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson("/api/packages?student_id={$student}")->assertOk()->json('packages'))->firstWhere('id', $block);
+    expect($row['minutes_remaining'])->toBe(120)
+        ->and($row['upcoming_lesson_count'])->toBe(3)
+        ->and($row['upcoming_in_package_count'])->toBe(2);
+});
+
 // ─── "No hours" + editing a paid subscription (lingo, 2026-11-01) ─────────────
 
 function cplAccountsOff(string $academyId): void

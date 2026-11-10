@@ -3483,6 +3483,7 @@
       "nextLesson": "الحصة القادمة",
       "noneScheduled": "لا توجد حصة",
       "upcomingCount": "{count} قادمة",
+      "upcomingSplit": "{inPackage} قادمة في الباقة · {after} بعدها",
       "payment": "الدفع",
       "notBilledYet": "تُفوتر عند الانتهاء",
       "paid": "مدفوعة",

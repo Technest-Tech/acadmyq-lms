@@ -1037,7 +1037,7 @@ final class LessonPackageController extends Controller
             ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->leftJoin('teachers as st', 'st.id', '=', 'p.teacher_id')
             ->select([
-                'p.id', 'p.student_id', 'p.label', 'p.minutes_total', 'p.lesson_minutes', 'p.minutes_consumed',
+                'p.id', 'p.academy_id', 'p.student_id', 'p.label', 'p.minutes_total', 'p.lesson_minutes', 'p.minutes_consumed',
                 'p.carried_over_minutes', 'p.minutes_overdrawn', 'p.price_minor', 'p.currency',
                 'p.hourly_rate_minor', 'p.bill_timing', 'p.status', 'p.sequence_no',
                 'p.starts_on', 'p.expires_on', 'p.invoice_id', 'p.overdraft_invoice_id',
@@ -1069,9 +1069,30 @@ final class LessonPackageController extends Controller
                     ->selectRaw('count(*)')
                     ->whereColumn('upcoming.student_id', 'p.student_id')
                     ->whereIn('upcoming.status', ['SCHEDULED', 'RESCHEDULED'])
+                    ->whereNull('upcoming.hidden_at')
                     ->where('upcoming.scheduled_at_utc', '>=', now())
                     ->whereRaw(self::lessonOfSubject('upcoming')),
                 'upcoming_lesson_count',
+            )
+            // How many of those lessons this block's balance still covers. The timetable runs on
+            // past the block's end (EnglishSpirit read "15 upcoming" as 15 left on a 9-left block),
+            // so the card splits them. A lesson never splits: each one that starts with any balance
+            // left lands on this block, so count while the minutes BEFORE it are under the balance.
+            ->selectSub(
+                DB::query()
+                    ->fromSub(
+                        DB::table('sessions as covered')
+                            ->selectRaw('coalesce(sum(covered.duration_minutes) over (order by covered.scheduled_at_utc, covered.id rows between unbounded preceding and 1 preceding), 0) as minutes_before')
+                            ->whereColumn('covered.student_id', 'p.student_id')
+                            ->whereIn('covered.status', ['SCHEDULED', 'RESCHEDULED'])
+                            ->whereNull('covered.hidden_at')
+                            ->where('covered.scheduled_at_utc', '>=', now())
+                            ->whereRaw(self::lessonOfSubject('covered')),
+                        'cov',
+                    )
+                    ->selectRaw('count(*)')
+                    ->whereRaw('cov.minutes_before < greatest(0, p.minutes_total + p.carried_over_minutes - p.minutes_consumed)'),
+                'upcoming_in_package_count',
             )
             ->selectSub(
                 DB::table('sessions as next_session')
@@ -1367,6 +1388,14 @@ final class LessonPackageController extends Controller
             'minutes_overdrawn' => (int) $row->minutes_overdrawn,
             'lesson_count' => (int) $row->lesson_count,
             'upcoming_lesson_count' => (int) $row->upcoming_lesson_count,
+            // Of those, the ones this block still pays for — the rest fall to the next block (or bill
+            // by the hour when nothing renews). A block counted in lessons covers whole lessons.
+            'upcoming_in_package_count' => ! $isActive ? 0 : min(
+                (int) $row->upcoming_lesson_count,
+                LessonPackages::countsLessons((object) ['academy_id' => $row->academy_id, 'lesson_minutes' => $row->lesson_minutes])
+                    ? intdiv($remaining, max(1, (int) $row->lesson_minutes))
+                    : (int) ($row->upcoming_in_package_count ?? 0),
+            ),
             'next_lesson_at' => $row->next_lesson_at !== null ? Carbon::parse($row->next_lesson_at)->utc()->toIso8601String() : null,
             'percent_used' => $sold > 0 ? min(100, (int) round($consumed / $sold * 100)) : 0,
             'price_minor' => (int) $row->price_minor,

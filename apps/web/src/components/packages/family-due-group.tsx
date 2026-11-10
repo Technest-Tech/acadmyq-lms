@@ -17,7 +17,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { blockAmount, blockMinutes } from "@/components/packages/lesson-price-fields";
-import { nextTermsText, PackageActions, type PackageActionProps } from "@/components/packages/package-card";
+import { nextTermsText, PackageActions, type PackageActionProps, upcomingHint } from "@/components/packages/package-card";
 import { createFamilyPayLink, type LessonPackageRow, type PackagePurpose } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime } from "@/lib/time";
@@ -473,7 +473,7 @@ function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: 
         </div>
         <div className="truncate">
           {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
-          {row.upcoming_lesson_count > 0 && ` · ${t("card.upcomingCount", { count: row.upcoming_lesson_count })}`}
+          {row.upcoming_lesson_count > 0 && ` · ${upcomingHint(row, t)}`}
         </div>
         <div className="flex min-w-0 items-center gap-1">
           <CalendarClock className="size-3 shrink-0" aria-hidden />

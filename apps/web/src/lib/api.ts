@@ -8330,6 +8330,8 @@ export interface LessonPackageRow {
   lesson_count: number;
   /** Generated future lessons which have not reached an attendance outcome yet. */
   upcoming_lesson_count: number;
+  /** Of those, the ones this block's balance still covers (0 once finished); the rest fall past its end. */
+  upcoming_in_package_count?: number;
   next_lesson_at: string | null;
   percent_used: number;
   price_minor: number;
