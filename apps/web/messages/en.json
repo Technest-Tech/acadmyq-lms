@@ -2788,6 +2788,8 @@
       "logSubtitle": "Every session for {name}",
       "logRange": "6 months back → 3 months ahead",
       "totalLessons": "{count} lessons",
+      "packageLessons": "Package lessons ({count})",
+      "allLessons": "All lessons ({count})",
       "create": "Create timetable",
       "slotsPattern": "Weekly pattern",
       "noPattern": "No recurring slots",

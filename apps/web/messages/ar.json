@@ -2788,6 +2788,8 @@
       "logSubtitle": "كل حصص {name}",
       "logRange": "٦ أشهر سابقة → ٣ أشهر قادمة",
       "totalLessons": "{count} حصة",
+      "packageLessons": "حصص الباقة ({count})",
+      "allLessons": "كل الحصص ({count})",
       "create": "إنشاء الجدول",
       "slotsPattern": "النمط الأسبوعي",
       "noPattern": "لا مواعيد متكررة",
