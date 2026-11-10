@@ -762,14 +762,28 @@ describe("AppShell — the modern look for a Quran academy (`modern_look`)", () 
     expect(keys).toEqual(["dashboard", "attendance", "students", "schedule"]);
   });
 
+  it("wears the courses & curricula theme with `courses_art` alone: modern design, its own palette", async () => {
+    localStorage.removeItem("acq.workspace");
+    renderShell("ACADEMY_OWNER", { permissions, capabilities: ["invoicing", "packages", "courses_art"], academy });
+    await ready();
+
+    expect(document.documentElement.dataset.look).toBe("modern");
+    expect(document.documentElement.dataset.palette).toBe("courses");
+    expect(document.documentElement.dataset.profile).toBeUndefined();
+    expect(localStorage.getItem("acq.workspace")).toBe("courses");
+    expect(navKeys()).toContain("invoices");
+  });
+
   it("leaves every other Quran academy exactly as it was", async () => {
     document.documentElement.dataset.look = "modern";
+    document.documentElement.dataset.palette = "courses";
     localStorage.setItem("acq.workspace", "modern");
     renderShell("ACADEMY_OWNER", { permissions, capabilities: ["invoicing", "packages"], academy });
     await ready();
 
     expect(document.documentElement.dataset.look).toBeUndefined();
     expect(document.documentElement.dataset.profile).toBeUndefined();
+    expect(document.documentElement.dataset.palette).toBeUndefined();
     expect(document.documentElement.style.getPropertyValue("--primary")).toBe("#2f9e6f");
     expect(localStorage.getItem("acq.workspace")).toBeNull();
     expect(screen.queryByTestId("bottom-nav")).toBeNull();

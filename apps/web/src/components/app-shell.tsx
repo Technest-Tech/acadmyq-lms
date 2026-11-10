@@ -1036,8 +1036,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // The platform Super Admin's own panel (no academy entered) wears it too, in the navy and gold.
   // Entering an academy shows that academy as its owner sees it.
   const platformView = session?.role === "SUPER_ADMIN" && session.academyId === null;
-  const modernLook = centreShape || platformView || (capabilities?.includes("modern_look") ?? false);
-  const workspaceLook: WorkspaceLook = centreShape ? "centre" : modernLook ? "modern" : "classic";
+  // The courses & curricula theme (`courses_art`) is the modern design in its own colours, so it
+  // brings the modern design with it: one switch for the client.
+  const coursesTheme = !centreShape && !platformView && (capabilities?.includes("courses_art") ?? false);
+  const modernLook = centreShape || platformView || coursesTheme || (capabilities?.includes("modern_look") ?? false);
+  const workspaceLook: WorkspaceLook = centreShape ? "centre" : coursesTheme ? "courses" : modernLook ? "modern" : "classic";
   // The groups section's shape (GROUPS_SHAPE_*): a centre's always, a modern Quran academy's once it
   // teaches groups. Without groups a Quran academy's الجدول stays its calendar.
   const groupsShape = centreShape || (modernLook && (capabilities?.includes("groups") ?? false));

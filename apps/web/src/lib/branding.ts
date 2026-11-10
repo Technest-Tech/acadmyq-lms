@@ -52,9 +52,11 @@ export function applyBranding(branding: Branding): void {
 /**
  * Which workspace design <html> wears. CLASSIC is what every Quran academy always had; MODERN is the
  * new design in the Quran academy's own green and gold (`modern_look`, switched on per client); CENTRE
- * is the learning centre's violet version of the same design.
+ * is the learning centre's violet version of the same design; COURSES is the same design in the
+ * courses & curricula theme (`courses_art`: an English or curriculum academy that is not a centre,
+ * 2026-11-10 — ocean blue and coral, no Quran ornaments, `data-palette="courses"`).
  */
-export type WorkspaceLook = "classic" | "modern" | "centre";
+export type WorkspaceLook = "classic" | "modern" | "centre" | "courses";
 
 /**
  * Put the workspace's look on <html>. A classic academy gets exactly what it always got
@@ -69,12 +71,15 @@ export function applyWorkspaceTheme(look: WorkspaceLook): void {
   if (look === "classic") {
     delete root.dataset.profile;
     delete root.dataset.look;
+    delete root.dataset.palette;
     applyBranding(loadBranding());
     return;
   }
   root.dataset.look = "modern";
   if (look === "centre") root.dataset.profile = "centre";
   else delete root.dataset.profile;
+  if (look === "courses") root.dataset.palette = "courses";
+  else delete root.dataset.palette;
   root.style.removeProperty("--primary");
   root.style.removeProperty("--ring");
   root.style.removeProperty("--gold");
@@ -85,6 +90,7 @@ export function clearWorkspaceTheme(): void {
   if (typeof document === "undefined") return;
   delete document.documentElement.dataset.profile;
   delete document.documentElement.dataset.look;
+  delete document.documentElement.dataset.palette;
 }
 
 /** The last workspace this browser opened, so a reload paints in its look before /auth/me answers. */
@@ -102,7 +108,7 @@ export function rememberWorkspace(look: WorkspaceLook): void {
 export function rememberedLook(): WorkspaceLook {
   try {
     const saved = localStorage.getItem(WORKSPACE_KEY);
-    return saved === "centre" || saved === "modern" ? saved : "classic";
+    return saved === "centre" || saved === "modern" || saved === "courses" ? saved : "classic";
   } catch {
     return "classic";
   }
@@ -112,4 +118,4 @@ export function rememberedLook(): WorkspaceLook {
  * Runs in <body> ahead of the shell's HTML on a hard load, so the loading screen wears the workspace's
  * look from the first frame instead of flashing the classic one while the session is fetched.
  */
-export const WORKSPACE_INIT_SCRIPT = `try{var w=localStorage.getItem("${WORKSPACE_KEY}"),d=document.documentElement.dataset;if(w==="centre"||w==="modern"){d.look="modern";if(w==="centre")d.profile="centre"}}catch(e){}`;
+export const WORKSPACE_INIT_SCRIPT = `try{var w=localStorage.getItem("${WORKSPACE_KEY}"),d=document.documentElement.dataset;if(w==="centre"||w==="modern"||w==="courses"){d.look="modern";if(w==="centre")d.profile="centre";if(w==="courses")d.palette="courses"}}catch(e){}`;

@@ -45,7 +45,7 @@ final class FeatureCatalog
         'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
         'centre' => 'Centre mode — lesson subscriptions of its own (centre_subscriptions), groups first, any student on a manual lesson, salary blocks',
         'modern_look' => 'Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy\'s own colours',
-        'courses_art' => 'Courses & curricula picture — the modern dashboard\'s banner shows books and a course screen instead of the mushaf and mosque',
+        'courses_art' => 'Courses & curricula theme — the modern look in ocean blue and coral, no ornaments, and a books-and-course banner picture (switches the modern look on with it)',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
         'video.only' => 'Video-only workspace (the panel shows the video classroom only)',
         'lms' => 'LMS — online courses (course builder & learner site)',
@@ -216,8 +216,8 @@ final class FeatureCatalog
         // The new workspace design for an academy that is not a centre (a centre always has it): the
         // whole panel changes in front of the client's staff, so only for the clients we pick.
         'modern_look',
-        // The modern dashboard's banner for an academy that teaches courses and curricula, not the
-        // Quran (EnglishSpirit and the like, 2026-11-10): the picture only, nothing else changes.
+        // The courses & curricula theme for an academy that teaches courses and curricula, not the
+        // Quran (EnglishSpirit and the like, 2026-11-10): the modern look in its own colours and picture.
         'courses_art',
     ];
 

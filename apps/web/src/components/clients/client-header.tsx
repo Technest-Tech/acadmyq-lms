@@ -73,7 +73,9 @@ export function ClientHeader({
   // A centre always wears the modern look; a Quran academy only once it was switched on for it.
   const management = modules.find((m) => m.module === "MANAGEMENT" && m.status !== "ENDED");
   const modernLook =
-    profile === "CENTRE" || (management !== undefined && decodeOverrides(management.overrides).enabled.includes("modern_look"));
+    profile === "CENTRE" ||
+    (management !== undefined &&
+      ["modern_look", "courses_art"].some((k) => decodeOverrides(management.overrides).enabled.includes(k)));
   const phone = summary.owner?.phone ?? null;
   const waLink = phone ? `https://wa.me/${phone.replace(/[^0-9]/g, "")}` : null;
   const suspended = client.status === "SUSPENDED";

@@ -59,5 +59,10 @@ export function useCentreLook(): boolean {
  */
 export function useModernLook(): boolean {
   const session = useContext(AuthContext)?.session;
-  return session?.academy?.profile === "CENTRE" || (session?.capabilities?.includes("modern_look") ?? false);
+  // The courses & curricula theme (`courses_art`) is the modern design too, in its own colours.
+  return (
+    session?.academy?.profile === "CENTRE" ||
+    (session?.capabilities?.includes("modern_look") ?? false) ||
+    (session?.capabilities?.includes("courses_art") ?? false)
+  );
 }
