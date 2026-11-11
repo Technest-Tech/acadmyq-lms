@@ -2192,6 +2192,16 @@ export interface TeacherRow {
   /** The login that added this row (from the audit trail); null for imports and old rows. */
   added_by_user_id?: string | null;
   added_by_name?: string | null;
+  /** The levels this teacher takes, in the academy's order (none = not said). */
+  levels?: TeacherLevel[];
+}
+
+/** A level a teacher takes — one of the academy's levels list. */
+export interface TeacherLevel {
+  id: string;
+  name: string;
+  /** Switched off in Settings: still shown on the teacher, no longer offered. */
+  is_active: boolean;
 }
 
 export interface TeacherStudent {
@@ -2233,6 +2243,8 @@ export interface TeacherInput {
   payout_method?: PayoutMethod | null;
   payout_handle?: string | null;
   meeting_url?: string | null;
+  /** The WHOLE set of levels this teacher takes; [] clears it. */
+  level_ids?: string[];
   create_login?: boolean;
   email?: string | null;
   password?: string | null;
@@ -6019,13 +6031,24 @@ export function updateTrial(
 }
 
 /** Link a completed lead trial to the real student it became (POST /students happens first). */
+/** What an attended trial counts as once its student is enrolled. Both off = nowhere, as before. */
+export interface TrialLessonCount {
+  /** Comes off the student's package, or onto their bill, like any lesson. */
+  charge_student: boolean;
+  /** Goes on the teacher's statement at their rate. */
+  pay_teacher: boolean;
+  /** Shown beside the lesson (and on the bill line when charged). */
+  reason?: string;
+}
+
 export function convertTrial(
   id: string,
   studentId: string,
-): Promise<{ ok: boolean; studentId: string }> {
+  count?: TrialLessonCount,
+): Promise<{ ok: boolean; studentId: string; sessionId: string | null }> {
   return apiFetch(`/api/trials/${id}/convert`, {
     method: "POST",
-    body: JSON.stringify({ student_id: studentId }),
+    body: JSON.stringify({ student_id: studentId, ...(count ?? {}) }),
   });
 }
 
@@ -8603,6 +8626,31 @@ export function getLessonPackage(
   id: string,
 ): Promise<{ package: LessonPackageRow; credits: LessonPackageCredit[] }> {
   return apiFetch(`/api/packages/${id}`);
+}
+
+/**
+ * Where a lesson stands on its package: taken off it, unmarked since it started (it comes off when
+ * marked), or one of the upcoming lessons its balance still pays for. Null on `not_counted` rows.
+ */
+export type PackageLessonState = "COUNTED" | "UNMARKED" | "UPCOMING";
+
+export interface PackageLesson extends CalendarSession {
+  package_state: PackageLessonState | null;
+}
+
+/** GET /api/packages/{id}/lessons — one package's own lessons, exactly (the profile's lesson log). */
+export interface PackageLessonLog {
+  lessons: PackageLesson[];
+  /** Lessons in the package's time that it never counted (cancelled, holidays, taken off it). */
+  not_counted: PackageLesson[];
+  /** Lessons the balance still pays for that the timetable has not put on a date yet. */
+  unscheduled: number;
+  /** lessons + unscheduled: the block's size in lessons. */
+  lessons_total: number;
+}
+
+export function getPackageLessons(id: string): Promise<PackageLessonLog> {
+  return apiFetch(`/api/packages/${id}/lessons`);
 }
 
 /**

@@ -49,6 +49,7 @@ import {
   listMyPayouts,
   listStudents,
   listTeachers,
+  listTrials,
   type CalendarSession,
   type InvoiceSummary,
   type PendingSession,
@@ -60,6 +61,7 @@ import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { numeralLocale } from "@/lib/numerals";
 import { formatRelativeTime } from "@/lib/time";
+import { bookedTrialsAsLessons, mergeWeekTrials, type WeekTrial } from "@/lib/week-trials";
 
 /** The viewer's own calendar day (academy-dashboard.tsx `isoDate`: never `toISOString`). */
 function isoDate(d: Date): string {
@@ -136,6 +138,7 @@ export function ModernDashboard() {
   const [invoices, setInvoices] = useState<InvoiceSummary | null>(null);
   const [week, setWeek] = useState<CalendarSession[] | null>(null);
   const [trialIds, setTrialIds] = useState<Set<string>>(new Set());
+  const [bookedTrials, setBookedTrials] = useState<WeekTrial[]>([]);
   const [revenue, setRevenue] = useState<(ProfitSummary | null)[] | null>(null);
   const [earnings, setEarnings] = useState<{ amount: number; currency: string | null } | null>(null);
   const [followed, setFollowed] = useState<Record<string, FollowInfo>>({});
@@ -167,6 +170,12 @@ export function ModernDashboard() {
       can("student.read") && readsLessons
         ? listStudents({ filter: { trial_any: "1" }, pageSize: 200 }).then((r) => setTrialIds(new Set(r.rows.map((s) => s.id))))
         : Promise.resolve(),
+      // Trials booked on the Trials page are not lessons: the list needs them read on their own.
+      trialsOn
+        ? listTrials({ filter: { from, to }, pageSize: 100, sort: "scheduled" })
+            .then((r) => setBookedTrials(bookedTrialsAsLessons(r.rows)))
+            .catch(() => setBookedTrials([]))
+        : Promise.resolve(),
       can("payout.read") && !isTeacher
         ? Promise.all(months.map((m) => getProfitSummary(m.year, m.month).catch(() => null))).then(setRevenue)
         : Promise.resolve(),
@@ -180,7 +189,7 @@ export function ModernDashboard() {
         : Promise.resolve(),
     ]);
     setLoading(false);
-  }, [can, isTeacher, groupsOn, marksLessons, readsLessons]);
+  }, [can, isTeacher, groupsOn, marksLessons, readsLessons, trialsOn]);
 
   useEffect(() => {
     void load();
@@ -226,10 +235,15 @@ export function ModernDashboard() {
   const monthChange = previous > 0 ? Math.round(((latest - previous) / previous) * 100) : null;
   const hasRevenue = series.some((p) => p.value > 0);
 
-  // This week's trials: a trial is a one-off lesson; a trial learner's recurring lessons are lessons.
+  // This week's trials: a trial learner's one-off lesson (their recurring lessons are lessons), and
+  // every trial booked on the Trials page.
   const trialLessons = useMemo(
-    () => (week ?? []).filter((s) => trialIds.has(s.student_id) && s.schedule_id === null),
-    [week, trialIds],
+    () =>
+      mergeWeekTrials(
+        (week ?? []).filter((s) => trialIds.has(s.student_id) && s.schedule_id === null),
+        bookedTrials,
+      ),
+    [week, trialIds, bookedTrials],
   );
 
   // ── Up to four numbers, each only for someone who may read it ──

@@ -2636,7 +2636,8 @@
       "parentOpen": "Open family",
       "parentSiblings": "{count, plural, =0 {No siblings here} one {# sibling also enrolled} other {# siblings also enrolled}}",
       "parentCancel": "Cancel",
-      "noChanges": "No changes to save"
+      "noChanges": "No changes to save",
+      "tabLessons": "Lesson log"
     },
     "trial": {
       "title": "Schedule Trial Session",
@@ -2739,6 +2740,28 @@
       "planFree": "Free",
       "planFreeLessons": "Free · {shape}",
       "planHourly": "Hourly"
+    },
+    "lessonLog": {
+      "loading": "Loading lessons…",
+      "pick": "Package",
+      "package": "Package #{n}",
+      "open": "Open",
+      "finished": "Finished",
+      "total": "{count, plural, one {# lesson} other {# lessons}}",
+      "counted": "{count} counted",
+      "unmarkedCount": "{count} not marked",
+      "upcomingCount": "{count} upcoming",
+      "unscheduledCount": "{count} not scheduled",
+      "unmarked": "Not marked yet",
+      "upcoming": "Upcoming",
+      "unscheduled": "{count, plural, one {# lesson of the package has no date yet} other {# lessons of the package have no date yet}}",
+      "empty": "No lessons on this package yet.",
+      "notCounted": "Lessons in the package's time it did not count ({count})",
+      "notCountedHint": "Cancelled, a holiday, or taken off the package — none came off its balance.",
+      "monthHint": "This student is not on a package — these are their lessons month by month.",
+      "monthEmpty": "No lessons this month.",
+      "prevMonth": "Previous month",
+      "nextMonth": "Next month"
     }
   },
   "scheduling": {
@@ -7377,7 +7400,16 @@
       "title": "Convert to student",
       "description": "Create the student record from this prospect — they are enrolled, not left as a trial.",
       "intro": "We've prefilled the prospect's details. Add the guardian and any missing information to enroll them as a student.",
-      "linkFailed": "The student was created, but linking the trial failed. Check the students list before retrying."
+      "linkFailed": "The student was created, but linking the trial failed. Check the students list before retrying.",
+      "count": {
+        "title": "Does the trial lesson count?",
+        "lesson": "{when} · {minutes} min · with {teacher}",
+        "student": "Count it on the student?",
+        "studentHint": "Comes off their package or onto their bill, like any lesson.",
+        "teacher": "Pay the teacher for it?",
+        "teacherHint": "Goes on their pay statement at their usual rate.",
+        "reason": "Trial lesson"
+      }
     },
     "cancelModal": {
       "title": "Cancel trial",
@@ -7500,7 +7532,11 @@
       "phoneRequired": "Enter a WhatsApp number.",
       "studentRequired": "Choose the student.",
       "teacherRequired": "Choose a teacher.",
-      "slotRequired": "Pick a date and a time."
+      "slotRequired": "Pick a date and a time.",
+      "customDuration": "Other",
+      "customPlaceholder": "e.g. 20",
+      "customMinutes": "minutes",
+      "durationRequired": "Enter the lesson length in minutes (1 to 600)."
     },
     "reschedule": {
       "title": "Reschedule trial",
@@ -11183,6 +11219,11 @@
         "YEAR": "Year 7 — international schools"
       },
       "failed": "Could not save the choice."
+    },
+    "teacher": {
+      "label": "{word, select, GRADE {Grades they teach} YEAR {Years they teach} other {Levels they teach}}",
+      "hint": "{word, select, GRADE {Pick one or more — shown on the teachers list and when choosing a student's teacher.} YEAR {Pick one or more — shown on the teachers list and when choosing a student's teacher.} other {Pick one or more — shown on the teachers list and when choosing a student's teacher.}}",
+      "column": "{word, select, GRADE {Grades} YEAR {Years} other {Levels}}"
     }
   },
   "holidays": {

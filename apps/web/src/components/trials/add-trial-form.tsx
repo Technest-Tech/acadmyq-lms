@@ -18,6 +18,7 @@ import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
+import { TrialDurationPicker, isTrialDuration } from "./trial-duration-picker";
 
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
@@ -145,6 +146,7 @@ export function AddTrialForm({
     if (who === "student" && !studentId) return setError(t("add.studentRequired"));
     if (!teacherId) return setError(t("add.teacherRequired"));
     if (!date || !time) return setError(t("add.slotRequired"));
+    if (!isTrialDuration(duration)) return setError(t("add.durationRequired"));
 
     setBusy(true);
     setError(null);
@@ -302,27 +304,13 @@ export function AddTrialForm({
         </Field>
       </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">{t("add.duration")}</label>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {durations.map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDuration(d)}
-              aria-pressed={duration === d}
-              className={cn(
-                "rounded-xl border py-2 text-xs font-semibold transition-colors",
-                duration === d
-                  ? "border-primary bg-primary/10 text-primary ring-primary/20 ring-2"
-                  : "border-input text-muted-foreground hover:bg-muted/40",
-              )}
-            >
-              {t("table.minutes", { count: d })}
-            </button>
-          ))}
-        </div>
-      </div>
+      <TrialDurationPicker
+        value={duration}
+        onChange={setDuration}
+        options={durations}
+        label={t("add.duration")}
+        testIdPrefix="add-trial-duration"
+      />
 
       <div className="space-y-1.5">
         <label className="text-sm font-medium">{t("add.notes")}</label>

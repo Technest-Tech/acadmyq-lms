@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Trials;
 
+use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\AttendanceService;
 use App\Services\Enrolment\EnrolmentHandoff;
 use App\Support\Audit;
 use App\Support\DataTable;
@@ -18,6 +20,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -74,6 +77,13 @@ final class TrialController extends Controller
                     ? $q->where('tr.status', 'SCHEDULED')->where('tr.scheduled_at_utc', '>=', now()->format('Y-m-d H:i:sP'))
                     : null,
                 'decision' => fn ($q, $value) => (string) $value === 'needed' ? $this->needsDecision($q) : null,
+                // A window of the ACADEMY's days, inclusive (the dashboard's "this week's trials").
+                'from' => fn ($q, $value) => self::isDay($value)
+                    ? $q->where('tr.scheduled_at_utc', '>=', $this->academyDayStart((string) $value)->format('Y-m-d H:i:sP'))
+                    : null,
+                'to' => fn ($q, $value) => self::isDay($value)
+                    ? $q->where('tr.scheduled_at_utc', '<', $this->academyDayStart((string) $value)->addDay()->format('Y-m-d H:i:sP'))
+                    : null,
                 'added_by' => DoneBy::addedByFilter(),
             ],
             'defaultSort' => '-scheduled',
@@ -422,20 +432,46 @@ final class TrialController extends Controller
 
         $data = $request->validate([
             'student_id' => ['required', 'uuid'],
+            // What the trial lesson counts as now that the prospect is a student: on the student
+            // (their package or bill), for the teacher's pay, both, or neither — the default, and
+            // all a trial ever was before.
+            'charge_student' => ['sometimes', 'boolean'],
+            'pay_teacher' => ['sometimes', 'boolean'],
+            'reason' => ['sometimes', 'nullable', 'string', 'max:500'],
         ]);
         if (DB::table('students')->where('id', $data['student_id'])->whereNull('deleted_at')->doesntExist()) {
             throw ValidationException::withMessages(['student_id' => ['Unknown or inactive student.']]);
         }
 
-        DB::table('trials')->where('id', $id)->update([
-            'student_id' => $trial->student_id ?? $data['student_id'],
-            'converted_student_id' => $data['student_id'],
-            'status' => 'CONVERTED',
-            'updated_at' => now(),
-        ]);
-        Audit::log('trial.convert', 'trial', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
-            after: ['converted_student_id' => $data['student_id'], 'status' => 'CONVERTED'],
-            before: ['status' => $trial->status]);
+        // The same money call as marking a lesson free, so the same capability makes it: without
+        // it the trial converts as it always did, counted nowhere.
+        $mayBill = Gate::allows('session.bill_override');
+        $charge = $mayBill && (bool) ($data['charge_student'] ?? false);
+        $pay = $mayBill && (bool) ($data['pay_teacher'] ?? false);
+        if (($charge || $pay) && (string) $trial->status !== 'COMPLETED') {
+            throw ValidationException::withMessages(['trial' => ['Only a trial the student attended can count on the student or for the teacher. / لا تُحسب على الطالب أو للمعلم إلا حصة تجريبية حضرها الطالب.']]);
+        }
+
+        // One unit: a payout or bill refusing the lesson must not leave the trial converted.
+        $sessionId = DB::transaction(function () use ($trial, $id, $academyId, $data, $charge, $pay): ?string {
+            DB::table('trials')->where('id', $id)->update([
+                'student_id' => $trial->student_id ?? $data['student_id'],
+                'converted_student_id' => $data['student_id'],
+                'status' => 'CONVERTED',
+                'updated_at' => now(),
+            ]);
+
+            $sessionId = $charge || $pay
+                ? $this->recordTrialLesson($trial, (string) $data['student_id'], $charge, $pay, $data['reason'] ?? null)
+                : null;
+
+            Audit::log('trial.convert', 'trial', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['converted_student_id' => $data['student_id'], 'status' => 'CONVERTED']
+                    + ($sessionId !== null ? ['session_id' => $sessionId, 'charge_student' => $charge, 'pay_teacher' => $pay] : []),
+                before: ['status' => $trial->status]);
+
+            return $sessionId;
+        });
 
         // An enrolment request that booked this trial from the centre's inbox is ENROLLED now.
         app(EnrolmentHandoff::class)->trialConverted($id, (string) $data['student_id'], $this->ctx()->userId, $this->ctx()->role);
@@ -458,7 +494,56 @@ final class TrialController extends Controller
             }
         }
 
-        return response()->json(['ok' => true, 'studentId' => $data['student_id']]);
+        return response()->json(['ok' => true, 'studentId' => $data['student_id'], 'sessionId' => $sessionId]);
+    }
+
+    /**
+     * The trial, written into the new student's lessons so it can count: a one-off lesson at the
+     * trial's time, with its teacher and length, recorded FREE — the status a trial lesson has
+     * always had — with the academy's call on it, exactly as the free-lesson popup records one.
+     * Charged, it comes off the student's package or onto their bill like any lesson; paid, it
+     * goes on the teacher's statement at their rate.
+     */
+    private function recordTrialLesson(object $trial, string $studentId, bool $charge, bool $pay, ?string $reason): string
+    {
+        $sessionId = (string) Str::uuid();
+        $startUtc = Carbon::parse($trial->scheduled_at_utc)->utc();
+        DB::table('sessions')->insert([
+            'id' => $sessionId,
+            'academy_id' => $trial->academy_id,
+            'student_id' => $studentId,
+            'teacher_id' => $trial->teacher_id,
+            'schedule_id' => null, // one-off: never owned by a timetable, never touched by the generator
+            'slot_id' => null,
+            'occurrence_local_date' => null,
+            'scheduled_at_utc' => $startUtc->format('Y-m-d H:i:sP'),
+            'duration_minutes' => (int) $trial->duration_minutes,
+            'status' => 'SCHEDULED',
+        ]);
+        Audit::log('session.created', 'session', $sessionId, (string) $trial->academy_id, $this->ctx()->userId, $this->ctx()->role, after: [
+            'student_id' => $studentId,
+            'teacher_id' => $trial->teacher_id,
+            'scheduled_at_utc' => $startUtc->toIso8601String(),
+            'duration_minutes' => (int) $trial->duration_minutes,
+            'ad_hoc' => true,
+            'trial_id' => $trial->id,
+        ]);
+
+        $session = DB::table('sessions')->where('id', $sessionId)->first();
+        app(AttendanceService::class)->record($session, SessionStatus::Free, $reason !== null && trim($reason) !== '' ? trim($reason) : null, $this->ctx()->userId, $this->ctx()->role, $charge, $pay);
+
+        return $sessionId;
+    }
+
+    private static function isDay(mixed $value): bool
+    {
+        return is_string($value) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $value) === 1;
+    }
+
+    /** Midnight of an academy-local day (YYYY-MM-DD), as a UTC instant. */
+    private function academyDayStart(string $day): Carbon
+    {
+        return Carbon::parse($day, $this->academyTimezone($this->currentAcademyId()))->startOfDay()->utc();
     }
 
     /** DELETE /api/trials/{id} — cancel a trial (kept in the pipeline as CANCELLED, not removed). */

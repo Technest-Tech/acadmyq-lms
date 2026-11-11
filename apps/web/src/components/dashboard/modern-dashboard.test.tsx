@@ -38,6 +38,7 @@ const api = {
   getCalendar: vi.fn(),
   getProfitSummary: vi.fn(),
   listMyPayouts: vi.fn(),
+  listTrials: vi.fn(),
 };
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
@@ -51,6 +52,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     getCalendar: (q: unknown) => api.getCalendar(q),
     getProfitSummary: (y: number, m: number) => api.getProfitSummary(y, m),
     listMyPayouts: (q: unknown) => api.listMyPayouts(q),
+    listTrials: (q: unknown) => api.listTrials(q),
     getMySubscription: vi.fn(async () => ({ subscription: null })),
     getSessionsByDay: vi.fn(async () => ({ sessions: [] })),
   };
@@ -107,6 +109,7 @@ beforeEach(() => {
     rows: [{ currency: "EGP", revenue_minor: month * 100_000, payouts_minor: 0, profit_minor: 0 }],
   }));
   api.listMyPayouts.mockReset().mockResolvedValue({ rows: [] });
+  api.listTrials.mockReset().mockResolvedValue({ rows: [], total: 0 });
 });
 
 describe("DashboardHome — the modern look for a Quran academy", () => {
@@ -137,6 +140,27 @@ describe("DashboardHome — the modern look for a Quran academy", () => {
     expect(await within(trials).findByText("Huda (trial)")).toBeInTheDocument();
     expect(screen.getByTestId("week-ring")).toBeInTheDocument();
     expect(await screen.findByTestId("revenue-latest")).toBeInTheDocument();
+  });
+
+  it("lists the trials booked on the Trials page among this week's trials, not just trial lessons", async () => {
+    const booked = (id: string, name: string, status: string) => ({
+      id, teacher_id: "t1", teacher_name: "Ustadha Sara", student_id: null, student_name: null, lead_id: null,
+      crm_lead_name: null, crm_source: null, from_crm: false, lead_name: name, lead_whatsapp: null, lead_email: null,
+      display_name: name, is_lead: true, timezone: "Africa/Cairo", scheduled_at_utc: noon(1), duration_minutes: 30,
+      status, outcome_notes: null, converted_student_id: null, created_at: noon(-1), ends_at_utc: noon(1),
+      needs_decision: false, contact_whatsapp: null,
+    });
+    api.listTrials.mockResolvedValue({ rows: [booked("tr1", "Shaimaa", "SCHEDULED"), booked("tr2", "Gone", "CANCELLED")], total: 2 });
+    render(withAuth(owner(), <DashboardHome />));
+
+    const trials = await screen.findByTestId("trials-list");
+    expect(await within(trials).findByText("Shaimaa")).toBeInTheDocument();
+    expect(within(trials).getByText("Huda (trial)")).toBeInTheDocument();
+    // A cancelled booking is not one of the week's trials.
+    expect(within(trials).queryByText("Gone")).toBeNull();
+    // Read for the same week the calendar shows.
+    const [query] = api.listTrials.mock.calls[0] as [{ filter: { from: string; to: string } }];
+    expect(query.filter).toEqual(api.getCalendar.mock.calls[0]?.[0]);
   });
 
   it("leaves out what the classic dashboard carried and the owning screens already show", async () => {

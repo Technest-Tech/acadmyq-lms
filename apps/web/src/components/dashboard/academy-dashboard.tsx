@@ -49,6 +49,7 @@ import {
   listMyPayouts,
   listStudents,
   listTeachers,
+  listTrials,
   type CalendarSession,
   type Entitlements,
   type InvoiceSummary,
@@ -59,6 +60,7 @@ import {
 } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
+import { bookedTrialsAsLessons, mergeWeekTrials, type WeekTrial } from "@/lib/week-trials";
 
 // ── Date helpers ───────────────────────────────────────────────────────────────
 
@@ -823,6 +825,7 @@ export function AcademyDashboard() {
   // Group classes (an academy running them, a user who may read them): their lessons count in the
   // week and the month like any lesson, and a sheet still owed is attendance still pending.
   const groupsOn = useCapability("groups") && can("group.read");
+  const trialsOn = useCapability("trials") && can("trial.read");
   const [groupOwed, setGroupOwed] = useState(0);
   // A fresh "Following" click shows on its row at once; the API row catches up on the next load.
   const [followed, setFollowed] = useState<Record<string, FollowInfo>>({});
@@ -842,6 +845,7 @@ export function AcademyDashboard() {
   const [weekSessions, setWeekSessions] = useState<CalendarSession[] | null>(null);
   const [monthSessions, setMonthSessions] = useState<CalendarSession[] | null>(null);
   const [trialStudentIds, setTrialStudentIds] = useState<Set<string>>(new Set());
+  const [bookedTrials, setBookedTrials] = useState<WeekTrial[]>([]);
   const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
   // The signed-in teacher's earnings for the current month (their open payout total).
   const [myEarnings, setMyEarnings] = useState<{ amount: number; currency: string | null } | null>(null);
@@ -914,6 +918,12 @@ export function AcademyDashboard() {
         .then((r) => setWeekSessions([...r.sessions, ...groupLessonsAsSessions(attendedGroupLessons(r.group_lessons ?? []))]))
         .catch(() => setWeekSessions([]))
         .finally(() => setLdWeek(false));
+      // Trials booked on the Trials page are not lessons: the week's trials need them read on their own.
+      if (trialsOn) {
+        listTrials({ filter: { from, to }, pageSize: 100, sort: "scheduled" })
+          .then((r) => setBookedTrials(bookedTrialsAsLessons(r.rows)))
+          .catch(() => setBookedTrials([]));
+      }
     } else {
       setLdMonth(false);
       setLdWeek(false);
@@ -974,7 +984,7 @@ export function AcademyDashboard() {
     }
 
     getEntitlements().then(setEntitlements).catch(() => {}).finally(() => setLdPlan(false));
-  }, [can, groupsOn]);
+  }, [can, groupsOn, trialsOn]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -1020,9 +1030,14 @@ export function AcademyDashboard() {
   // This week's trial lessons. A trial is an ad-hoc one-off session (schedule_id null);
   // a trial learner's recurring lessons (schedule_id set) are regular lessons, not trials,
   // so we exclude them — the section must show trials only, not every booking.
+  // Trials booked on the Trials page join them: they are not lessons, so they were never listed.
   const trialLessonsThisWeek = useMemo(
-    () => (weekSessions ?? []).filter((s) => trialStudentIds.has(s.student_id) && s.schedule_id === null),
-    [weekSessions, trialStudentIds],
+    () =>
+      mergeWeekTrials(
+        (weekSessions ?? []).filter((s) => trialStudentIds.has(s.student_id) && s.schedule_id === null),
+        bookedTrials,
+      ),
+    [weekSessions, trialStudentIds, bookedTrials],
   );
 
   // Total amount owed per currency across every academy that has bills (all-time, non-VOID).

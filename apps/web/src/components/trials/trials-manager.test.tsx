@@ -196,4 +196,26 @@ describe("TrialsManager — the trials desk", () => {
     );
     expect(await screen.findByText(ar.alerts.booked)).toBeInTheDocument();
   });
+
+  it("books a trial of whatever length the academy types, and refuses a box with no length", async () => {
+    getTrialAgenda.mockResolvedValue(agenda([], []));
+    const user = userEvent.setup();
+
+    renderDesk();
+
+    await user.click(await screen.findByTestId("trials-add"));
+    const form = await screen.findByTestId("add-trial-form");
+    await user.type(within(form).getByTestId("add-trial-name"), "Sara Ahmed");
+    await user.type(within(form).getByTestId("add-trial-phone"), "01012345678");
+    await waitFor(() => expect(listTrialTeachers).toHaveBeenCalled());
+
+    await user.click(within(form).getByTestId("add-trial-duration-custom"));
+    await user.click(within(form).getByTestId("add-trial-submit"));
+    expect(await within(form).findByText(ar.add.durationRequired)).toBeInTheDocument();
+    expect(createTrial).not.toHaveBeenCalled();
+
+    await user.type(within(form).getByTestId("add-trial-duration-minutes"), "20");
+    await user.click(within(form).getByTestId("add-trial-submit"));
+    await waitFor(() => expect(createTrial).toHaveBeenCalledWith(expect.objectContaining({ duration_minutes: 20 })));
+  });
 });

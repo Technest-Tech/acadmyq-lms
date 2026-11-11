@@ -7,7 +7,7 @@ import { dayIn, hmIn } from "@/components/trials/trial-time";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ApiError, updateTrial, type TrialRow } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { TrialDurationPicker, isTrialDuration } from "./trial-duration-picker";
 
 const inputBase =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border px-3.5 py-2.5 text-sm outline-none transition-colors focus:ring-3";
@@ -40,12 +40,9 @@ export function RescheduleTrialForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const durations = DURATIONS.includes(trial.duration_minutes)
-    ? DURATIONS
-    : [...DURATIONS, trial.duration_minutes].sort((a, b) => a - b);
-
   async function save() {
     if (!date || !time) return setError(t("add.slotRequired"));
+    if (!isTrialDuration(duration)) return setError(t("add.durationRequired"));
     setBusy(true);
     setError(null);
     try {
@@ -106,27 +103,13 @@ export function RescheduleTrialForm({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">{t("add.duration")}</label>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {durations.map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDuration(d)}
-              aria-pressed={duration === d}
-              className={cn(
-                "rounded-xl border py-2 text-xs font-semibold transition-colors",
-                duration === d
-                  ? "border-primary bg-primary/10 text-primary ring-primary/20 ring-2"
-                  : "border-input text-muted-foreground hover:bg-muted/40",
-              )}
-            >
-              {t("table.minutes", { count: d })}
-            </button>
-          ))}
-        </div>
-      </div>
+      <TrialDurationPicker
+        value={duration}
+        onChange={setDuration}
+        options={DURATIONS}
+        label={t("add.duration")}
+        testIdPrefix="reschedule-trial-duration"
+      />
 
       <div className="flex items-center justify-end gap-2 border-t pt-4">
         <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={busy}>

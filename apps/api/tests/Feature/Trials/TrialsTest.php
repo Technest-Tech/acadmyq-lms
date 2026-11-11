@@ -161,6 +161,131 @@ it('converts a completed lead trial into a real student', function () {
     $this->postJson("/api/trials/{$trialId}/convert", ['student_id' => $this->student])->assertStatus(422);
 });
 
+/** Book a 45-minute lead trial on 2026-06-16 17:00 Cairo and mark it attended; returns its id. */
+function attendedTrial(object $test): string
+{
+    $trialId = $test->postJson('/api/trials', [
+        'teacher_id' => $test->teacher,
+        'lead_name' => 'Counted Trial',
+        'lead_whatsapp' => '+201998887775',
+        'local_datetime' => '2026-06-16 17:00',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 45,
+    ])->assertCreated()->json('trialId');
+    $test->patchJson("/api/trials/{$trialId}", ['status' => 'COMPLETED'])->assertOk();
+
+    return $trialId;
+}
+
+it('counts the trial on the student and for the teacher when the office converts it so', function () {
+    Sanctum::actingAs($this->owner);
+    $trialId = attendedTrial($this);
+
+    $res = $this->postJson("/api/trials/{$trialId}/convert", [
+        'student_id' => $this->student,
+        'charge_student' => true,
+        'pay_teacher' => true,
+        'reason' => 'حصة تجريبية',
+    ])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $lesson = DB::table('sessions')->where('id', $res->json('sessionId'))->first();
+    // The trial's own hour, teacher and length, on the new student's lessons.
+    expect($lesson->student_id)->toBe($this->student);
+    expect($lesson->teacher_id)->toBe($this->teacher);
+    expect(Carbon::parse($lesson->scheduled_at_utc)->utc()->format('Y-m-d H:i'))->toBe('2026-06-16 14:00');
+    expect((int) $lesson->duration_minutes)->toBe(45);
+    expect($lesson->schedule_id)->toBeNull();
+    // Recorded as the free lesson it was, with the academy's call on it.
+    expect($lesson->status)->toBe('FREE');
+    expect($lesson->status_reason)->toBe('حصة تجريبية');
+    expect((bool) $lesson->bill_override)->toBeTrue();
+    expect((bool) $lesson->teacher_override)->toBeTrue();
+    expect((bool) $lesson->billed)->toBeTrue();
+    expect((bool) $lesson->paid_to_teacher)->toBeTrue();
+    expect(DB::table('invoice_line_items')->where('session_id', $lesson->id)->exists())->toBeTrue();
+    expect(DB::table('trials')->where('id', $trialId)->value('status'))->toBe('CONVERTED');
+});
+
+it('pays the teacher for a trial without charging the student', function () {
+    Sanctum::actingAs($this->owner);
+    $trialId = attendedTrial($this);
+
+    $sessionId = $this->postJson("/api/trials/{$trialId}/convert", [
+        'student_id' => $this->student,
+        'pay_teacher' => true,
+    ])->assertOk()->json('sessionId');
+
+    $this->asAcademy($this->academy);
+    $lesson = DB::table('sessions')->where('id', $sessionId)->first();
+    expect((bool) $lesson->billed)->toBeFalse();
+    expect((bool) $lesson->paid_to_teacher)->toBeTrue();
+    expect(DB::table('invoice_line_items')->where('session_id', $sessionId)->exists())->toBeFalse();
+});
+
+it('counts the trial nowhere by default, and for a converter who may not make the money call', function () {
+    Sanctum::actingAs($this->owner);
+    $trialId = attendedTrial($this);
+    expect($this->postJson("/api/trials/{$trialId}/convert", ['student_id' => $this->student])->assertOk()->json('sessionId'))->toBeNull();
+
+    // A supervisor converts, but the charge/pay call is not theirs: asked for, it is ignored.
+    $supervisor = $this->makeUser($this->academy, 'SUPERVISOR', ['email' => 'supervisor-trial@test.local']);
+    Sanctum::actingAs($supervisor);
+    $second = attendedTrial($this);
+    expect($this->postJson("/api/trials/{$second}/convert", [
+        'student_id' => $this->student,
+        'charge_student' => true,
+        'pay_teacher' => true,
+    ])->assertOk()->json('sessionId'))->toBeNull();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('sessions')->where('student_id', $this->student)->count())->toBe(0);
+});
+
+it('refuses to count a trial the student never attended, and leaves it unconverted', function () {
+    Sanctum::actingAs($this->owner);
+    $trialId = $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => 'No Show',
+        'lead_whatsapp' => '+201998887774',
+        'local_datetime' => '2026-06-16 17:00',
+        'timezone' => 'Africa/Cairo',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+    $this->patchJson("/api/trials/{$trialId}", ['status' => 'NO_SHOW'])->assertOk();
+
+    $this->postJson("/api/trials/{$trialId}/convert", [
+        'student_id' => $this->student,
+        'charge_student' => true,
+    ])->assertStatus(422);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('trials')->where('id', $trialId)->value('status'))->toBe('NO_SHOW');
+    expect(DB::table('sessions')->where('student_id', $this->student)->count())->toBe(0);
+});
+
+it('lists the trials inside a window of academy days', function () {
+    Sanctum::actingAs($this->owner);
+    foreach (['2026-06-15 01:00', '2026-06-16 17:00', '2026-06-22 00:30'] as $i => $at) {
+        $this->postJson('/api/trials', [
+            'teacher_id' => $this->teacher,
+            'lead_name' => "Window {$i}",
+            'lead_whatsapp' => '+20199988877'.$i,
+            'local_datetime' => $at,
+            'timezone' => 'Africa/Cairo',
+            'duration_minutes' => 30,
+        ])->assertCreated();
+    }
+
+    // Monday 15th → Sunday 21st on Cairo's calendar: 01:00 on the 15th is in (the 14th in UTC),
+    // 00:30 on the 22nd is out (still the 21st in UTC).
+    $names = collect($this->getJson('/api/trials?filter[from]=2026-06-15&filter[to]=2026-06-21')->assertOk()->json('rows'))->pluck('display_name')->sort()->values()->all();
+    expect($names)->toBe(['Window 0', 'Window 1']);
+
+    // Junk is ignored, not a crash.
+    $this->getJson('/api/trials?filter[from]=soon')->assertOk();
+});
+
 it('deletes a trial off the record — converted ones too — while cancel keeps the row', function () {
     Sanctum::actingAs($this->owner);
 

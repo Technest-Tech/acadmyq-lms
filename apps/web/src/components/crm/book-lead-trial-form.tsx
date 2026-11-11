@@ -12,7 +12,7 @@ import {
   listCrmTeachers,
   type LeadRow,
 } from "@/lib/api";
-import { cn } from "@/lib/utils";
+import { TrialDurationPicker, isTrialDuration } from "@/components/trials/trial-duration-picker";
 
 const inputBase =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border py-2.5 px-3.5 text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
@@ -47,6 +47,7 @@ export function BookLeadTrialForm({
   onBooked: (warnings: string[]) => void;
 }) {
   const t = useTranslations("crm");
+  const tTrials = useTranslations("trials");
   const locale = useLocale();
 
   const [teachers, setTeachers] = useState<{ id: string; full_name: string }[]>([]);
@@ -88,6 +89,10 @@ export function BookLeadTrialForm({
     }
     if (!date || !time) {
       setError(t("trial.slotRequired"));
+      return;
+    }
+    if (!isTrialDuration(duration)) {
+      setError(tTrials("add.durationRequired"));
       return;
     }
 
@@ -182,26 +187,13 @@ export function BookLeadTrialForm({
         </div>
       </div>
 
-      <div className="space-y-2">
-        <label className="text-sm font-medium">{t("trial.duration")}</label>
-        <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
-          {durations.map((d) => (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setDuration(d)}
-              className={cn(
-                "rounded-xl border py-2 text-xs font-semibold transition-colors",
-                duration === d
-                  ? "border-primary bg-primary/10 text-primary ring-primary/20 ring-2"
-                  : "border-input text-muted-foreground hover:bg-muted/40",
-              )}
-            >
-              {t("trial.minutes", { count: d })}
-            </button>
-          ))}
-        </div>
-      </div>
+      <TrialDurationPicker
+        value={duration}
+        onChange={setDuration}
+        options={durations}
+        label={t("trial.duration")}
+        testIdPrefix="crm-trial-duration"
+      />
 
       <div className="space-y-1.5">
         <label className="text-sm font-medium">{t("trial.notes")}</label>
