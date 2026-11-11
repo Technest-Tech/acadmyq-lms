@@ -34,6 +34,7 @@ import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard } from "@/components/ui/profile-card";
 import { getTeacher, type TeacherRow, type TeacherStudent } from "@/lib/api";
 import { useCapability, useOnlineLessons } from "@/lib/capabilities";
+import { useLevelsOn } from "@/lib/levels";
 import { cn } from "@/lib/utils";
 
 type Tab = "profile" | "lessons" | "groups" | "calendar" | "punctuality" | "salary" | "reports";
@@ -73,6 +74,7 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
   const [students, setStudents] = useState<TeacherStudent[]>([]);
   const [tab, setTab] = useState<Tab>("profile");
   const paySummary = usePaySummary();
+  const levelsOn = useLevelsOn();
   // A room-based centre has no Enter press to measure.
   const onlineLessons = useOnlineLessons();
 
@@ -141,6 +143,13 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
                 {teacher.specialization}
               </HeroBadge>
             )}
+            {/* The levels this teacher takes, one badge each. */}
+            {levelsOn &&
+              (teacher.levels ?? []).map((l) => (
+                <HeroBadge key={l.id} tone="gold">
+                  {l.name}
+                </HeroBadge>
+              ))}
             {teacher.phone && (
               <HeroBadge>
                 <MessageCircle className="size-3" aria-hidden />

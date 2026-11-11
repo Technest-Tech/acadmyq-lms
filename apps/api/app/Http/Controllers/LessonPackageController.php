@@ -9,6 +9,7 @@ use App\Http\Controllers\Accounting\SettlementController;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\LessonPackages;
+use App\Services\PackageLessonLog;
 use App\Services\SessionDurationCorrection;
 use App\Services\Whatsapp\PackageReminderMessage;
 use App\Services\Whatsapp\WhatsAppSender;
@@ -429,6 +430,25 @@ final class LessonPackageController extends Controller
             ),
             'credits' => $this->creditsFor($id),
         ]);
+    }
+
+    /**
+     * GET /api/packages/{id}/lessons — the block's own lessons, exactly: what it counted, what is
+     * unmarked since it started and the upcoming lessons it still pays for ({@see PackageLessonLog}).
+     * The student profile's lesson log.
+     */
+    public function lessons(string $id): JsonResponse
+    {
+        Gate::authorize('package.read');
+
+        $package = DB::table('lesson_packages')->where('id', $id)->first();
+        if ($package === null) {
+            abort(404, 'Package not found.');
+        }
+
+        $log = app(PackageLessonLog::class)->of($package);
+
+        return response()->json($log + ['lessons_total' => count($log['lessons']) + $log['unscheduled']]);
     }
 
     /**
@@ -1027,6 +1047,29 @@ final class LessonPackageController extends Controller
             ." and ({$alias}.course is null or lower(trim({$alias}.course)) = lower(trim(coalesce(p.course, ''))))))";
     }
 
+    /**
+     * A running block's lessons since its first day that nobody has marked yet, as one aggregate
+     * (`count(*)`, or their minutes). Marked, they come off this block, so its balance pays for them
+     * before any upcoming lesson ({@see PackageLessonLog}, the same rule).
+     */
+    /**
+     * The app's clock as a SQL literal with its offset — the test clock in tests, and never a naive
+     * timestamp the session's own zone would shift. Built from Carbon, so it is only ever digits.
+     */
+    private static function nowSql(): string
+    {
+        return "'".now()->utc()->format('Y-m-d H:i:sP')."'::timestamptz";
+    }
+
+    private static function unmarkedSql(string $aggregate): string
+    {
+        return "(select {$aggregate} from sessions um where um.student_id = p.student_id"
+            ." and um.status = 'SCHEDULED' and um.hidden_at is null and um.scheduled_at_utc < ".self::nowSql()
+            ." and um.scheduled_at_utc >= (p.starts_on::timestamp at time zone coalesce((select ua.timezone from academies ua where ua.id = p.academy_id), 'UTC'))"
+            .' and not exists (select 1 from lesson_package_credits uc where uc.session_id = um.id)'
+            .' and '.self::lessonOfSubject('um').')';
+    }
+
     private function baseQuery()
     {
         return DB::table('lesson_packages as p')
@@ -1069,7 +1112,7 @@ final class LessonPackageController extends Controller
                     ->whereColumn('upcoming.student_id', 'p.student_id')
                     ->whereIn('upcoming.status', ['SCHEDULED', 'RESCHEDULED'])
                     ->whereNull('upcoming.hidden_at')
-                    ->where('upcoming.scheduled_at_utc', '>=', now())
+                    ->whereRaw('upcoming.scheduled_at_utc >= '.self::nowSql())
                     ->whereRaw(self::lessonOfSubject('upcoming')),
                 'upcoming_lesson_count',
             )
@@ -1077,6 +1120,8 @@ final class LessonPackageController extends Controller
             // past the block's end (EnglishSpirit read "15 upcoming" as 15 left on a 9-left block),
             // so the card splits them. A lesson never splits: each one that starts with any balance
             // left lands on this block, so count while the minutes BEFORE it are under the balance.
+            // The lessons since the block started that are still unmarked are paid first.
+            ->selectRaw(self::unmarkedSql('count(*)').' as unmarked_count')
             ->selectSub(
                 DB::query()
                     ->fromSub(
@@ -1085,12 +1130,12 @@ final class LessonPackageController extends Controller
                             ->whereColumn('covered.student_id', 'p.student_id')
                             ->whereIn('covered.status', ['SCHEDULED', 'RESCHEDULED'])
                             ->whereNull('covered.hidden_at')
-                            ->where('covered.scheduled_at_utc', '>=', now())
+                            ->whereRaw('covered.scheduled_at_utc >= '.self::nowSql())
                             ->whereRaw(self::lessonOfSubject('covered')),
                         'cov',
                     )
                     ->selectRaw('count(*)')
-                    ->whereRaw('cov.minutes_before < greatest(0, p.minutes_total + p.carried_over_minutes - p.minutes_consumed)'),
+                    ->whereRaw('cov.minutes_before < greatest(0, p.minutes_total + p.carried_over_minutes - p.minutes_consumed - '.self::unmarkedSql('coalesce(sum(um.duration_minutes), 0)').')'),
                 'upcoming_in_package_count',
             )
             ->selectSub(
@@ -1098,7 +1143,7 @@ final class LessonPackageController extends Controller
                     ->select('next_session.scheduled_at_utc')
                     ->whereColumn('next_session.student_id', 'p.student_id')
                     ->whereIn('next_session.status', ['SCHEDULED', 'RESCHEDULED'])
-                    ->where('next_session.scheduled_at_utc', '>=', now())
+                    ->whereRaw('next_session.scheduled_at_utc >= '.self::nowSql())
                     ->whereRaw(self::lessonOfSubject('next_session'))
                     ->orderBy('next_session.scheduled_at_utc')
                     ->limit(1),
@@ -1392,7 +1437,7 @@ final class LessonPackageController extends Controller
             'upcoming_in_package_count' => ! $isActive ? 0 : min(
                 (int) $row->upcoming_lesson_count,
                 LessonPackages::countsLessons((object) ['academy_id' => $row->academy_id, 'lesson_minutes' => $row->lesson_minutes])
-                    ? intdiv($remaining, max(1, (int) $row->lesson_minutes))
+                    ? max(0, intdiv($remaining, max(1, (int) $row->lesson_minutes)) - (int) ($row->unmarked_count ?? 0))
                     : (int) ($row->upcoming_in_package_count ?? 0),
             ),
             'next_lesson_at' => $row->next_lesson_at !== null ? Carbon::parse($row->next_lesson_at)->utc()->toIso8601String() : null,

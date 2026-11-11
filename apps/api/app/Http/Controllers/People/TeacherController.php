@@ -11,6 +11,7 @@ use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\DoneBy;
 use App\Support\Phone;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -94,6 +95,8 @@ final class TeacherController extends Controller
             'payout_method', 'payout_handle', 'meeting_url',
             'is_active', 'deleted_at', 'created_at',
         ]);
+        // The levels each teacher takes, in the academy's order (the roster's chips).
+        $query->selectSub(self::levelsJson('teachers.id'), 'levels');
         // Who added each teacher — the list's "Done by" column and its filter.
         DoneBy::joinCreator($query, 'teacher', 'teacher.create', 'teachers.id', 'teachers.academy_id');
         $this->applyActiveScope($query, $request);
@@ -109,6 +112,12 @@ final class TeacherController extends Controller
             'filters' => [
                 'currency' => fn ($q, $value) => $q->where('currency', strtoupper((string) $value)),
                 'specialization' => fn ($q, $value) => $q->where('specialization', (string) $value),
+                // The teachers who take this level. Not a uuid: no filter rather than a 500.
+                'level' => fn ($q, $value) => Str::isUuid((string) $value)
+                    ? $q->whereExists(fn ($e) => $e->selectRaw('1')->from('teacher_levels as tl')
+                        ->whereColumn('tl.teacher_id', 'teachers.id')
+                        ->where('tl.level_id', (string) $value))
+                    : null,
                 'added_by' => DoneBy::addedByFilter(),
             ],
             'defaultSort' => 'name',
@@ -123,6 +132,7 @@ final class TeacherController extends Controller
             $r->availability = is_string($r->availability)
                 ? (json_decode($r->availability, true) ?: [])
                 : ($r->availability ?? []);
+            $r->levels = self::decodeLevels($r->levels ?? null);
 
             return $seesPay ? $r : $this->redactPay($r);
         });
@@ -157,6 +167,8 @@ final class TeacherController extends Controller
 
         $payType = $data['pay_type'] ?? Payroll::PAY_HOURLY;
         $studentRates = $this->normalizeStudentRates($data['student_rates'] ?? []);
+        // Checked before anything is written: a refused level must not leave a teacher behind.
+        $levelIds = $this->normalizeLevelIds($data['level_ids'] ?? []);
 
         DB::table('teachers')->insert([
             'id' => $teacherId,
@@ -181,6 +193,7 @@ final class TeacherController extends Controller
         ]);
 
         $this->writeStudentRates($academyId, $teacherId, $studentRates);
+        $this->writeLevels($academyId, $teacherId, $levelIds);
 
         Audit::log('teacher.create', 'teacher', $teacherId, $academyId, $this->ctx()->userId, $this->ctx()->role, after: [
             'full_name' => $data['full_name'],
@@ -190,6 +203,7 @@ final class TeacherController extends Controller
             'student_rates' => $studentRates,
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'has_login' => $userId !== null,
+            'level_ids' => $levelIds,
         ]);
 
         // A salaried teacher is owed this month from today: open their statement now so they are on
@@ -217,6 +231,9 @@ final class TeacherController extends Controller
         }
 
         $teacher->availability = json_decode((string) $teacher->availability, true);
+        $teacher->levels = self::decodeLevels(
+            DB::table('teachers as t')->where('t.id', $id)->selectSub(self::levelsJson('t.id'), 'levels')->first()?->levels,
+        );
 
         // Each current student carries the teacher's rate for them (null = the teacher's default).
         $students = DB::table('student_teacher_assignments as a')
@@ -392,6 +409,8 @@ final class TeacherController extends Controller
 
         $data = $this->validatePayload($request, creating: false);
         $this->authorizePayWrite($data, creating: false);
+        // Checked before anything is written (a refused level must not leave half an edit behind).
+        $newLevels = array_key_exists('level_ids', $data) ? $this->normalizeLevelIds($data['level_ids'] ?? []) : null;
         if (array_key_exists('phone', $data)) {
             $data['phone'] = Phone::normalize($data['phone'], 'phone');
         }
@@ -446,6 +465,16 @@ final class TeacherController extends Controller
             }
         }
 
+        // The levels: the payload is the WHOLE set, like the student rates.
+        if ($newLevels !== null) {
+            $oldLevels = DB::table('teacher_levels')->where('teacher_id', $id)->pluck('level_id')->map(fn ($v) => (string) $v)->sort()->values()->all();
+            if ($oldLevels !== $newLevels) {
+                $before['level_ids'] = $oldLevels;
+                $after['level_ids'] = $newLevels;
+                $this->writeLevels($this->currentAcademyId(), $id, $newLevels);
+            }
+        }
+
         if ($after === []) {
             return response()->json(['ok' => true, 'changed' => []]);
         }
@@ -457,9 +486,9 @@ final class TeacherController extends Controller
             $extra['join_tracking_since'] = now()->toIso8601String();
         }
 
-        // `student_rates` lives in its own table (written above) — everything else is a column.
+        // `student_rates` and `level_ids` live in their own tables (written above) — everything else is a column.
         $columns = $after;
-        unset($columns['student_rates']);
+        unset($columns['student_rates'], $columns['level_ids']);
         DB::table('teachers')->where('id', $id)->update($columns + $extra);
         Audit::log('teacher.update', 'teacher', $id, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
 
@@ -743,6 +772,68 @@ final class TeacherController extends Controller
         return $url === '' ? null : $url;
     }
 
+    /**
+     * The levels a teacher takes as a json array of {id, name}, in the academy's order — a subquery
+     * on the teacher id column given, so the list and the profile read them the same way.
+     */
+    private static function levelsJson(string $teacherIdColumn): Builder
+    {
+        return DB::table('teacher_levels as tl')
+            ->join('academy_levels as al', 'al.id', '=', 'tl.level_id')
+            ->whereColumn('tl.teacher_id', $teacherIdColumn)
+            ->selectRaw("coalesce(json_agg(json_build_object('id', al.id, 'name', al.name, 'is_active', al.is_active) order by al.sort_order, al.name), '[]'::json)");
+    }
+
+    /** @return list<array{id:string,name:string,is_active:bool}> */
+    private static function decodeLevels(mixed $raw): array
+    {
+        $rows = is_string($raw) ? (json_decode($raw, true) ?: []) : (is_array($raw) ? $raw : []);
+
+        return array_values(array_map(fn (array $l): array => [
+            'id' => (string) $l['id'],
+            'name' => (string) $l['name'],
+            'is_active' => (bool) ($l['is_active'] ?? true),
+        ], $rows));
+    }
+
+    /**
+     * The level ids sent, sorted, each one checked against this academy's list (RLS keeps another
+     * academy's levels out of sight, so a foreign id reads as unknown).
+     *
+     * @param  array<int,mixed>|null  $ids
+     * @return list<string>
+     */
+    private function normalizeLevelIds(?array $ids): array
+    {
+        $ids = array_values(array_unique(array_map('strval', $ids ?? [])));
+        sort($ids);
+        if ($ids === []) {
+            return [];
+        }
+        $known = DB::table('academy_levels')->whereIn('id', $ids)->count();
+        if ($known !== count($ids)) {
+            throw ValidationException::withMessages([
+                'level_ids' => 'Pick levels from the academy\'s list. / اختر المستويات من قائمة الأكاديمية.',
+            ]);
+        }
+
+        return $ids;
+    }
+
+    /** @param  list<string>  $levelIds */
+    private function writeLevels(string $academyId, string $teacherId, array $levelIds): void
+    {
+        DB::table('teacher_levels')->where('teacher_id', $teacherId)->delete();
+        if ($levelIds === []) {
+            return;
+        }
+        DB::table('teacher_levels')->insert(array_map(fn (string $levelId): array => [
+            'academy_id' => $academyId,
+            'teacher_id' => $teacherId,
+            'level_id' => $levelId,
+        ], $levelIds));
+    }
+
     /** @return array<string,mixed> */
     private function validatePayload(Request $request, bool $creating): array
     {
@@ -771,6 +862,9 @@ final class TeacherController extends Controller
             'payout_handle' => ['sometimes', 'nullable', 'string', 'max:255'],
             // Any provider's room — Zoom, Meet, Teams… — as long as a browser can open it.
             'meeting_url' => ['sometimes', 'nullable', 'string', 'max:2048', 'url:http,https'],
+            // The levels this teacher takes — the WHOLE set; [] clears it.
+            'level_ids' => ['sometimes', 'nullable', 'array', 'max:100'],
+            'level_ids.*' => ['uuid', 'distinct'],
         ];
 
         if ($creating) {

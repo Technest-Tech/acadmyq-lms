@@ -4,6 +4,7 @@ import { AtSign, Check, Eye, EyeOff, KeyRound, User, Video, Wallet } from "lucid
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { LevelMultiSelect } from "@/components/levels/level-multi-select";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
 import {
   EMPTY_PAY_DRAFT,
@@ -30,6 +31,7 @@ import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 import { useOnlineLessons } from "@/lib/capabilities";
+import { useLevelsOn, useLevelWord } from "@/lib/levels";
 
 const inputBase =
   "border-input bg-background placeholder:text-muted-foreground focus:border-primary focus:ring-primary/15 w-full rounded-xl border text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
@@ -70,8 +72,13 @@ export function TeacherForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("teachers");
+  const tLevels = useTranslations("levels");
   const { can } = useAuth();
   const onlineLessons = useOnlineLessons();
+  // The levels this teacher takes — once the academy keeps levels (Settings).
+  const levelsOn = useLevelsOn();
+  const levelWord = useLevelWord();
+  const [levelIds, setLevelIds] = useState<string[]>([]);
   // Setting pay is teacher.set_pay's. Without it the teacher is added at the "nothing chosen" pay
   // (hourly, zero) and the owner or accountant sets it on the Salary tab.
   const canPay = can("teacher.set_pay");
@@ -128,6 +135,7 @@ export function TeacherForm({
         ...(canPay ? payDraftToInput(pay) : { pay_type: "HOURLY", session_rate_minor: 0 }),
         meeting_url: meetingUrl.trim() || null,
         availability,
+        ...(levelsOn && levelIds.length > 0 ? { level_ids: levelIds } : {}),
         create_login: canCreateLogin && createLogin,
         email: canCreateLogin && createLogin ? email : null,
         password: canCreateLogin && createLogin ? password : null,
@@ -200,6 +208,13 @@ export function TeacherForm({
         </Field>
 
       </div>
+
+      {levelsOn && (
+        <Field label={tLevels("teacher.label", { word: levelWord })}>
+          <LevelMultiSelect value={levelIds} onChange={setLevelIds} />
+          <p className="text-muted-foreground text-[11px]">{tLevels("teacher.hint", { word: levelWord })}</p>
+        </Field>
+      )}
 
       {/* How this teacher is paid — the whole pay decision in one bordered block, because the
           pay type decides which amounts the rest of it even asks for. */}

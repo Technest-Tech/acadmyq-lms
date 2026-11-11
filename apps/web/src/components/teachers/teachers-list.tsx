@@ -12,8 +12,9 @@ import {
   Users,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { LevelChips } from "@/components/levels/level-multi-select";
 import { Octagram } from "@/components/ornaments";
 import { addedByFilter, DoneByCell, useTeamActors } from "@/components/team/done-by";
 import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
@@ -29,6 +30,8 @@ import {
   type TeacherRow,
 } from "@/lib/api";
 import { type ExcelColumn } from "@/lib/export-excel";
+import { useLevelsOn, useLevelWord } from "@/lib/levels";
+import { type Level, listLevels } from "@/lib/levels-api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -141,6 +144,17 @@ export function TeachersList({
   const actors = useTeamActors();
   // Pay is teacher.set_pay's to see (the API redacts it for a supervisor) — no column without it.
   const canPay = can("teacher.set_pay");
+  // The levels each teacher takes: chips under the name and a filter, once the academy keeps levels.
+  const tLevels = useTranslations("levels");
+  const levelWord = useLevelWord();
+  const levelsOn = useLevelsOn();
+  const [levels, setLevels] = useState<Level[]>([]);
+  useEffect(() => {
+    if (!levelsOn) return;
+    void listLevels()
+      .then((r) => setLevels(r.levels))
+      .catch(() => setLevels([]));
+  }, [levelsOn]);
 
   const columns = useMemo<ColumnDef<TeacherRow>[]>(
     () => [
@@ -165,6 +179,7 @@ export function TeachersList({
                   {t("detail.noSpecialization")}
                 </div>
               )}
+              {levelsOn && <LevelChips levels={r.levels ?? []} className="mt-1" />}
             </div>
           </div>
         ),
@@ -267,7 +282,7 @@ export function TeachersList({
         render: (r) => <DoneByCell name={r.added_by_name} />,
       },
     ],
-    [t, tDone, paySummary, canPay],
+    [t, tDone, paySummary, canPay, levelsOn],
   );
 
   const filters = useMemo<FilterDef[]>(
@@ -281,15 +296,22 @@ export function TeachersList({
           { value: "all", label: t("filter.all") },
         ],
       },
+      // The teachers who take a level — only once the academy has written its list.
+      ...(levelsOn && levels.length > 0
+        ? [{ key: "level", label: tLevels("filter", { word: levelWord }), options: levels.map((l) => ({ value: l.id, label: l.name })) }]
+        : []),
       ...addedByFilter(actors, tDone),
     ],
-    [t, tDone, actors],
+    [t, tDone, tLevels, levelWord, actors, levelsOn, levels],
   );
 
   const exportColumns = useMemo<ExcelColumn<TeacherRow>[]>(
     () => [
       { header: t("colName"), value: (r) => r.full_name, width: 26 },
       { header: t("colSpecialization"), value: (r) => r.specialization },
+      ...(levelsOn
+        ? [{ header: tLevels("teacher.column", { word: levelWord }), value: (r: TeacherRow) => (r.levels ?? []).map((l) => l.name).join("، ") }]
+        : []),
       ...(canPay
         ? [
             {
@@ -309,7 +331,7 @@ export function TeachersList({
       },
       { header: tDone("col"), value: (r) => r.added_by_name ?? "", width: 22 },
     ],
-    [t, tDone, paySummary, canPay],
+    [t, tDone, paySummary, canPay, levelsOn, tLevels, levelWord],
   );
 
   const newButton = can("teacher.create") ? (

@@ -1449,6 +1449,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         // package. `lessons` here means the credit rows — the lessons that ate this block — and
         // adding one can CREATE the underlying attended session, so these are package.manage.
         Route::get('/packages/{id}/available-lessons', [LessonPackageController::class, 'availableLessons']);
+        Route::get('/packages/{id}/lessons', [LessonPackageController::class, 'lessons'])->whereUuid('id');
         Route::post('/packages/{id}/lessons', [LessonPackageController::class, 'addLesson']);
         Route::patch('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'updateLesson']);
         Route::delete('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'removeLesson']);

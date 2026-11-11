@@ -17,6 +17,7 @@ import {
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { LevelChips, LevelMultiSelect } from "@/components/levels/level-multi-select";
 import { AvailabilityEditor } from "@/components/teachers/availability-editor";
 import { usePaySummary } from "@/components/teachers/teacher-pay-editor";
 import { TeacherLoginSection } from "@/components/teachers/teacher-login-section";
@@ -47,6 +48,7 @@ import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
 import { useOnlineLessons } from "@/lib/capabilities";
+import { useLevelsOn, useLevelWord } from "@/lib/levels";
 
 const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
   value: c.code,
@@ -136,9 +138,13 @@ export function TeacherDetail({
   showHero?: boolean;
 }) {
   const t = useTranslations("teachers");
+  const tLevels = useTranslations("levels");
   const { can } = useAuth();
   // Hidden, not cleared: the link saved on the teacher stays with them for when the switch comes back.
   const onlineLessons = useOnlineLessons();
+  // The levels this teacher takes — once the academy keeps levels. Off, they are left as they are.
+  const levelsOn = useLevelsOn();
+  const levelWord = useLevelWord();
   const paySummary = usePaySummary();
 
   const [teacher, setTeacher] = useState<TeacherRow | null>(null);
@@ -160,6 +166,7 @@ export function TeacherDetail({
   const [payoutHandle, setPayoutHandle] = useState("");
   const [meetingUrl, setMeetingUrl] = useState("");
   const [availability, setAvailability] = useState<AvailabilityWindow[]>([]);
+  const [levelIds, setLevelIds] = useState<string[]>([]);
   const [specs, setSpecs] = useState<Specialization[]>([]);
 
   function buildPhone(): string | null {
@@ -202,6 +209,7 @@ export function TeacherDetail({
     setPayoutHandle(res.teacher.payout_handle ?? "");
     setMeetingUrl(res.teacher.meeting_url ?? "");
     setAvailability(res.teacher.availability ?? []);
+    setLevelIds((res.teacher.levels ?? []).map((l) => l.id));
   }, [teacherId]);
 
   useEffect(() => {
@@ -237,6 +245,7 @@ export function TeacherDetail({
         // Emptying the field removes the link (the teacher's Enter button goes grey).
         meeting_url: meetingUrl.trim() || null,
         availability,
+        ...(levelsOn ? { level_ids: levelIds } : {}),
       });
       setNotice(t("form.saved"));
       onSaved?.();
@@ -260,7 +269,16 @@ export function TeacherDetail({
             label={t("filter.status")}
             tone={isActive ? "emerald" : "slate"}
             value={isActive ? t("stat.active") : t("stat.inactive")}
-            sub={teacher.specialization ?? undefined}
+            sub={
+              levelsOn && (teacher.levels ?? []).length > 0 ? (
+                <span className="inline-flex flex-wrap items-center gap-1">
+                  {teacher.specialization && <span>{teacher.specialization}</span>}
+                  <LevelChips levels={teacher.levels ?? []} />
+                </span>
+              ) : (
+                (teacher.specialization ?? undefined)
+              )
+            }
           />
           {/* Pay is teacher.set_pay's (the API redacts it for a supervisor). */}
           {canPay && (
@@ -371,6 +389,17 @@ export function TeacherDetail({
                 data-testid="specialization-select"
               />
             </Field>
+
+            {levelsOn && (
+              <Field label={tLevels("teacher.label", { word: levelWord })}>
+                <LevelMultiSelect
+                  value={levelIds}
+                  onChange={setLevelIds}
+                  current={teacher.levels ?? []}
+                  disabled={!canEdit}
+                />
+              </Field>
+            )}
 
             {/* The room this teacher teaches in. Their Enter button on each lesson opens it, and
                 the press is what the Punctuality tab measures. */}

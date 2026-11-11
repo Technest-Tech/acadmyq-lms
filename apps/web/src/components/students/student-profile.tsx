@@ -6,6 +6,7 @@ import {
   CalendarDays,
   GraduationCap,
   Layers,
+  ListChecks,
   Settings2,
   UserCheck,
   UserCircle2,
@@ -22,6 +23,7 @@ import { KhatamLattice } from "@/components/ornaments";
 import { StudentTimetable } from "@/components/scheduling/student-timetable";
 import { formatNameList } from "@/components/students/teacher-links-field";
 import { EnrollmentWizard } from "@/components/students/enrollment-wizard";
+import { StudentLessonLog } from "@/components/students/student-lesson-log";
 import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { FactCard } from "@/components/ui/profile-card";
 import { ScheduleTrialModal } from "@/components/students/schedule-trial-modal";
@@ -51,7 +53,7 @@ import { fetchRoster } from "@/lib/roster";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-type TabKey = "profile" | "subscription" | "teacher" | "schedule" | "settings";
+type TabKey = "profile" | "subscription" | "teacher" | "schedule" | "lessons" | "settings";
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -86,7 +88,7 @@ export function StudentProfile({ studentId }: { studentId: string }) {
   const [notFound, setNotFound] = useState(false);
   const [tab, setTab] = useState<TabKey>(() => {
     const wanted = search?.get("tab");
-    return wanted === "subscription" || wanted === "teacher" || wanted === "schedule" || wanted === "settings" ? wanted : "profile";
+    return wanted === "subscription" || wanted === "teacher" || wanted === "schedule" || wanted === "lessons" || wanted === "settings" ? wanted : "profile";
   });
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -132,6 +134,14 @@ export function StudentProfile({ studentId }: { studentId: string }) {
         key: "schedule",
         label: t("profile.tabSchedule"),
         icon: CalendarDays,
+      });
+    }
+    // The lessons of the current package, exactly — or the month's, for a monthly student.
+    if (can("session.read")) {
+      list.push({
+        key: "lessons",
+        label: t("profile.tabLessons"),
+        icon: ListChecks,
       });
     }
     if (canEdit) {
@@ -462,6 +472,8 @@ export function StudentProfile({ studentId }: { studentId: string }) {
           onError={setError}
         />
       )}
+
+      {tab === "lessons" && can("session.read") && <StudentLessonLog studentId={studentId} />}
 
       {tab === "settings" &&
         canEdit &&

@@ -90,7 +90,9 @@ export function TeacherLinksField({
           .map((tch) => ({
             value: tch.id,
             label: tch.full_name,
-            sublabel: tch.specialization ?? undefined,
+            // The levels they take beside the specialization: picking a teacher for an A2 student,
+            // the office sees who takes A2.
+            sublabel: [tch.specialization, ...(tch.levels ?? []).map((l) => l.name)].filter(Boolean).join(" · ") || undefined,
           }));
         return (
           <div
