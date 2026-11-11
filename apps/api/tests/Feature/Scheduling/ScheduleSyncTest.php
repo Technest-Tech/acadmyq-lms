@@ -123,14 +123,58 @@ it('never makes lessons before a start date in the future, even from the nightly
 });
 
 it('clears upcoming lessons before the new start when the start date moves forward', function () {
+    // Saved before the month began, so its June lessons were on the board ahead of their time.
+    Carbon::setTestNow('2026-05-28 09:00:00');
     $this->putJson("/api/students/{$this->student}/schedule", ['slots' => [syncSlot(1)], 'start_date' => '2026-06-01'])->assertCreated();
 
+    Carbon::setTestNow('2026-06-17 09:00:00');
     $this->putJson("/api/students/{$this->student}/schedule", ['slots' => [syncSlot(1)], 'start_date' => '2026-07-06'])->assertOk();
 
     $this->asAcademy($this->academy);
     expect(syncDates($this->student))->not->toContain('2026-06-22');
-    // What already went by is history, and stays.
-    expect(syncDates($this->student))->toContain('2026-06-15');
+    // A planned lesson that went by is history, and stays, marked or not: it may have been taught.
+    expect(syncDates($this->student))->toContain('2026-06-01')->toContain('2026-06-15');
+});
+
+// Ana Muslim, 2026-11-11: a timetable saved mid-morning with today's start back-filled the lesson
+// that had been due at 10:00; the start was moved to Saturday seconds later, and that lesson stayed
+// on today's attendance for a student who had not started yet.
+it('takes back a lesson the first save back-filled when the start date then moves later', function () {
+    // Wed 17 June, 12:00 in Cairo: the Wednesday 10:00 lesson is already past.
+    $wed10 = syncSlot(3, 40, '10:00');
+    $sat10 = syncSlot(6, 40, '10:00');
+    $this->putJson("/api/students/{$this->student}/schedule", ['slots' => [$wed10, $sat10], 'start_date' => '2026-06-17'])->assertCreated();
+
+    $this->asAcademy($this->academy);
+    $today = syncRow($this->student, '2026-06-17');
+    expect($today)->not->toBeNull();
+    // An alert already raised against it does not block taking it back, and goes with it.
+    DB::table('notifications')->insert(['id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'type' => 'SESSION_NOT_MARKED',
+        'category' => 'SUPERVISION', 'audience_role' => 'ACADEMY_OWNER', 'session_id' => $today->id, 'data' => '{}']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->putJson("/api/students/{$this->student}/schedule", ['slots' => [$wed10, $sat10], 'start_date' => '2026-06-20'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(syncDates($this->student))->not->toContain('2026-06-17')->toContain('2026-06-20')->toContain('2026-06-24');
+    expect(DB::table('notifications')->where('session_id', $today->id)->exists())->toBeFalse();
+    expect($res->json('generated.removed'))->toBe(1);
+});
+
+it('keeps a back-filled lesson that was marked when the start date moves later', function () {
+    $this->putJson("/api/students/{$this->student}/schedule", ['slots' => [syncSlot(1)], 'start_date' => '2026-06-01'])->assertCreated();
+    $this->asAcademy($this->academy);
+    DB::table('sessions')->where('id', syncRow($this->student, '2026-06-08')->id)->update(['status' => 'ATTENDED']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+
+    $this->putJson("/api/students/{$this->student}/schedule", ['slots' => [syncSlot(1)], 'start_date' => '2026-06-22'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    // The marked one is a record; the two the first save invented and nobody marked are gone.
+    expect(syncDates($this->student))->toContain('2026-06-08')->not->toContain('2026-06-01')->not->toContain('2026-06-15')
+        ->toContain('2026-06-22');
 });
 
 // ── A lesson with a record against it must not break the save ────────────────

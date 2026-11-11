@@ -311,6 +311,12 @@ final class ScheduleController extends Controller
             $removed += $stretch['removed'];
         }
 
+        // …and a start date moved later takes back what an earlier start back-filled in between
+        // (lessons made after their time, never marked). Lessons that were planned stay as history.
+        if ($previousStart !== null && $startDate > $previousStart) {
+            $removed += $this->generator->takeBackBackfilled($scheduleId, $previousStart, $startDate);
+        }
+
         [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
         $counts = $this->generator->generateForSchedule($scheduleId, $windowStart, $windowEnd);
 

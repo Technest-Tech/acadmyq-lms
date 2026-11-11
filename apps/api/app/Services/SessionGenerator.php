@@ -249,6 +249,9 @@ final class SessionGenerator
                     'duration_minutes' => $o['duration_minutes'],
                     'status' => 'SCHEDULED',
                     'course' => $slotCourses[$o['slot_id']] ?? null,
+                    // The run's own clock, with its offset (a naive bind lands hours off): it is
+                    // what tells a back-filled lesson (made after its time) from a planned one.
+                    'created_at' => $nowUtc->format('Y-m-d H:i:sP'),
                 ]);
                 $created += $inserted; // 0 if a concurrent run won the unique index (TC-5.7)
                 if ($isBackfill) {
@@ -301,6 +304,44 @@ final class SessionGenerator
             // one); rows outside the window are reconciled by a later run, never deleted here.
             ->whereBetween('occurrence_local_date', [$windowStart->format('Y-m-d'), $windowEnd->format('Y-m-d')])
             ->get(['id', 'occurrence_local_date', 'slot_id']);
+    }
+
+    /**
+     * A start date moved LATER takes back the history an earlier start date wrote: the lessons this
+     * timetable BACK-FILLED (made after their own time) on dates in [$fromDate, $beforeDate), still
+     * SCHEDULED, with nothing recorded against them. The mirror of a start moved earlier, which
+     * writes that stretch. A lesson that was on the board before its time stays even unmarked —
+     * it may well have been taught. Its alerts go with a lesson taken back (they FK it).
+     *
+     * Reported 2026-11-11 (Ana Muslim): a timetable saved at 10:44 with today's start back-filled
+     * the 10:00 lesson; the start moved to Saturday 15 s later, and that lesson stayed on the
+     * attendance sheet of a student who had not started.
+     *
+     * @return int lessons removed
+     */
+    public function takeBackBackfilled(string $scheduleId, string $fromDate, string $beforeDate): int
+    {
+        $ids = self::whereNothingRecorded(DB::table('sessions'))
+            ->where('schedule_id', $scheduleId)
+            ->where('status', 'SCHEDULED')
+            ->whereNull('original_session_id')
+            ->whereNull('hidden_at')
+            ->where('occurrence_local_date', '>=', $fromDate)
+            ->where('occurrence_local_date', '<', $beforeDate)
+            ->whereColumn('created_at', '>', 'scheduled_at_utc')
+            // Neither a lesson something was rescheduled from, nor one a centre block has counted.
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('sessions as successor')->whereColumn('successor.original_session_id', 'sessions.id'))
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('centre_subscription_lessons as csl')->whereColumn('csl.session_id', 'sessions.id'))
+            ->pluck('id')
+            ->all();
+
+        if ($ids === []) {
+            return 0;
+        }
+
+        DB::table('notifications')->whereIn('session_id', $ids)->delete();
+
+        return DB::table('sessions')->whereIn('id', $ids)->delete();
     }
 
     /** Narrow a query on `sessions` to lessons with nothing recorded against them. */
