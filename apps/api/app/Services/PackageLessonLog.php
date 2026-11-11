@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Services;
 
+use App\Support\RecurrenceCalculator;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -34,6 +35,14 @@ final class PackageLessonLog
     public const UNMARKED = 'UNMARKED';
 
     public const UPCOMING = 'UPCOMING';
+
+    /** How far the timetable is read ahead for a block's undated lessons: 12 quarters = 3 years. */
+    private const PLAN_QUARTERS = 12;
+
+    /** Days read off the timetable per step. */
+    private const PLAN_STEP_DAYS = 91;
+
+    public function __construct(private readonly Holidays $holidays = new Holidays) {}
 
     /**
      * @param  object  $package  a lesson_packages row
@@ -66,6 +75,21 @@ final class PackageLessonLog
                 ->where('se.scheduled_at_utc', '>=', $now)
                 ->get();
             [$covered, $unscheduled] = $this->covered($package, $unmarked, $upcoming, $counted);
+
+            // The timetable is only put on the calendar to the end of next month, so a long block
+            // (38 lessons) ran out of dated lessons and showed 20 "no date yet". Its remaining
+            // lessons are read off the timetable itself, a quarter at a time until the balance is
+            // spent; only what no timetable dates stays a count.
+            $plan = collect();
+            $planned = null;
+            for ($quarter = 0; $unscheduled > 0 && $quarter < self::PLAN_QUARTERS; $quarter++) {
+                $plan = $plan->concat($this->planned($package, $timezone, $planned, $now));
+                if ($planned === []) {
+                    break; // no running timetable to read dates from
+                }
+                $all = $upcoming->concat($plan)->sortBy(fn (object $r): string => Carbon::parse($r->scheduled_at_utc)->utc()->format('Y-m-d H:i:s').$r->id)->values();
+                [$covered, $unscheduled] = $this->covered($package, $unmarked, $all, $counted);
+            }
         }
 
         // The block's own time: from its first day to the day it closed (still running: today).
@@ -132,6 +156,114 @@ final class PackageLessonLog
         return [$covered, $left > 0 && $length > 0 ? (int) ceil($left / $length) : 0];
     }
 
+    /**
+     * The next stretch of lessons the student's timetables will put on the calendar after the ones
+     * already there: every running timetable inside this block's subject, from the day after its
+     * last lesson on the calendar, holidays left out, the generator's own rules
+     * ({@see SessionGenerator::generateForSchedule}). `$state` carries where each timetable got to,
+     * so each call reads the next {@see PLAN_STEP_DAYS} days.
+     *
+     * @param  array<string, array{from: string, slots: list<array{id:string, weekday:int, start_time_local:string, duration_minutes:int}>, schedule: object}>|null  $state
+     * @return Collection<int,object>
+     */
+    private function planned(object $package, string $academyTimezone, ?array &$state, string $now): Collection
+    {
+        $state ??= $this->timetables($package, $academyTimezone);
+
+        $out = collect();
+        $nowAt = Carbon::parse($now);
+        foreach ($state as $key => $entry) {
+            $schedule = $entry['schedule'];
+            $to = Carbon::parse($entry['from'])->addDays(self::PLAN_STEP_DAYS - 1)->format('Y-m-d');
+            foreach (RecurrenceCalculator::occurrences($entry['slots'], (string) $schedule->timezone, $entry['from'], $to) as $o) {
+                if ($o['scheduled_at_utc']->lessThan($nowAt)
+                    || $this->holidays->isClosed((string) $schedule->academy_id, $o['occurrence_local_date'])) {
+                    continue;
+                }
+                $out->push((object) [
+                    'id' => 'plan-'.$schedule->id.'-'.$o['occurrence_local_date'].'-'.$o['slot_id'],
+                    'student_id' => (string) $schedule->student_id,
+                    'teacher_id' => (string) $schedule->teacher_id,
+                    'schedule_id' => (string) $schedule->id,
+                    'scheduled_at_utc' => $o['scheduled_at_utc']->copy()->utc()->format('Y-m-d H:i:sP'),
+                    'duration_minutes' => (int) $o['duration_minutes'],
+                    'status' => 'SCHEDULED',
+                    'status_reason' => null,
+                    'original_session_id' => null,
+                    'student_name' => $schedule->student_name,
+                    'teacher_name' => $schedule->teacher_name,
+                    'planned' => true,
+                ]);
+            }
+            $state[$key]['from'] = Carbon::parse($to)->addDay()->format('Y-m-d');
+        }
+
+        return $out;
+    }
+
+    /**
+     * The student's running timetables inside this block's subject (a block tied to a teacher and
+     * course only takes that teacher's lessons of that course: `uncounted`'s rule, on the slots),
+     * each with the first day the calendar does not hold yet.
+     *
+     * @return array<string, array{from: string, slots: list<array{id:string, weekday:int, start_time_local:string, duration_minutes:int}>, schedule: object}>
+     */
+    private function timetables(object $package, string $academyTimezone): array
+    {
+        // A removed student has no more lessons, whatever their timetable still says.
+        if (DB::table('students')->where('id', $package->student_id)->whereNotNull('deleted_at')->exists()) {
+            return [];
+        }
+
+        $schedules = DB::table('schedules as sc')
+            ->leftJoin('students as st', 'st.id', '=', 'sc.student_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'sc.teacher_id')
+            ->where('sc.student_id', $package->student_id)
+            ->where('sc.is_active', true)
+            ->whereNull('sc.deleted_at')
+            ->when($package->teacher_id !== null, fn ($q) => $q->where('sc.teacher_id', (string) $package->teacher_id))
+            ->orderBy('sc.id')
+            ->get(['sc.id', 'sc.academy_id', 'sc.student_id', 'sc.teacher_id', 'sc.timezone', 'sc.start_date', 'st.full_name as student_name', 'te.full_name as teacher_name']);
+
+        $course = mb_strtolower(trim((string) ($package->course ?? '')));
+        $today = Carbon::now($academyTimezone)->format('Y-m-d');
+
+        $out = [];
+        foreach ($schedules as $schedule) {
+            $slots = DB::table('schedule_slots')
+                ->where('schedule_id', $schedule->id)
+                ->orderBy('id')
+                ->get(['id', 'weekday', 'start_time_local', 'duration_minutes', 'course'])
+                ->filter(fn (object $s): bool => $package->teacher_id === null
+                    || $s->course === null
+                    || mb_strtolower(trim((string) $s->course)) === $course)
+                ->map(fn (object $s): array => [
+                    'id' => (string) $s->id,
+                    'weekday' => (int) $s->weekday,
+                    'start_time_local' => (string) $s->start_time_local,
+                    'duration_minutes' => (int) $s->duration_minutes,
+                ])
+                ->values()
+                ->all();
+            if ($slots === []) {
+                continue;
+            }
+
+            // The day after the last lesson the generator put on the calendar for it; never before
+            // the timetable starts, never in the past.
+            $last = DB::table('sessions')->where('schedule_id', $schedule->id)->whereNotNull('slot_id')->max('occurrence_local_date');
+            $from = max(
+                $last !== null ? Carbon::parse((string) $last)->addDay()->format('Y-m-d') : $today,
+                $schedule->start_date !== null ? substr((string) $schedule->start_date, 0, 10) : $today,
+                $today,
+            );
+
+            $out[(string) $schedule->id] = ['from' => $from, 'slots' => $slots, 'schedule' => $schedule];
+        }
+
+        return $out;
+    }
+
     /** The calendar's lesson shape, oldest first. */
     private function sessions(): Builder
     {
@@ -183,6 +315,9 @@ final class PackageLessonLog
             'student_name' => $r->student_name,
             'teacher_name' => $r->teacher_name,
             'package_state' => $state,
+            // Not on the calendar yet: the date the timetable gives it (it lands there as the
+            // calendar rolls forward, by the same rules).
+            'planned' => (bool) ($r->planned ?? false),
         ];
     }
 }

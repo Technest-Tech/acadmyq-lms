@@ -302,6 +302,12 @@ function LessonRow({ lesson, n, tz }: { lesson: CalendarSession | PackageLesson;
             {timeInTz(lesson.scheduled_at_utc, tz, locale)} – {timeInTz(endUtc(lesson), tz, locale)}
           </span>
           <span className="tabular-nums">{tStatus("actions.durationMin", { count: lesson.duration_minutes })}</span>
+          {"planned" in lesson && lesson.planned && (
+            <span className="text-muted-foreground/80 inline-flex items-center gap-1" title={t("plannedHint")} data-testid="lesson-log-planned">
+              <CalendarClock className="size-3 shrink-0" aria-hidden />
+              {t("planned")}
+            </span>
+          )}
           {lesson.teacher_name && (
             <span className="flex min-w-0 items-center gap-1">
               <GraduationCap className="size-3 shrink-0" aria-hidden />

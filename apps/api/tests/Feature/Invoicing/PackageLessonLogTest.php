@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Services\LessonPackages;
+use App\Services\SessionGenerator;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -144,6 +145,55 @@ it('counts what the balance pays for that the timetable has not put on a date ye
     expect(collect($res->json('lessons'))->pluck('id')->all())->toBe([$this->taken, $this->unmarked, $only])
         ->and($res->json('unscheduled'))->toBe(1)
         ->and($res->json('lessons_total'))->toBe(4);
+});
+
+it('dates the rest of a long block from the timetable, past the calendar window', function () {
+    // 20 hour lessons; the calendar only holds the timetable to the end of next month.
+    $this->asAcademy($this->academy);
+    DB::table('lesson_packages')->where('id', $this->packageId)->update(['minutes_total' => 1200]);
+    // Sundays 13:00 Cairo (10:00 UTC in summer).
+    $schedule = $this->createSchedule($this->academy, $this->student, $this->teacher);
+    $this->addSlot($this->academy, $schedule, 0, '13:00:00', 60);
+    app(SessionGenerator::class)->generateForSchedule($schedule, ...SessionGenerator::defaultWindow());
+    // A holiday on a Sunday past the window: no lesson that day.
+    DB::table('academy_holidays')->insert([
+        'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'name' => 'Break',
+        'starts_on' => '2026-08-09', 'ends_on' => '2026-08-09',
+    ]);
+
+    $res = ($this->log)();
+    $lessons = collect($res->json('lessons'));
+    $upcoming = $lessons->where('package_state', 'UPCOMING')->values();
+    $planned = $upcoming->where('planned', true)->values();
+
+    // 1 counted + 1 unmarked + 18 upcoming: the whole block, every one on a date.
+    expect($lessons)->toHaveCount(20)
+        ->and($res->json('unscheduled'))->toBe(0)
+        ->and($res->json('lessons_total'))->toBe(20)
+        ->and($upcoming)->toHaveCount(18)
+        // June 14 → July 26 are on the calendar already; the rest are read off the timetable.
+        ->and($upcoming->where('planned', false)->count())->toBe(7)
+        ->and($planned)->toHaveCount(11)
+        ->and($planned->first()['scheduled_at_utc'])->toBe('2026-08-02T10:00:00+00:00')
+        ->and($planned->pluck('scheduled_at_utc'))->not->toContain('2026-08-09T10:00:00+00:00')
+        ->and($planned->last()['scheduled_at_utc'])->toBe('2026-10-18T10:00:00+00:00')
+        ->and($planned->first())->toMatchArray(['status' => 'SCHEDULED', 'duration_minutes' => 60, 'teacher_id' => $this->teacher, 'schedule_id' => $schedule]);
+
+    // Read only: nothing was written to the calendar.
+    $this->asAcademy($this->academy);
+    expect(DB::table('sessions')->where('schedule_id', $schedule)->count())->toBe(7);
+});
+
+it('dates nothing from a timetable that is switched off', function () {
+    $this->asAcademy($this->academy);
+    DB::table('lesson_packages')->where('id', $this->packageId)->update(['minutes_total' => 1200]);
+    $schedule = $this->createSchedule($this->academy, $this->student, $this->teacher, overrides: ['is_active' => false]);
+    $this->addSlot($this->academy, $schedule, 0, '13:00:00', 60);
+
+    $res = ($this->log)();
+
+    expect(collect($res->json('lessons'))->where('planned', true))->toHaveCount(0)
+        ->and($res->json('unscheduled'))->toBe(18);
 });
 
 it('lists a finished block by what it counted, and nothing upcoming', function () {

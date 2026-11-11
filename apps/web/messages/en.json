@@ -2754,6 +2754,8 @@
       "unscheduledCount": "{count} not scheduled",
       "unmarked": "Not marked yet",
       "upcoming": "Upcoming",
+      "planned": "per timetable",
+      "plannedHint": "Dated from the student's timetable — it lands on the calendar as its month comes up.",
       "unscheduled": "{count, plural, one {# lesson of the package has no date yet} other {# lessons of the package have no date yet}}",
       "empty": "No lessons on this package yet.",
       "notCounted": "Lessons in the package's time it did not count ({count})",

@@ -78,6 +78,29 @@ describe("StudentLessonLog", () => {
     expect(screen.getByTestId("lesson-log-total")).toHaveTextContent("6");
   });
 
+  it("shows a lesson dated from the timetable like any upcoming one, tagged", async () => {
+    listLessonPackages.mockResolvedValue({ packages: [pkg()] });
+    getPackageLessons.mockResolvedValue({
+      ...log(),
+      lessons: [
+        ...log().lessons,
+        { ...lesson("plan-sc1-2099-08-02-sl1", "2099-08-02T10:00:00+00:00", "SCHEDULED", "UPCOMING"), planned: true },
+      ],
+      unscheduled: 0,
+      lessons_total: 5,
+    });
+    render(withAuth(owner(), <StudentLessonLog studentId="s1" />));
+
+    const list = await screen.findByTestId("lesson-log-list");
+    const planned = within(list).getByTestId("lesson-log-row-plan-sc1-2099-08-02-sl1");
+    expect(within(planned).getByTestId("lesson-log-status")).toHaveTextContent(ar.upcoming);
+    expect(within(planned).getByTestId("lesson-log-planned")).toHaveTextContent(ar.planned);
+    // A lesson already on the calendar carries no tag; nothing is left without a date.
+    expect(within(within(list).getByTestId("lesson-log-row-d")).queryByTestId("lesson-log-planned")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("lesson-log-unscheduled")).not.toBeInTheDocument();
+    expect(screen.getByTestId("lesson-log-total")).toHaveTextContent("5");
+  });
+
   it("keeps the lessons it never counted apart, folded", async () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     getPackageLessons.mockResolvedValue(log());

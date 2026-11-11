@@ -8636,6 +8636,12 @@ export type PackageLessonState = "COUNTED" | "UNMARKED" | "UPCOMING";
 
 export interface PackageLesson extends CalendarSession {
   package_state: PackageLessonState | null;
+  /**
+   * Not on the calendar yet: the date its timetable gives it. The calendar holds the timetable to
+   * the end of next month; a longer block's later lessons are read off the timetable, and land on
+   * the calendar as it rolls forward.
+   */
+  planned?: boolean;
 }
 
 /** GET /api/packages/{id}/lessons — one package's own lessons, exactly (the profile's lesson log). */
