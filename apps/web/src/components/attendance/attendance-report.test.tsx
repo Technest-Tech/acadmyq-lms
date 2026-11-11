@@ -536,6 +536,61 @@ describe("AttendanceReport (Sprint 6 §2/§6)", () => {
     );
   });
 
+  it("keeps the reason a supervisor typed when the office re-decides a cancelled lesson's money", async () => {
+    const user = userEvent.setup();
+    const base = detail();
+    vi.mocked(api.getSession).mockResolvedValue({
+      ...base,
+      session: { ...base.session, status: "CANCELLED_BY_STUDENT", status_reason: "الطالب مسافر" },
+    });
+    renderPanel(
+      makeSession("ACADEMY_OWNER", {
+        permissions: [
+          "session.read",
+          "session.mark_attendance",
+          "session.write_report",
+          "session.cancel",
+          "session.bill_override",
+        ],
+      }),
+    );
+
+    await user.click(await screen.findByTestId("outcome-CANCELLED_BY_STUDENT"));
+    // The popup opens with the supervisor's reason, not an empty box that would save over it.
+    expect(await screen.findByRole("textbox", { name: "Reason" })).toHaveValue("الطالب مسافر");
+    await user.click(screen.getByTestId("teacher-share-50"));
+    await user.click(screen.getByTestId("cancel-billing-confirm"));
+
+    expect(api.markAttendance).toHaveBeenCalledWith(
+      "se1",
+      expect.objectContaining({ status: "CANCELLED_BY_STUDENT", reason: "الطالب مسافر" }),
+    );
+  });
+
+  it("sends a holiday's marker back untouched, showing it as the holiday label", async () => {
+    const user = userEvent.setup();
+    const base = detail();
+    vi.mocked(api.getSession).mockResolvedValue({
+      ...base,
+      session: { ...base.session, status: "CANCELLED_BY_TEACHER", status_reason: "HOLIDAY" },
+    });
+    renderPanel(
+      makeSession("ACADEMY_OWNER", {
+        permissions: ["session.read", "session.mark_attendance", "session.write_report", "session.cancel"],
+      }),
+    );
+
+    await user.click(await screen.findByTestId("outcome-CANCELLED_BY_TEACHER"));
+    expect(await screen.findByRole("textbox", { name: "Reason" })).toHaveValue("Holiday");
+    await user.click(screen.getByTestId("cancel-billing-confirm"));
+
+    // Lifting the holiday finds its lessons by this marker.
+    expect(api.markAttendance).toHaveBeenCalledWith(
+      "se1",
+      expect.objectContaining({ status: "CANCELLED_BY_TEACHER", reason: "HOLIDAY" }),
+    );
+  });
+
   it("routes a TEACHER's free mark through the approval request flow", async () => {
     const user = userEvent.setup();
     vi.mocked(api.requestFree).mockResolvedValue({

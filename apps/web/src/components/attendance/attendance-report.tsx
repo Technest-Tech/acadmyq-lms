@@ -35,6 +35,7 @@ import {
   type SessionDetailResponse,
   type WhatsAppMessage,
 } from "@/lib/api";
+import { HOLIDAY_REASON } from "@/lib/holidays-api";
 import { cn } from "@/lib/utils";
 import {
   CancellationBillingModal,
@@ -124,6 +125,7 @@ export function AttendanceReport({
 }) {
   const t = useTranslations("attendance");
   const ts = useTranslations("scheduling");
+  const tHolidays = useTranslations("holidays");
   const locale = useLocale();
   const { can, session: auth } = useAuth();
   // Switched off per client from the Super Admin profile: then there is no card to draw.
@@ -285,6 +287,26 @@ export function AttendanceReport({
     setEditing(true);
   }
 
+  /**
+   * The reason the lesson already carries: what whoever recorded the outcome typed (a supervisor
+   * cancelling it), or, while a teacher's request waits, the reason on the request. The billing
+   * popup opens with it, so re-deciding the money keeps it instead of saving an empty box over
+   * it. A holiday's marker is shown as the holiday label.
+   */
+  const storedReason = (kind: "cancel" | "free"): string => {
+    const pending = kind === "free" ? session.pending_free : session.pending_cancellation;
+    const raw = session.status === "SCHEDULED" ? pending?.reason : session.status_reason;
+    return raw?.trim() ?? "";
+  };
+  const shownReason = (kind: "cancel" | "free"): string => {
+    const raw = storedReason(kind);
+    return raw === HOLIDAY_REASON ? tHolidays("badge") : raw;
+  };
+  /** What to send: an untouched box sends the stored text back as it was (a holiday's marker
+   *  included — lifting the holiday finds its lessons by it). */
+  const reasonToSend = (kind: "cancel" | "free", typed: string): string | undefined =>
+    (typed === shownReason(kind) ? storedReason(kind) : typed) || undefined;
+
   /** Apply an owner cancellation with its billing decision, then persist any report text. */
   async function confirmCancelBilling(values: CancellationBillingValues) {
     if (!cancelModal) return;
@@ -296,7 +318,7 @@ export function AttendanceReport({
         charge_student: values.charge_student,
         pay_teacher: values.pay_teacher,
         teacher_pay_percent: values.pay_teacher ? values.teacher_pay_percent : undefined,
-        reason: values.reason || undefined,
+        reason: reasonToSend("cancel", values.reason),
       });
       // An untouched form has nothing to say about a cancelled lesson — and may have required
       // fields that would refuse it.
@@ -325,7 +347,7 @@ export function AttendanceReport({
         charge_student: values.charge_student,
         pay_teacher: values.pay_teacher,
         teacher_pay_percent: values.pay_teacher ? values.teacher_pay_percent : undefined,
-        reason: values.reason || undefined,
+        reason: reasonToSend("free", values.reason),
       });
       if (!structured || filledFields) await putSessionReport(sessionId, reportPayload());
       setFreeModalOpen(false);
@@ -1027,6 +1049,7 @@ export function AttendanceReport({
         open={cancelModal !== null}
         onClose={() => setCancelModal(null)}
         cancelType={cancelModal?.type ?? "teacher"}
+        defaultReason={shownReason("cancel")}
         busy={busy}
         onConfirm={confirmCancelBilling}
       />
@@ -1036,6 +1059,7 @@ export function AttendanceReport({
         variant="free"
         open={freeModalOpen}
         onClose={() => setFreeModalOpen(false)}
+        defaultReason={shownReason("free")}
         busy={busy}
         onConfirm={confirmFreeBilling}
       />
