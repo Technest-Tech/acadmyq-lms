@@ -7,12 +7,14 @@ import {
   Link2,
   Loader2,
   MessageSquare,
+  Trash2,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { MethodBadge, dayLabel } from "@/components/accounting/accounting-ui";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
+import { DeleteInvoiceModal } from "@/components/invoices/delete-invoice-modal";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { AlertBanner } from "@/components/ui/alert";
@@ -64,6 +66,8 @@ export interface InvoiceDetail {
   children?: string[];
   /** A hand-made bill still unpaid a day after it was raised. */
   needs_follow_up?: boolean;
+  /** A custom bill nothing is paid on and nothing stands behind — it can be deleted. */
+  can_delete?: boolean;
 }
 
 interface InvoiceDetailResponse {
@@ -363,6 +367,7 @@ export function InvoiceDetailModal({
 
   // Mark Paid nested modal
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [receipts, setReceipts] = useState<InvoiceReceipt[] | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
   const tAcc = useTranslations("accounting");
@@ -438,8 +443,9 @@ export function InvoiceDetailModal({
     invoice?.status === "OPEN" ||
     invoice?.status === "CLOSED" ||
     invoice?.status === "PARTIALLY_PAID";
+  const canDelete = invoice?.can_delete === true && can("invoice.create");
   const showActions =
-    canAct && (can("invoice.send_link") || can("invoice.mark_paid"));
+    (canAct && (can("invoice.send_link") || can("invoice.mark_paid"))) || canDelete;
 
   const publicUrl = invoice ? invoiceUrl(invoice.public_token) : "";
 
@@ -465,7 +471,20 @@ export function InvoiceDetailModal({
         footer={
           showActions ? (
             <div className="flex w-full flex-wrap items-center gap-2">
-              {can("invoice.send_link") && (
+              {canDelete && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-destructive hover:text-destructive"
+                  onClick={() => setDeleteOpen(true)}
+                  data-testid="invoice-detail-delete"
+                >
+                  <Trash2 className="size-3.5" aria-hidden />
+                  {t("deleteInvoice")}
+                </Button>
+              )}
+              {canAct && can("invoice.send_link") && (
                 <Button
                   type="button"
                   variant="outline"
@@ -482,7 +501,7 @@ export function InvoiceDetailModal({
                 </Button>
               )}
               {/* On receipts a running invoice stays OPEN once paid — nothing left, nothing to collect. */}
-              {can("invoice.mark_paid") && !(receipts !== null && balanceDue === 0) && (
+              {canAct && can("invoice.mark_paid") && !(receipts !== null && balanceDue === 0) && (
                 <Button
                   type="button"
                   size="sm"
@@ -838,6 +857,22 @@ export function InvoiceDetailModal({
           onSuccess={() => {
             setMarkPaidOpen(false);
             void load(invoiceId);
+          }}
+        />
+      )}
+
+      {invoice && invoiceId && canDelete && (
+        <DeleteInvoiceModal
+          open={deleteOpen}
+          invoiceId={invoiceId}
+          payerName={invoice.payer_name}
+          totalMinor={invoice.total_minor}
+          currency={invoice.currency}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => {
+            setDeleteOpen(false);
+            // Gone: close the bill; the list behind refreshes on close.
+            onClose();
           }}
         />
       )}

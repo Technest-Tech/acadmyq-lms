@@ -6,6 +6,7 @@ import {
   ExternalLink,
   Eye,
   MoreHorizontal,
+  Trash2,
   Wallet,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
@@ -19,6 +20,7 @@ import {
 } from "react";
 import type { InvoiceRow } from "@/app/(app)/invoices/screen";
 import { useAuth } from "@/components/auth-provider";
+import { DeleteInvoiceModal } from "@/components/invoices/delete-invoice-modal";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { Button } from "@/components/ui/button";
@@ -37,13 +39,15 @@ function MenuItem({
   label: string;
   onClick?: () => void;
   href?: string;
-  tone?: "default" | "primary";
+  tone?: "default" | "primary" | "danger";
 }) {
   const cls = cn(
     "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-start text-sm transition-colors",
     tone === "primary"
       ? "text-primary hover:bg-primary/8"
-      : "text-foreground hover:bg-muted",
+      : tone === "danger"
+        ? "text-destructive hover:bg-destructive/10"
+        : "text-foreground hover:bg-muted",
   );
   const inner = (
     <>
@@ -78,7 +82,7 @@ export interface InvoiceRowActionsProps {
   row: InvoiceRow;
   /** Open the full detail modal. */
   onView: () => void;
-  /** Called after a mutation (mark-paid) so the list + stats refresh. */
+  /** Called after a mutation (mark-paid, delete) so the list + stats refresh. */
   onChanged: () => void;
 }
 
@@ -98,6 +102,7 @@ export function InvoiceRowActions({
   const [open, setOpen] = useState(false);
   const [style, setStyle] = useState<CSSProperties>({});
   const [markPaidOpen, setMarkPaidOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const btnRef = useRef<HTMLButtonElement>(null);
@@ -107,6 +112,8 @@ export function InvoiceRowActions({
     row.status === "OPEN" ||
     row.status === "CLOSED" ||
     row.status === "PARTIALLY_PAID";
+  // A custom bill raised by mistake, nothing paid on it (the API's own rule) — whoever raises bills.
+  const canDelete = row.can_delete === true && can("invoice.create");
   const invoiceUrl = useInvoiceUrl();
   const publicUrl = invoiceUrl(row.public_token);
 
@@ -194,6 +201,20 @@ export function InvoiceRowActions({
             href={publicUrl}
             onClick={() => setOpen(false)}
           />
+          {canDelete && (
+            <>
+              <div className="bg-border/60 my-1 h-px" aria-hidden />
+              <MenuItem
+                icon={Trash2}
+                label={t("deleteInvoice")}
+                tone="danger"
+                onClick={() => {
+                  setOpen(false);
+                  setDeleteOpen(true);
+                }}
+              />
+            </>
+          )}
         </div>,
         document.body,
       )
@@ -233,6 +254,21 @@ export function InvoiceRowActions({
           onChanged();
         }}
       />
+
+      {canDelete && (
+        <DeleteInvoiceModal
+          open={deleteOpen}
+          invoiceId={row.id}
+          payerName={row.payer_name}
+          totalMinor={row.total_minor}
+          currency={row.currency}
+          onClose={() => setDeleteOpen(false)}
+          onDeleted={() => {
+            setDeleteOpen(false);
+            onChanged();
+          }}
+        />
+      )}
     </div>
   );
 }

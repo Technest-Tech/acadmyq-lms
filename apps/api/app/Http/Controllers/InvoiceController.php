@@ -50,6 +50,24 @@ final class InvoiceController extends Controller
         SQL;
 
     /**
+     * The bill can be deleted outright: one an operator typed by hand (a custom bill — free-form
+     * lines only, no lesson, group month or package / centre block behind it, those are taken back
+     * from where they were raised) on which no money has landed — nothing paid, no receipt or credit
+     * applied, no charge let go. Past that point a bill is history: the receipt is voided first.
+     */
+    private const DELETABLE_SQL = <<<'SQL'
+        (inv.kind = 'MANUAL'
+         and inv.amount_paid_minor = 0
+         and inv.paid_at is null
+         and not exists (select 1 from receipt_allocations ra where ra.invoice_id = inv.id)
+         and not exists (select 1 from invoice_line_items dl where dl.invoice_id = inv.id
+               and (dl.session_id is not null or dl.class_group_id is not null or dl.class_group_lesson_id is not null
+                    or dl.group_cycle is not null or dl.cancelled_at is not null))
+         and not exists (select 1 from lesson_packages lp where lp.invoice_id = inv.id or lp.overdraft_invoice_id = inv.id)
+         and not exists (select 1 from centre_subscriptions cs where cs.invoice_id = inv.id))
+        SQL;
+
+    /**
      * The children a bill is for, as a JSON array of names: the students on its lines; failing
      * that (a family bill with no per-child line), the guardian's active children; failing that,
      * the student the bill is addressed to.
@@ -110,6 +128,7 @@ final class InvoiceController extends Controller
                 'inv.created_at',
                 DB::raw('coalesce(g.full_name, sg.full_name) as guardian_name'),
                 DB::raw(self::CHILDREN_SQL.' as children'),
+                DB::raw(self::DELETABLE_SQL.' as can_delete'),
             ])
             ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', [self::followUpCutoff()]);
 
@@ -181,6 +200,7 @@ final class InvoiceController extends Controller
             'rows' => $result['rows']->map(function ($r) {
                 $r->children = json_decode((string) $r->children, true) ?: [];
                 $r->needs_follow_up = (bool) $r->needs_follow_up;
+                $r->can_delete = (bool) $r->can_delete;
 
                 return $r;
             }),
@@ -583,6 +603,7 @@ final class InvoiceController extends Controller
                 DB::raw('coalesce(g.whatsapp_phone, s.whatsapp_phone) as payer_phone'),
                 DB::raw('coalesce(g.full_name, sg.full_name) as guardian_name'),
                 DB::raw(self::CHILDREN_SQL.' as children'),
+                DB::raw(self::DELETABLE_SQL.' as can_delete'),
             ])
             ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', [self::followUpCutoff()])
             ->first();
@@ -593,6 +614,7 @@ final class InvoiceController extends Controller
 
         $invoice->children = json_decode((string) $invoice->children, true) ?: [];
         $invoice->needs_follow_up = (bool) $invoice->needs_follow_up;
+        $invoice->can_delete = (bool) $invoice->can_delete;
 
         $lineItems = DB::table('invoice_line_items as li')
             ->leftJoin('students as s', 's.id', '=', 'li.student_id')
@@ -801,6 +823,65 @@ final class InvoiceController extends Controller
         );
 
         return response()->json(['closed' => $closed]);
+    }
+
+    // -------------------------------------------------------------------------
+    // DELETE /api/invoices/{id}
+    // -------------------------------------------------------------------------
+
+    /**
+     * Delete a custom bill raised by mistake ({@see DELETABLE_SQL}). Whoever may raise one may take
+     * an unpaid one back. The row goes (its lines and any unfinished card checkout with it), so it
+     * leaves the list, the follow-up badge and the payer's account, and its link stops working; the
+     * audit log keeps what it was.
+     */
+    public function destroy(string $id): JsonResponse
+    {
+        Gate::authorize('invoice.create');
+
+        return DB::transaction(function () use ($id): JsonResponse {
+            $invoice = DB::table('invoices as inv')
+                ->where('inv.id', $id)
+                ->lockForUpdate()
+                ->select(['inv.*'])
+                ->selectRaw(self::DELETABLE_SQL.' as can_delete')
+                ->first();
+
+            if ($invoice === null) {
+                abort(404, 'Invoice not found.');
+            }
+
+            if (! $invoice->can_delete) {
+                $paid = (int) $invoice->amount_paid_minor > 0 || $invoice->paid_at !== null
+                    || DB::table('receipt_allocations')->where('invoice_id', $id)->exists();
+                throw ValidationException::withMessages(['invoice' => [$paid
+                    ? 'Money was received on this bill. Void the receipt first, then delete it.'
+                    : 'Only a custom bill can be deleted here. This one belongs to lessons, a group or a package.']]);
+            }
+
+            $lines = DB::table('invoice_line_items')->where('invoice_id', $id)
+                ->get(['description', 'amount_minor', 'student_id'])
+                ->map(fn ($l) => ['description' => (string) $l->description, 'amount_minor' => (int) $l->amount_minor, 'student_id' => $l->student_id])
+                ->all();
+
+            DB::table('invoices')->where('id', $id)->delete();
+
+            $ctx = app(AuthContext::class);
+            Audit::log('invoice.deleted', 'invoice', $id, (string) $invoice->academy_id, $ctx->userId, $ctx->role,
+                before: [
+                    'kind' => (string) $invoice->kind,
+                    'status' => (string) $invoice->status,
+                    'guardian_id' => $invoice->guardian_id,
+                    'student_id' => $invoice->student_id,
+                    'payer_name' => $invoice->payer_name,
+                    'period' => sprintf('%04d-%02d', (int) $invoice->period_year, (int) $invoice->period_month),
+                    'total_minor' => (int) $invoice->total_minor,
+                    'currency' => (string) $invoice->currency,
+                    'lines' => $lines,
+                ]);
+
+            return response()->json(['deleted' => true]);
+        });
     }
 
     // -------------------------------------------------------------------------

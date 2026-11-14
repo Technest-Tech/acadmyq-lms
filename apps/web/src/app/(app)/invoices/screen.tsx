@@ -60,6 +60,8 @@ export interface InvoiceRow {
   children: string[];
   /** A hand-made bill still unpaid a day after it was raised (GET /api/invoices/follow-up). */
   needs_follow_up: boolean;
+  /** A custom bill nothing is paid on and nothing stands behind — it can be deleted. */
+  can_delete?: boolean;
 }
 
 // ── Status badge ───────────────────────────────────────────────────────────────

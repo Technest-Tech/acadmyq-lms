@@ -186,3 +186,86 @@ it('tells the web app the academy public origin', function () {
         ->assertOk()
         ->assertJsonPath('academy.publicOrigin', $this->origin);
 });
+
+// ── Deleting a custom bill ───────────────────────────────────────────────────
+
+/** Raise a quick bill for the student and return its id. */
+function quickBill($test, int $amount = 5000): string
+{
+    Sanctum::actingAs($test->owner);
+
+    return (string) $test->postJson('/api/invoices/quick', [
+        'student_id' => $test->student, 'amount_minor' => $amount, 'currency' => 'EGP', 'description' => 'Typed by mistake',
+    ])->assertCreated()->json('id');
+}
+
+function listedBill($test, string $id): ?array
+{
+    return collect($test->getJson('/api/invoices?filter[kind]=MANUAL')->assertOk()->json('rows'))->firstWhere('id', $id);
+}
+
+it('deletes an unpaid custom bill: off the list, its link dead, the audit log keeps it', function () {
+    $id = quickBill($this);
+    $this->asAcademy($this->academy);
+    $token = DB::table('invoices')->where('id', $id)->value('public_token');
+    $this->clearTenantContext();
+
+    expect(listedBill($this, $id)['can_delete'])->toBeTrue();
+    $this->getJson("/api/invoices/{$id}")->assertOk()->assertJsonPath('invoice.can_delete', true);
+
+    $this->deleteJson("/api/invoices/{$id}")->assertOk()->assertJson(['deleted' => true]);
+
+    expect(listedBill($this, $id))->toBeNull();
+    $this->getJson("/api/invoices/{$id}")->assertNotFound();
+    $this->getJson("/api/i/{$token}")->assertNotFound();
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoice_line_items')->where('invoice_id', $id)->exists())->toBeFalse();
+    $audit = DB::table('audit_log')->where('action', 'invoice.deleted')->where('entity_id', $id)->first();
+    expect($audit)->not->toBeNull()
+        ->and(json_decode((string) $audit->before, true)['total_minor'])->toBe(5000)
+        ->and(json_decode((string) $audit->before, true)['lines'][0]['description'])->toBe('Typed by mistake');
+});
+
+it('will not delete a custom bill money was paid on', function () {
+    $id = quickBill($this);
+    $this->postJson("/api/invoices/{$id}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    expect(listedBill($this, $id)['can_delete'])->toBeFalse();
+    $this->deleteJson("/api/invoices/{$id}")->assertUnprocessable()->assertJsonValidationErrors(['invoice']);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->where('id', $id)->exists())->toBeTrue();
+});
+
+it('will not delete a package\'s bill or a monthly invoice from here', function () {
+    $this->asAcademy($this->academy);
+    $packageBill = DB::table('lesson_packages')->where('id', app(App\Services\LessonPackages::class)->open([
+        'student_id' => $this->student, 'label' => '4 hours', 'minutes_total' => 240, 'price_minor' => 24000,
+        'currency' => 'EGP', 'bill_timing' => 'ON_START', 'starts_on' => '2026-06-01', 'carry_over' => false,
+    ], (string) $this->owner->id, 'ACADEMY_OWNER')['package_id'])->value('invoice_id');
+    $auto = (string) Illuminate\Support\Str::uuid();
+    DB::table('invoices')->insert([
+        'id' => $auto, 'academy_id' => $this->academy, 'kind' => 'AUTO', 'student_id' => $this->student,
+        'period_year' => 2026, 'period_month' => 5, 'currency' => 'EGP', 'public_token' => 'tok-'.uniqid(),
+    ]);
+    $this->clearTenantContext();
+    expect($packageBill)->not->toBeNull();
+
+    Sanctum::actingAs($this->owner);
+    foreach ([(string) $packageBill, $auto] as $id) {
+        $this->getJson("/api/invoices/{$id}")->assertOk()->assertJsonPath('invoice.can_delete', false);
+        $this->deleteJson("/api/invoices/{$id}")->assertUnprocessable();
+    }
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->whereIn('id', [(string) $packageBill, $auto])->count())->toBe(2);
+});
+
+it('lets only someone who can raise a bill delete one', function () {
+    $id = quickBill($this);
+    $teacher = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-quick@test.local']);
+
+    Sanctum::actingAs($teacher);
+    $this->deleteJson("/api/invoices/{$id}")->assertForbidden();
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->where('id', $id)->exists())->toBeTrue();
+});

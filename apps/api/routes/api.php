@@ -1351,6 +1351,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/invoices/quick', [InvoiceController::class, 'storeQuick']);
         Route::post('/invoices/close', [InvoiceController::class, 'close']);
         Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
+        Route::delete('/invoices/{id}', [InvoiceController::class, 'destroy']);
         Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
         Route::get('/invoices/{id}/payment-proof', [InvoiceController::class, 'paymentProof']);
         Route::post('/invoices/{id}/send-link', [InvoiceController::class, 'sendLink']);
