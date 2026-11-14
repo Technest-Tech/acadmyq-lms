@@ -159,6 +159,8 @@ final class StudentProgressReportController extends Controller
         if (! empty($data['status'])) {
             $query->where('r.status', $data['status']);
         }
+        // A removed student's report waits on nobody: it stays in their history, not in this queue.
+        $query->where(fn ($q) => $q->where('r.status', '!=', 'PENDING')->orWhereNull('s.deleted_at'));
 
         $rows = $query->limit(200)->get()->map(fn ($r) => $this->shapeRow($r));
 

@@ -50,6 +50,14 @@ final class LessonPackageController extends Controller
     private const UNPAID_INVOICE_STATUSES = ['OPEN', 'CLOSED', 'PARTIALLY_PAID'];
 
     /**
+     * A removed student's package left open — students deleted before the delete closed their
+     * package still had one sitting in Open packages, the Due page and the counters. Hidden from
+     * every academy-wide list (the money on it stays in the book, untouched); a restored student
+     * brings it back. Removing a student today closes the package, so this only ever matches those.
+     */
+    private const NOT_OPEN_OF_REMOVED = "not (p.status = 'ACTIVE' and exists (select 1 from students rm_st where rm_st.id = p.student_id and rm_st.deleted_at is not null))";
+
+    /**
      * GET /api/packages — every package, newest first, with its live balance.
      * Filters: scope (open = ACTIVE | finished = everything else | due = money still owed on it,
      * whatever its status), status (ACTIVE|COMPLETED|CANCELLED), student_id, q (student name).
@@ -66,6 +74,9 @@ final class LessonPackageController extends Controller
         ]);
 
         $query = $this->baseQuery();
+        if (($validated['student_id'] ?? null) === null) {
+            $query->whereRaw(self::NOT_OPEN_OF_REMOVED);
+        }
 
         // The three pages of the screen: Due (a payment to collect, open or finished), Open
         // packages and Finished packages.
@@ -143,9 +154,10 @@ final class LessonPackageController extends Controller
             ->whereRaw('i.total_minor > i.amount_paid_minor')
             ->count();
 
-        $lowBalance = (int) DB::table('lesson_packages')
-            ->where('status', 'ACTIVE')
-            ->whereRaw('(minutes_total + carried_over_minutes - minutes_consumed) <= 60')
+        $lowBalance = (int) DB::table('lesson_packages as p')
+            ->where('p.status', 'ACTIVE')
+            ->whereRaw(self::NOT_OPEN_OF_REMOVED)
+            ->whereRaw('(p.minutes_total + p.carried_over_minutes - p.minutes_consumed) <= 60')
             ->count();
 
         // Students still being taught after their block ran out, with nobody having decided what
@@ -186,7 +198,7 @@ final class LessonPackageController extends Controller
         // academy is paid up front, so a block that has just opened is already a payment to
         // collect. Per currency, never summed across them.
         $dueRows = $this->whereDue(
-            DB::table('lesson_packages as p')->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id'),
+            DB::table('lesson_packages as p')->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')->whereRaw(self::NOT_OPEN_OF_REMOVED),
         )
             ->selectRaw('p.currency, count(*) as n')
             ->selectRaw('coalesce(sum(greatest(coalesce(i.total_minor, 0) - coalesce(i.amount_paid_minor, 0), 0)), 0) as due_minor')
@@ -199,7 +211,7 @@ final class LessonPackageController extends Controller
             ->map(fn ($row) => ['currency' => trim((string) $row->currency), 'amount_minor' => (int) $row->due_minor])
             ->values();
 
-        $active = (int) DB::table('lesson_packages')->where('status', 'ACTIVE')->count();
+        $active = (int) DB::table('lesson_packages as p')->where('p.status', 'ACTIVE')->whereRaw(self::NOT_OPEN_OF_REMOVED)->count();
         $completed = (int) DB::table('lesson_packages')->where('status', 'COMPLETED')->count();
         $cancelled = (int) DB::table('lesson_packages')->where('status', 'CANCELLED')->count();
 
@@ -207,6 +219,7 @@ final class LessonPackageController extends Controller
         // snapshot for one currency: contracted value, finished value, cash collected and debt.
         $financials = DB::table('lesson_packages as p')
             ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
+            ->whereRaw(self::NOT_OPEN_OF_REMOVED)
             ->groupBy('p.currency')
             ->orderBy('p.currency')
             ->selectRaw('p.currency')
@@ -1192,6 +1205,9 @@ final class LessonPackageController extends Controller
             ->when($packageIds !== null, fn ($q) => $q->whereIn('p.id', $packageIds))
             ->where('p.status', '!=', 'ACTIVE')
             ->whereNotNull('p.closed_at')
+            // A removed student is not "still being taught with no package".
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('students as rm_st')
+                ->whereColumn('rm_st.id', 'p.student_id')->whereNotNull('rm_st.deleted_at'))
             ->whereNotExists(fn ($q) => $q->select(DB::raw(1))
                 ->from('lesson_packages as later')
                 ->whereColumn('later.student_id', 'p.student_id')

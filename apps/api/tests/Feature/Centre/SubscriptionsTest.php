@@ -569,6 +569,24 @@ it('holds a sale while the last block of the subject is unpaid under pay-first, 
 
 // ── Views, reminders, notifications, alerts ──────────────────────────────────
 
+it('keeps a block left open for a student removed the old way off the lists and the counters', function () {
+    $open = ($this->sell)()->assertCreated()->json('subscription.id');
+    // Deleted before the delete wound blocks down: the row soft-deleted, the block still OPEN.
+    $this->asAcademy($this->academy);
+    DB::table('students')->where('id', $this->hassan)->update(['deleted_at' => '2026-06-05 09:00:00+00']);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson('/api/subscriptions')->assertOk()->assertJsonPath('meta.total', 0);
+    $this->getJson('/api/subscriptions?view=open')->assertOk()->assertJsonPath('meta.total', 0);
+    $this->getJson('/api/subscriptions?view=due')->assertOk()->assertJsonPath('meta.total', 0);
+    $this->getJson('/api/subscriptions/summary')->assertOk()
+        ->assertJsonPath('open', 0)->assertJsonPath('due_count', 0)->assertJsonPath('outstanding', []);
+    // Hidden, not touched: the block, its bill and a lookup by the student are all still there.
+    $this->getJson("/api/subscriptions?student_id={$this->hassan}")->assertOk()->assertJsonPath('rows.0.id', $open);
+    expect(($this->sub)($open)->status)->toBe('OPEN');
+});
+
 it('lists the four views and the summary, and reads the picker', function () {
     $open = ($this->sell)()->assertCreated()->json('subscription.id');
     $nada = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Nada', 'status' => 'REGULAR']);

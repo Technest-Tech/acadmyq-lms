@@ -105,6 +105,9 @@ final class FlagOverdueReportsJob implements ShouldQueue
             ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
             ->whereNull('sr.id')
             ->whereIn('se.status', self::NEEDS_REPORT)
+            // A hidden lesson (the student was removed, or the lesson deleted) is off every page the
+            // teacher could report it from — nobody is waiting on that report.
+            ->whereNull('se.hidden_at')
             ->whereRaw('se.scheduled_at_utc + make_interval(mins => se.duration_minutes) <= ?', [$cutoffEnd->format('Y-m-d H:i:sP')])
             ->where('se.scheduled_at_utc', '>=', $lookback->format('Y-m-d H:i:sP'))
             ->select([

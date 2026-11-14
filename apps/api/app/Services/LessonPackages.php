@@ -2236,23 +2236,27 @@ final class LessonPackages
 
         $renewedId = $renews && ! $held ? $this->renew($package, $actorUserId, $actorRole) : null;
 
-        $this->notify(
-            (string) $package->academy_id,
-            'PACKAGE_COMPLETED',
-            $packageId,
-            [
-                'package_id' => $packageId,
-                'student_id' => (string) $package->student_id,
-                'student_name' => $this->studentName((string) $package->student_id),
-                'label' => (string) $package->label,
-                'reason' => $reason,
-                'minutes_consumed' => (int) $package->minutes_consumed,
-                'minutes_overdrawn' => (int) $package->minutes_overdrawn,
-                'invoice_id' => $invoiceId,
-                'currency' => (string) $package->currency,
-                'renewed_package_id' => $renewedId,
-            ],
-        );
+        // Closed because the student was removed: nobody is waiting on a renewal, so no alert (the
+        // bell and the staff WhatsApp group were told "package ended" about someone just deleted).
+        if ($reason !== 'STUDENT_REMOVED') {
+            $this->notify(
+                (string) $package->academy_id,
+                'PACKAGE_COMPLETED',
+                $packageId,
+                [
+                    'package_id' => $packageId,
+                    'student_id' => (string) $package->student_id,
+                    'student_name' => $this->studentName((string) $package->student_id),
+                    'label' => (string) $package->label,
+                    'reason' => $reason,
+                    'minutes_consumed' => (int) $package->minutes_consumed,
+                    'minutes_overdrawn' => (int) $package->minutes_overdrawn,
+                    'invoice_id' => $invoiceId,
+                    'currency' => (string) $package->currency,
+                    'renewed_package_id' => $renewedId,
+                ],
+            );
+        }
 
         Audit::log(
             'lesson_package.completed',

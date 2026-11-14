@@ -561,6 +561,8 @@ final class GroupAlerts
             ->leftJoin('invoices as i', 'i.id', '=', 'cs.invoice_id')
             ->where('n.academy_id', $academyId)
             ->where('n.type', $type)
+            // A removed student's block is no news for the staff group.
+            ->whereNull('st.deleted_at')
             ->where('n.created_at', '>=', $lower->format(self::TS))
             ->orderBy('n.created_at')
             ->limit(self::DETECT_LIMIT)
@@ -611,6 +613,8 @@ final class GroupAlerts
             ->leftJoin('invoices as i', 'i.id', '=', 'p.invoice_id')
             ->where('n.academy_id', $academyId)
             ->where('n.type', $notificationType)
+            // A removed student's package is no news for the staff group.
+            ->whereNull('st.deleted_at')
             ->where('n.created_at', '>=', $lower->format(self::TS))
             ->orderBy('n.created_at')
             ->limit(self::DETECT_LIMIT)

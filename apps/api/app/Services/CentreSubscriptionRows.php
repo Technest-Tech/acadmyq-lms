@@ -23,6 +23,12 @@ final class CentreSubscriptionRows
 
     private const NIL = '00000000-0000-0000-0000-000000000000';
 
+    /**
+     * A removed student's block left OPEN (students deleted before the delete wound blocks down)
+     * stays off the lists and the counters; the money on it is untouched, a restore brings it back.
+     */
+    public const NOT_OPEN_OF_REMOVED = "not (cs.status = 'OPEN' and exists (select 1 from students rm_st where rm_st.id = cs.student_id and rm_st.deleted_at is not null))";
+
     public function __construct(private readonly SubscriptionSettlement $settlement) {}
 
     /**
@@ -35,6 +41,9 @@ final class CentreSubscriptionRows
     {
         $view = in_array($f['view'] ?? null, self::VIEWS, true) ? $f['view'] : null;
         $q = $this->query();
+        if (($f['student_id'] ?? null) === null) {
+            $q->whereRaw(self::NOT_OPEN_OF_REMOVED);
+        }
         match ($view) {
             'open' => $q->where('cs.status', 'OPEN'),
             'due' => $this->whereDue($q),
@@ -117,7 +126,7 @@ final class CentreSubscriptionRows
     /** @return array{open: int, finished_unrenewed: int, outside_students: int, due_count: int, outstanding: list<array{currency: string, minor: int}>, ending: int} */
     public function summary(): array
     {
-        $open = DB::table('centre_subscriptions as cs')->where('cs.status', 'OPEN')
+        $open = DB::table('centre_subscriptions as cs')->where('cs.status', 'OPEN')->whereRaw(self::NOT_OPEN_OF_REMOVED)
             ->selectRaw('count(*) as open')
             ->selectRaw('count(*) filter (where cs.lessons_sold - ('.$this->usedSql().') <= ?) as ending', [self::ENDING_LESSONS])
             ->first();
@@ -125,6 +134,7 @@ final class CentreSubscriptionRows
             ->whereNull('s.deleted_at')->whereIn('cs.status', ['FINISHED', 'CLOSED'])
             ->whereRaw('not exists ('.$this->renewedSql().')')->count();
         $due = $this->whereDue(DB::table('centre_subscriptions as cs')->join('invoices as i', 'i.id', '=', 'cs.invoice_id'))
+            ->whereRaw(self::NOT_OPEN_OF_REMOVED)
             ->groupBy('i.currency')->selectRaw('i.currency, count(*) as n, sum(i.total_minor - i.amount_paid_minor) as minor')->get();
         $outside = (int) DB::table('centre_subscription_lessons as l')->join('students as s', 's.id', '=', 'l.student_id')
             ->whereNull('l.subscription_id')->whereNull('s.deleted_at')->distinct()->count('l.student_id');

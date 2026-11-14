@@ -63,6 +63,13 @@ final class SessionController extends Controller
     private const OVERDUE_LIMIT = 500;
 
     /**
+     * The waiting-to-be-marked queues never hold a removed student's lesson. The removal already
+     * cancels and hides them; this is the second lock, because lessons that slipped past it once
+     * (a timetable that kept generating for a student deleted before the wind-down) sat there for weeks.
+     */
+    private const STUDENT_NOT_REMOVED = 'not exists (select 1 from students rm_st where rm_st.id = se.student_id and rm_st.deleted_at is not null)';
+
+    /**
      * Join each lesson's FIRST "Following" click (who, when) so a row can show that a supervisor
      * is already on it. `distinct on` keeps it to one row per lesson, so the join never fans out.
      */
@@ -626,6 +633,7 @@ final class SessionController extends Controller
             ->where('se.status', 'SCHEDULED')
             ->where('se.scheduled_at_utc', '<=', now()->format('Y-m-d H:i:sP'))
             ->whereNull('se.hidden_at')
+            ->whereRaw(self::STUDENT_NOT_REMOVED)
             ->select([
                 'se.id', 'se.student_id', 'se.teacher_id', 'se.scheduled_at_utc',
                 'se.duration_minutes', 'se.status',
@@ -677,6 +685,7 @@ final class SessionController extends Controller
         $base = DB::table('sessions as se')
             ->where('se.status', 'SCHEDULED')
             ->whereNull('se.hidden_at')
+            ->whereRaw(self::STUDENT_NOT_REMOVED)
             ->whereRaw('se.scheduled_at_utc + make_interval(mins => se.duration_minutes) <= ?', [$cutoff]);
 
         if ($this->ctx()->role === 'TEACHER') {

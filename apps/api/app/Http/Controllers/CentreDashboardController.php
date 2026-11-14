@@ -114,6 +114,7 @@ final class CentreDashboardController extends Controller
         $subs = $this->subscriptions->summary();
 
         $subsThen = DB::table('centre_subscriptions as cs')
+            ->whereRaw(CentreSubscriptionRows::NOT_OPEN_OF_REMOVED)
             ->where('cs.created_at', '<', $thenUtc)
             ->where(fn ($q) => $q->whereNull('cs.finished_at')->orWhere('cs.finished_at', '>=', $thenUtc))
             ->where(fn ($q) => $q->whereNull('cs.closed_at')->orWhere('cs.closed_at', '>=', $thenUtc))

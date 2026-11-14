@@ -140,7 +140,9 @@ final class NotificationController extends Controller
 
         // Pending student progress reports awaiting the owner's review (drives the "Student
         // Reports" tab badge only — deliberately NOT folded into `total`/the sidebar bell count).
-        $studentReports = (int) DB::table('student_progress_reports')->where('status', 'PENDING')->count();
+        $studentReports = (int) DB::table('student_progress_reports as r')->where('r.status', 'PENDING')
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('students as rm_st')->whereColumn('rm_st.id', 'r.student_id')->whereNotNull('rm_st.deleted_at'))
+            ->count();
 
         return response()->json([
             'classes' => $classes,
@@ -213,6 +215,15 @@ final class NotificationController extends Controller
             // Course-sale alerts (docs/lms/10 §5) share this table but not this page: they are
             // worked from the sales desk, which shows the receipt itself and the approve button.
             // Surfacing them here too would mean two inboxes for one decision.
-            ->whereNotIn('n.category', $hidden);
+            ->whereNotIn('n.category', $hidden)
+            // A removed student leaves the inbox and the bell with everything else of theirs: an
+            // alert on one of their lessons (hidden with them — or a lesson deleted on its own), or
+            // one naming them, as the package / subscription alerts do.
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('sessions as rm_se')
+                ->whereColumn('rm_se.id', 'n.session_id')->whereNotNull('rm_se.hidden_at'))
+            ->whereNotExists(fn ($q) => $q->select(DB::raw(1))->from('students as rm_st')
+                ->whereNotNull('rm_st.deleted_at')
+                ->where(fn ($w) => $w->whereColumn('rm_st.id', 'n.subject_id')
+                    ->orWhereRaw("rm_st.id::text = n.data->>'student_id'")));
     }
 }

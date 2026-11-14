@@ -16,6 +16,7 @@ use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
 use App\Services\StudentLevels;
 use App\Services\StudentMonth;
+use App\Services\StudentWindDown;
 use App\Support\Audit;
 use App\Support\CurrentSubscription;
 use App\Support\DataTable;
@@ -491,6 +492,7 @@ final class StudentController extends Controller
                     'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
                     'hidden_sessions' => $wound['sessions_hidden'],
                     'left_groups' => $wound['groups_left'],
+                    'cancelled_trials' => $wound['trials_cancelled'],
                 ],
                 before: ['status' => $student->status]);
         });
@@ -575,6 +577,7 @@ final class StudentController extends Controller
                     'cancelled_unmarked_sessions' => $wound['sessions_cancelled'],
                     'hidden_sessions' => $wound['sessions_hidden'],
                     'left_groups' => $wound['groups_left'],
+                    'cancelled_trials' => $wound['trials_cancelled'],
                     'dues_let_go' => $duesLetGo,
                 ],
                 before: ['status' => $student->status]);
@@ -1218,133 +1221,13 @@ final class StudentController extends Controller
 
     /**
      * Wind down everything still running for a student who is leaving (shared by deactivate and
-     * the recoverable delete): the ACTIVE subscription, the open teacher assignment, the open
-     * lesson package, the timetable, and every lesson still waiting to be marked. Without the last
-     * three a removed student kept a live package, kept generating lessons, and their unmarked
-     * lessons sat in الحصص المعلقة, fired "not marked" group alerts and docked the teacher forever.
+     * the recoverable delete) — {@see StudentWindDown}.
      *
-     * @return array{subscription: bool, assignment: bool, package: ?string, groups_left: int, schedules: int, sessions_removed: int, sessions_cancelled: int, sessions_hidden: int}
+     * @return array<string,mixed>
      */
     private function endActiveBilling(string $studentId, $now): array
     {
-        // The package first, while the subscription that describes it is still ACTIVE.
-        $package = $this->closeOpenPackage($studentId);
-        // A centre's blocks in lessons stop with them (docs/centre-profile/01-*).
-        app(CentreSubscriptions::class)->windDown($studentId, 'STUDENT_REMOVED', $this->ctx()->userId, $this->ctx()->role);
-
-        $endedSubscription = DB::table('subscriptions')
-            ->where('student_id', $studentId)->where('status', 'ACTIVE')->whereNull('deleted_at')
-            ->update(['status' => 'ENDED', 'updated_at' => $now]);
-
-        $closedAssignment = DB::table('student_teacher_assignments')
-            ->where('student_id', $studentId)->whereNull('ended_at')
-            ->update(['ended_at' => $now, 'updated_at' => $now]);
-
-        return [
-            'subscription' => $endedSubscription > 0,
-            'assignment' => $closedAssignment > 0,
-            'package' => $package,
-            // Group classes: they stop being expected on any sheet from today (docs/groups).
-            'groups_left' => app(ClassGroups::class)->leaveAllFor($studentId, 'Student removed from the academy'),
-        ] + $this->windDownLessons($studentId, $now);
-    }
-
-    /**
-     * Close the student's open lesson package. An untouched one is voided; one with hours already
-     * used is closed the way an owner closes one early, so ON_COMPLETION still bills what was
-     * actually consumed. Returns what happened (CANCELLED / COMPLETED) or null when none was open.
-     */
-    private function closeOpenPackage(string $studentId): ?string
-    {
-        $packages = app(LessonPackages::class);
-        $ctx = $this->ctx();
-        $outcome = null;
-        // Every open block — a centre's student may hold one per subject.
-        while (($package = $packages->anyActiveFor($studentId)) !== null) {
-            // Minutes absorbed from the previous block's last lesson are not this package's own use.
-            if ((int) $package->minutes_consumed - (int) $package->absorbed_overdraft_minutes === 0) {
-                $packages->cancel((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
-                $outcome ??= 'CANCELLED';
-
-                continue;
-            }
-
-            $packages->complete((string) $package->id, 'STUDENT_REMOVED', $ctx->userId, $ctx->role);
-            $outcome = 'COMPLETED';
-        }
-
-        return $outcome;
-    }
-
-    /**
-     * Stop the timetable and clear every lesson still sitting in SCHEDULED. The schedule is ended
-     * exactly as DELETE /students/{id}/schedule ends it (future untouched rows are removed by the
-     * generator). Whatever is left — past lessons nobody marked, ad-hoc lessons, reschedule
-     * successors — is closed as cancelled-by-student, which neither bills nor pays, and any
-     * request still waiting on those lessons is rejected so it leaves the approvals queue.
-     *
-     * @return array{schedules: int, sessions_removed: int, sessions_cancelled: int, sessions_hidden: int}
-     */
-    private function windDownLessons(string $studentId, $now): array
-    {
-        $scheduleIds = DB::table('schedules')
-            ->where('student_id', $studentId)
-            ->where('is_active', true)
-            ->whereNull('deleted_at')
-            ->pluck('id');
-
-        $removed = 0;
-        if ($scheduleIds->isNotEmpty()) {
-            DB::table('schedules')->whereIn('id', $scheduleIds)->update([
-                'is_active' => false,
-                'deleted_at' => $now,
-                'updated_at' => $now,
-            ]);
-
-            [$windowStart, $windowEnd] = SessionGenerator::defaultWindow();
-            foreach ($scheduleIds as $scheduleId) {
-                $removed += $this->generator->generateForSchedule((string) $scheduleId, $windowStart, $windowEnd)['removed'];
-            }
-        }
-
-        $leftover = DB::table('sessions')
-            ->where('student_id', $studentId)
-            ->where('status', 'SCHEDULED')
-            ->pluck('id');
-
-        if ($leftover->isNotEmpty()) {
-            DB::table('session_cancellation_requests')
-                ->whereIn('session_id', $leftover)
-                ->where('status', 'PENDING')
-                ->update([
-                    'status' => 'REJECTED',
-                    'decided_by_user_id' => $this->ctx()->userId,
-                    'decided_at' => $now,
-                    'decision_note' => 'Student removed from the academy',
-                    'updated_at' => $now,
-                ]);
-
-            DB::table('sessions')->whereIn('id', $leftover)->update([
-                'status' => 'CANCELLED_BY_STUDENT',
-                'status_reason' => 'Student removed from the academy',
-                'updated_at' => $now,
-            ]);
-        }
-
-        // Every lesson they ever had — attended, cancelled, the ones just closed above — leaves the
-        // calendar and the attendance page. Display only: billing and payroll still read the rows.
-        // Reactivation does NOT bring them back, so a returning student starts over.
-        $hidden = DB::table('sessions')
-            ->where('student_id', $studentId)
-            ->whereNull('hidden_at')
-            ->update(['hidden_at' => $now->toIso8601String()]);
-
-        return [
-            'schedules' => $scheduleIds->count(),
-            'sessions_removed' => $removed,
-            'sessions_cancelled' => $leftover->count(),
-            'sessions_hidden' => $hidden,
-        ];
+        return app(StudentWindDown::class)->run($studentId, Carbon::parse($now), $this->ctx()->userId, $this->ctx()->role);
     }
 
     private function activeSubscription(string $studentId): ?object
