@@ -1,6 +1,8 @@
 import type { Pool } from 'pg'
 import { ManagedSession } from './managed-session.js'
+import type { SendPayload } from '../queue/send-queue.js'
 import type { SettingsStore } from '../settings.js'
+import type { ProxyPool } from '../proxy/proxy-pool.js'
 import type { WebhookClient } from '../webhook/webhook-client.js'
 import { sha256Hex, randomToken } from '../util/crypto.js'
 import type { AppConfig } from '../config.js'
@@ -22,18 +24,48 @@ export class SessionManager {
     private readonly settings: SettingsStore,
     private readonly webhook: WebhookClient,
     private readonly logger: Logger,
+    private readonly proxies: ProxyPool,
   ) {}
 
   /** Rehydrate non-logged-out sessions and reconnect each (staggered so N sockets don't dial at once). */
   async bootstrap(): Promise<void> {
+    // A session nobody ever scanned (or whose login was wiped) has nothing to reconnect WITH; dialling
+    // it only shows QR codes to an empty room. It waits, logged out, for the next Connect press.
+    const idle = await this.pool.query(
+      `update wa_sessions set state = 'logged_out', updated_at = now()
+        where state <> 'logged_out'
+          and (creds is null or jsonb_typeof(creds->'me') is distinct from 'object')`,
+    )
+    if (idle.rowCount) this.logger.info({ count: idle.rowCount }, 'unpaired sessions left idle')
+
     const res = await this.pool.query(
       `select session_id, academy_id, token_hash, extract(epoch from created_at) * 1000 as created_ms
          from wa_sessions where state <> 'logged_out'`,
     )
     this.logger.info({ count: res.rows.length }, 'rehydrating sessions')
+
+    // What was waiting to be sent when the last process stopped. A message for a session that is no
+    // longer coming back has nowhere to go.
+    await this.pool.query(
+      `delete from wa_send_queue q
+        where not exists (select 1 from wa_sessions s where s.session_id = q.session_id and s.state <> 'logged_out')`,
+    )
+    const waiting = await this.pool.query(
+      `select message_id, session_id, jid, payload, extract(epoch from enqueued_at) * 1000 as enqueued_ms
+         from wa_send_queue order by enqueued_at asc, message_id asc`,
+    )
+    const bySession = new Map<string, Array<{ jid: string; messageId: string; payload: SendPayload; enqueuedAt: number }>>()
+    for (const row of waiting.rows) {
+      const list = bySession.get(row.session_id) ?? []
+      list.push({ jid: row.jid, messageId: row.message_id, payload: row.payload as SendPayload, enqueuedAt: Number(row.enqueued_ms) })
+      bySession.set(row.session_id, list)
+    }
+    if (waiting.rows.length) this.logger.info({ count: waiting.rows.length }, 'restored queued messages')
+
     let i = 0
     for (const row of res.rows) {
       const session = this.instantiate(row.session_id, row.academy_id, row.token_hash, Number(row.created_ms))
+      session.restoreQueue(bySession.get(row.session_id) ?? [])
       const delay = 200 + i * 400 + Math.random() * 200
       setTimeout(() => void session.start(), delay)
       i += 1
@@ -102,12 +134,14 @@ export class SessionManager {
   }
 
   /** Graceful shutdown: stop all sockets WITHOUT logging out (creds survive for next boot). */
-  shutdown(): void {
+  async shutdown(): Promise<void> {
     if (this.watchdog) {
       clearInterval(this.watchdog)
       this.watchdog = null
     }
     for (const s of this.byId.values()) s.stop()
+    // Let the last creds writes reach Postgres before the caller closes the pool.
+    await Promise.allSettled([...this.byId.values()].map((s) => s.flush()))
   }
 
   private instantiate(sessionId: string, academyId: string, tokenHash: string, createdAt: number): ManagedSession {
@@ -118,6 +152,7 @@ export class SessionManager {
       this.settings,
       this.webhook,
       this.logger.child({ sessionId, academyId }),
+      this.proxies,
     )
     this.byId.set(sessionId, session)
     this.byTokenHash.set(tokenHash, session)

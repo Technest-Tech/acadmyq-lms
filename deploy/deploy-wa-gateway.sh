@@ -27,6 +27,11 @@ cd "$WA_DIR/apps/wa-gateway"
 set -a; . "$ENV_FILE"; set +a
 node dist/migrate.js
 
+echo "▶ Installing log rotation + the hourly database backup ..."
+install -m 0644 "$WA_DIR/deploy/logrotate/wa-gateway" /etc/logrotate.d/wa-gateway
+install -m 0755 "$WA_DIR/deploy/bin/wa-gateway-backup.sh" /usr/local/bin/wa-gateway-backup.sh
+install -m 0644 "$WA_DIR/deploy/cron/wa-gateway-backup" /etc/cron.d/wa-gateway-backup
+
 echo "▶ Fixing ownership + restarting service ..."
 chown -R wagateway:wagateway "$WA_DIR"
 systemctl restart wa-gateway

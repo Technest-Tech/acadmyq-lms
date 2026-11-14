@@ -48,8 +48,11 @@ export function decideReconnect(statusCode: number | undefined, badSessionStreak
   }
 }
 
-/** Exponential backoff with full jitter, capped. */
+/**
+ * Exponential backoff, capped, with "equal" jitter: half the delay is fixed and half is random. Full
+ * jitter could draw a delay of almost nothing, i.e. re-dial WhatsApp the instant a dial failed.
+ */
 export function backoffDelay(attempt: number, baseMs: number, capMs: number): number {
-  const exp = Math.min(capMs, baseMs * 2 ** attempt)
-  return Math.random() * exp
+  const exp = Math.min(capMs, baseMs * 2 ** Math.min(attempt, 30))
+  return exp / 2 + Math.random() * (exp / 2)
 }

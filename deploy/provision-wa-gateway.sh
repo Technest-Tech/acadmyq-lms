@@ -23,7 +23,7 @@ WA_DB_PASSWORD="${WA_DB_PASSWORD:-$(openssl rand -hex 16)}"
 echo "▶ Installing base packages ..."
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y curl git ufw ca-certificates gnupg postgresql postgresql-contrib
+apt-get install -y curl git ufw ca-certificates gnupg postgresql postgresql-contrib rsync openssl
 
 echo "▶ Installing Node.js 24 (NodeSource) + pnpm 10 ..."
 if ! command -v node >/dev/null || [ "$(node -v | cut -c2-3)" != "24" ]; then
@@ -69,6 +69,10 @@ touch /var/log/wa-gateway.log
 chown wagateway:wagateway /var/log/wa-gateway.log
 
 install -m 0644 "$WA_DIR/deploy/systemd/wa-gateway.service" /etc/systemd/system/wa-gateway.service
+install -m 0644 "$WA_DIR/deploy/logrotate/wa-gateway" /etc/logrotate.d/wa-gateway
+# Hourly dump of the gateway database — every client's linked device lives in it.
+install -m 0755 "$WA_DIR/deploy/bin/wa-gateway-backup.sh" /usr/local/bin/wa-gateway-backup.sh
+install -m 0644 "$WA_DIR/deploy/cron/wa-gateway-backup" /etc/cron.d/wa-gateway-backup
 systemctl daemon-reload
 systemctl enable wa-gateway
 

@@ -1,0 +1,13 @@
+# Install to /etc/logrotate.d/wa-gateway on the gateway server.
+# The service appends to this file through systemd (StandardOutput=append:), which keeps the file
+# open — hence copytruncate rather than a rename.
+/var/log/wa-gateway.log {
+    daily
+    rotate 14
+    size 50M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

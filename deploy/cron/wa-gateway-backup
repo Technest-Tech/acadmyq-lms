@@ -1,0 +1,12 @@
+# Hourly dump of the WhatsApp gateway's database (the linked devices of every client).
+# Install on the GATEWAY server:
+#     install -m 0755 deploy/bin/wa-gateway-backup.sh /usr/local/bin/wa-gateway-backup.sh
+#     install -m 0644 deploy/cron/wa-gateway-backup   /etc/cron.d/wa-gateway-backup
+#
+# Runs as root: it reads the gateway env file (chmod 600) for DATABASE_URL and writes to a
+# root-only directory. Minute 7, off the top of the hour where everything else runs. flock so a
+# slow copy to the remote never overlaps the next run. See the script header for restore steps.
+SHELL=/bin/sh
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+
+7 * * * * root /usr/bin/flock -n /var/lock/wa-gateway-backup.lock /usr/local/bin/wa-gateway-backup.sh >> /var/log/wa-gateway-backup.log 2>&1

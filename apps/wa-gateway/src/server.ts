@@ -4,6 +4,7 @@ import { logger, REDACT_PATHS } from './logger.js'
 import { pool } from './db/pool.js'
 import { WebhookClient } from './webhook/webhook-client.js'
 import { SessionManager } from './session/session-manager.js'
+import { ProxyPool, parseProxyUrls } from './proxy/proxy-pool.js'
 import { SettingsStore } from './settings.js'
 import { registerSendRoutes } from './routes/send.js'
 import { registerAdminRoutes } from './routes/admin.js'
@@ -40,7 +41,10 @@ async function main(): Promise<void> {
     },
     logger,
   )
-  const manager = new SessionManager(pool, config, settings, webhook, logger)
+  // Fails the boot on a malformed PROXY_URLS rather than have numbers dial from the wrong address.
+  const proxies = new ProxyPool(pool, parseProxyUrls(config.PROXY_URLS), logger)
+  if (proxies.enabled) logger.info('proxy pool on: every academy dials through its own proxy')
+  const manager = new SessionManager(pool, config, settings, webhook, logger, proxies)
 
   registerSendRoutes(app, manager)
   registerAdminRoutes(app, manager, settings, config)
@@ -74,7 +78,7 @@ async function main(): Promise<void> {
     shuttingDown = true
     logger.info({ sig }, 'shutting down (sockets closed, NOT logged out)')
     clearInterval(outboxTimer)
-    manager.shutdown()
+    await manager.shutdown()
     try {
       await app.close()
     } catch {

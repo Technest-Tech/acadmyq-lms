@@ -39,6 +39,9 @@ importers:
       fastify:
         specifier: 5.8.5
         version: 5.8.5
+      https-proxy-agent:
+        specifier: 7.0.6
+        version: 7.0.6
       pg:
         specifier: 8.22.0
         version: 8.22.0
@@ -48,6 +51,9 @@ importers:
       qrcode:
         specifier: 1.5.4
         version: 1.5.4
+      socks-proxy-agent:
+        specifier: 8.0.5
+        version: 8.0.5
       zod:
         specifier: 4.4.3
         version: 4.4.3
@@ -6216,6 +6222,10 @@ packages:
   socks-proxy-agent@7.0.0:
     resolution: {integrity: sha512-Fgl0YPZ902wEsAyiQ+idGd1A7rSFx/ayC1CQVMw5P+EQx2V0SgpGtf6OKFhVjPflPUl9YMmEOnmfjCdMUsygww==}
     engines: {node: '>= 10'}
+
+  socks-proxy-agent@8.0.5:
+    resolution: {integrity: sha512-HehCEsotFqbPW9sJ8WVYB6UbmIMv7kUUORIF2Nncq4VQvBfNBLibW9YZR5dlYCSUhwcD628pRllm7n+E+YTzJw==}
+    engines: {node: '>= 14'}
 
   socks@2.8.9:
     resolution: {integrity: sha512-LJhUYUvItdQ0LkJTmPeaEObWXAqFyfmP85x0tch/ez9cahmhlBBLbIqDFnvBnUJGagb0JbIQrkBs1wJ+yRYpEw==}
@@ -13480,6 +13490,14 @@ snapshots:
   socks-proxy-agent@7.0.0:
     dependencies:
       agent-base: 6.0.2
+      debug: 4.4.3
+      socks: 2.8.9
+    transitivePeerDependencies:
+      - supports-color
+
+  socks-proxy-agent@8.0.5:
+    dependencies:
+      agent-base: 7.1.4
       debug: 4.4.3
       socks: 2.8.9
     transitivePeerDependencies:

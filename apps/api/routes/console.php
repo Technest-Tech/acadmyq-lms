@@ -116,8 +116,14 @@ Schedule::job(new AccountsDailyJob)->dailyAt('09:00')->name('accounts-daily')->w
 | month's invoices are closed on the 2nd), for every academy with the toggle on, send last month's
 | unpaid student invoices to their WhatsApp via the academy's own Wasender token (deep-link fallback
 | when none). READ-ONLY over invoices; idempotent per (invoice, month).
+|
+| The 4th and 5th run it again. A bill that went out is skipped by its key; one that failed because
+| the gateway was down or the number was not linked that morning gets its second and third chance
+| (WhatsAppSender::claimRetry) instead of waiting a month.
 */
 Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(3, '08:00')->name('type1-student-billing')->withoutOverlapping();
+Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(4, '08:00')->name('type1-student-billing-retry-1')->withoutOverlapping();
+Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(5, '08:00')->name('type1-student-billing-retry-2')->withoutOverlapping();
 
 /*
 | Type 2 automation — lesson & trial reminders over WhatsApp. Hourly, for every academy with the

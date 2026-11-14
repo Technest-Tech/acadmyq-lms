@@ -23,10 +23,13 @@ use Throwable;
  *
  * Events handled:
  *   • connection.update — mirror the session state onto academy_automation_settings; a LOGGED_OUT
- *     (device unlinked or banned) raises an operator alert (the human-re-scan signal).
+ *     (device unlinked or banned) raises an operator alert (the human-re-scan signal), and so does
+ *     a DISCONNECTED, which the gateway sends only when a linked number stays down.
  *   • message.status    — move WhatsApp group alerts along sent → delivered → read (or back to
  *     FAILED for a retry), and flip an automation_send_log row to FAILED on a send failure (the
  *     synchronous send already recorded SENT/optimistic).
+ *   • send.paused       — the gateway's anti-ban brake stopped a number's queue because WhatsApp
+ *     started refusing its messages; an operator is told, since the next step may be a ban.
  */
 final class WhatsAppWebhookController extends Controller
 {
@@ -44,7 +47,8 @@ final class WhatsAppWebhookController extends Controller
             match ($event) {
                 'connection.update' => $this->onConnectionUpdate($academyId, (string) $request->json('sessionId', ''), $data),
                 'message.status' => $this->onMessageStatus($academyId, $data),
-                default => null, // qr.generated / message.inbound: not consumed server-side (panel polls QR)
+                'send.paused' => $this->alertPaused($academyId, $data),
+                default => null,
             };
         } catch (Throwable $e) {
             // Never 500 the gateway — it would just retry. Log and acknowledge.
@@ -73,8 +77,18 @@ final class WhatsAppWebhookController extends Controller
             ]) > 0;
         });
 
-        if ($current && $state === 'LOGGED_OUT') {
+        // A QR nobody scanned in time is an abandoned pairing, not a number that dropped.
+        if ($current && $state === 'LOGGED_OUT' && ($data['reason'] ?? null) !== 'qr_timeout') {
             $this->alertLoggedOut($academyId, $data);
+        }
+
+        // The gateway only reports DISCONNECTED once a linked number has failed to come back for a
+        // while — short drops heal by themselves and are never sent.
+        if ($current && $state === 'DISCONNECTED') {
+            $minutes = (int) ($data['downMinutes'] ?? 0);
+            $queued = (int) ($data['queued'] ?? 0);
+            Log::warning("WhatsApp session down for academy {$academyId} for {$minutes} min.", ['academy' => $academyId, 'queued' => $queued]);
+            $this->slack(":warning: WhatsApp number of academy `{$academyId}` has been disconnected for {$minutes} min and is not coming back by itself ({$queued} messages waiting). Check the gateway.");
         }
     }
 
@@ -120,6 +134,30 @@ final class WhatsAppWebhookController extends Controller
         ]);
 
         // Best-effort Slack ping so an operator re-scans quickly (the human-in-the-loop signal).
+        $this->slack(":warning: WhatsApp session logged out for academy `{$academyId}` — {$reason}. An admin must re-scan the QR.");
+    }
+
+    /**
+     * The gateway stopped sending for this number because WhatsApp is refusing its messages. The
+     * queue starts again by itself at `until`; what needs a person is finding out why (too many
+     * messages to people who never wrote to the number, a restriction on the account).
+     *
+     * @param  array<string,mixed>  $data
+     */
+    private function alertPaused(string $academyId, array $data): void
+    {
+        $reason = (string) ($data['reason'] ?? 'unknown');
+        $until = (string) ($data['until'] ?? '');
+        $phone = (string) ($data['phone'] ?? '');
+        Log::warning("WhatsApp sending paused for academy {$academyId}: {$reason}.", [
+            'academy' => $academyId, 'phone' => $phone, 'until' => $until,
+        ]);
+
+        $this->slack(":octagonal_sign: WhatsApp sending PAUSED for academy `{$academyId}` ({$phone}) — WhatsApp is refusing its messages: {$reason}. Sending resumes at {$until}. Check the number before it gets banned.");
+    }
+
+    private function slack(string $text): void
+    {
         $token = (string) config('services.slack.notifications.bot_user_oauth_token', '');
         $channel = (string) config('services.slack.notifications.channel', '');
         if ($token === '' || $channel === '') {
@@ -128,7 +166,7 @@ final class WhatsAppWebhookController extends Controller
         try {
             Http::withToken($token)->asJson()->timeout(8)->post('https://slack.com/api/chat.postMessage', [
                 'channel' => $channel,
-                'text' => ":warning: WhatsApp session logged out for academy `{$academyId}` — {$reason}. An admin must re-scan the QR.",
+                'text' => $text,
             ]);
         } catch (Throwable) {
             // Slack is best-effort; the Log::warning above is the durable record.

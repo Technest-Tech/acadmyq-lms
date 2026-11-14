@@ -28,6 +28,18 @@ use Throwable;
  */
 final class WhatsAppSender
 {
+    /**
+     * Failures after which the same logical send may be tried again. Each is certain not to have
+     * reached WhatsApp (so a second try cannot double a message) and can heal by itself: the gateway
+     * was down or busy, the number was not linked at that moment, or the message was dropped from the
+     * gateway's queue unsent. A timeout is deliberately absent — the gateway may have taken it.
+     * Postgres regex, matched against automation_send_log.error.
+     */
+    private const RETRYABLE = '^(gateway_unreachable|no_active_session|http_(401|409|429|503)|expired|queue_cleared)';
+
+    /** A failed send is only worth another try while it is still news. */
+    private const RETRY_WINDOW_DAYS = 3;
+
     /** @var array<string,bool> memoised Schema::hasTable results (one instance per request/job). */
     private array $tableCache = [];
 
@@ -47,9 +59,10 @@ final class WhatsAppSender
     {
         $deeplink = $this->deeplink($toPhone, $message);
 
-        // Idempotency: a logical send already delivered (by dedupe_key) is never repeated.
+        // Idempotency: a logical send already handled (by dedupe_key) is never repeated — unless it
+        // failed in a way that is safe and worth trying again, which this call then takes over.
         $dedupeKey = isset($meta['dedupe_key']) ? (string) $meta['dedupe_key'] : null;
-        if ($dedupeKey !== null && $this->alreadySent($academyId, $dedupeKey)) {
+        if ($dedupeKey !== null && $this->alreadySent($academyId, $dedupeKey) && ! $this->claimRetry($academyId, $dedupeKey)) {
             return $this->result('DEEPLINK', sent: false, duplicate: true, phone: $toPhone, message: $message, deeplink: $deeplink, error: null);
         }
 
@@ -84,7 +97,7 @@ final class WhatsAppSender
         $caption ??= '';
 
         $dedupeKey = isset($meta['dedupe_key']) ? (string) $meta['dedupe_key'] : null;
-        if ($dedupeKey !== null && $this->alreadySent($academyId, $dedupeKey)) {
+        if ($dedupeKey !== null && $this->alreadySent($academyId, $dedupeKey) && ! $this->claimRetry($academyId, $dedupeKey)) {
             return $this->result('WASENDER', sent: false, duplicate: true, phone: $toPhone, message: $caption, deeplink: '', error: null);
         }
 
@@ -151,7 +164,8 @@ final class WhatsAppSender
     /**
      * Has this (academy, dedupe_key) send already been handled? Transport-agnostic: a prior real
      * send (SENT) OR a produced deep link (SKIPPED) both count, so a daily/periodic key never
-     * double-fires regardless of whether a token was configured.
+     * double-fires regardless of whether a token was configured. A FAILED row counts too — whether
+     * it may be tried again is {@see claimRetry()}'s call, not this one's.
      */
     private function alreadySent(string $academyId, string $dedupeKey): bool
     {
@@ -166,8 +180,25 @@ final class WhatsAppSender
     }
 
     /**
-     * Append a send-log row (idempotent on academy_id+dedupe_key). Never throws — logging must not
-     * break a send.
+     * Take over a failed send for one more try. True only when the logged failure is one of the
+     * RETRYABLE kinds and still recent; the row is moved to QUEUED in the same statement, so two
+     * runs racing for the same key cannot both send, and {@see record()} writes the outcome back
+     * onto that row. A try that dies before recording leaves the row QUEUED — handled, never doubled.
+     */
+    private function claimRetry(string $academyId, string $dedupeKey): bool
+    {
+        return DB::table('automation_send_log')
+            ->where('academy_id', $academyId)
+            ->where('dedupe_key', $dedupeKey)
+            ->where('status', 'FAILED')
+            ->where('created_at', '>=', now()->subDays(self::RETRY_WINDOW_DAYS))
+            ->whereRaw('error ~ ?', [self::RETRYABLE])
+            ->update(['status' => 'QUEUED', 'updated_at' => now()]) > 0;
+    }
+
+    /**
+     * Append a send-log row (idempotent on academy_id+dedupe_key), or write the outcome of a retry
+     * back onto the row {@see claimRetry()} took over. Never throws — logging must not break a send.
      *
      * @param  array<string,mixed>  $meta
      */
@@ -178,6 +209,24 @@ final class WhatsAppSender
         }
 
         try {
+            if (isset($meta['dedupe_key'])) {
+                $retried = DB::table('automation_send_log')
+                    ->where('academy_id', $academyId)
+                    ->where('dedupe_key', (string) $meta['dedupe_key'])
+                    ->where('status', 'QUEUED')
+                    ->update([
+                        'transport' => $transport,
+                        'recipient_phone' => $phone !== '' ? $phone : null,
+                        'status' => $status,
+                        'error' => $error,
+                        'provider_message_id' => $providerMessageId,
+                        'updated_at' => now(),
+                    ]);
+                if ($retried > 0) {
+                    return;
+                }
+            }
+
             DB::table('automation_send_log')->insertOrIgnore([
                 'id' => (string) Str::uuid(),
                 'academy_id' => $academyId,

@@ -46,7 +46,7 @@ final class WasenderClient
             return ['ok' => true, 'message_id' => $messageId !== null ? (string) $messageId : null, 'error' => null];
         } catch (Throwable $e) {
             // Never surface the token or a stack trace to the caller; just a short reason.
-            return ['ok' => false, 'message_id' => null, 'error' => 'transport_error'];
+            return ['ok' => false, 'message_id' => null, 'error' => $this->thrownReason($e)];
         }
     }
 
@@ -77,8 +77,8 @@ final class WasenderClient
             $messageId = $body['data']['msgId'] ?? $body['data']['id'] ?? $body['msgId'] ?? $body['id'] ?? null;
 
             return ['ok' => true, 'message_id' => $messageId !== null ? (string) $messageId : null, 'error' => null];
-        } catch (Throwable) {
-            return ['ok' => false, 'message_id' => null, 'error' => 'transport_error'];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'message_id' => null, 'error' => $this->thrownReason($e)];
         }
     }
 
@@ -210,6 +210,17 @@ final class WasenderClient
             ->asJson()
             ->baseUrl((string) config('services.wasender.base_url'))
             ->timeout((int) config('services.wasender.timeout', 15));
+    }
+
+    /**
+     * Why a send threw. `gateway_unreachable` is the one case that is certain: the connection was
+     * never made (host not found, connection refused), so the gateway never saw the message and it
+     * is safe to send again. Anything else — a timeout above all — may have been accepted before the
+     * reply was lost, so it stays the ambiguous `transport_error` that nothing retries.
+     */
+    private function thrownReason(Throwable $e): string
+    {
+        return preg_match('/cURL error (6|7)\b/', $e->getMessage()) === 1 ? 'gateway_unreachable' : 'transport_error';
     }
 
     /**

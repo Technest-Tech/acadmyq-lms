@@ -14,7 +14,12 @@ export interface WebhookEvent {
  * fails is persisted to wa_webhook_outbox and retried by `flushOutbox` on an interval, so a Laravel
  * outage never loses a `connected`/`logged_out`/`qr` transition across a gateway restart.
  */
+/** Outbox rows are retried this many times (about a day of backoff), then dropped. */
+const MAX_ATTEMPTS = 30
+
 export class WebhookClient {
+  private flushing = false
+
   constructor(
     private readonly url: string | undefined,
     private readonly secret: string,
@@ -78,7 +83,27 @@ export class WebhookClient {
 
   /** Retry pending outbox rows whose backoff has elapsed. Called on an interval from server.ts. */
   async flushOutbox(limit = 50): Promise<void> {
-    if (!this.url) return
+    if (!this.url || this.flushing) return
+    // One flush at a time: with Laravel down each row waits out its timeout, a run can outlast the
+    // interval, and two overlapping runs deliver the same rows twice.
+    this.flushing = true
+    try {
+      await this.flushOnce(limit)
+      // Delivered rows, and rows nobody could be told about in a day of trying, are only weight.
+      await pool.query(
+        `delete from wa_webhook_outbox
+          where (delivered_at is not null and delivered_at < now() - interval '1 day')
+             or (delivered_at is null and attempts >= $1)`,
+        [MAX_ATTEMPTS],
+      )
+    } catch (e) {
+      this.logger.error({ err: e instanceof Error ? e.message : String(e) }, 'outbox flush failed')
+    } finally {
+      this.flushing = false
+    }
+  }
+
+  private async flushOnce(limit: number): Promise<void> {
     let rows: Array<{ id: string; session_id: string; event: string; payload: { academyId: string; data: Record<string, unknown> }; attempts: number }>
     try {
       const res = await pool.query(

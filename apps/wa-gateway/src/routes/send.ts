@@ -40,7 +40,7 @@ export function registerSendRoutes(app: FastifyInstance, manager: SessionManager
     }
     const jid = toUserJid(to)
     const messageId = generateMessageID()
-    session.enqueueSend(jid, messageId, { text, imageUrl, caption })
+    await session.enqueueSend(jid, messageId, { text, imageUrl, caption })
     return reply.code(200).send({ data: { msgId: messageId } })
   })
 
