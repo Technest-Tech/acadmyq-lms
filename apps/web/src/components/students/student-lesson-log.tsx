@@ -273,7 +273,7 @@ function MonthLog({ studentId }: { studentId: string }) {
 }
 
 /** One lesson: its number on the block, day and time, teacher and length, and how it stands. */
-function LessonRow({ lesson, n, tz }: { lesson: CalendarSession | PackageLesson; n?: number; tz: string }) {
+export function LessonRow({ lesson, n, tz }: { lesson: CalendarSession | PackageLesson; n?: number; tz: string }) {
   const t = useTranslations("students.lessonLog");
   const tStatus = useTranslations("scheduling");
   const locale = useLocale();

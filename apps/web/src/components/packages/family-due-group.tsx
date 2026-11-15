@@ -7,6 +7,7 @@ import {
   CalendarClock,
   Check,
   Copy,
+  History,
   Link2,
   Loader2,
   MessageSquare,
@@ -17,7 +18,8 @@ import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { blockAmount, blockMinutes } from "@/components/packages/lesson-price-fields";
-import { nextTermsText, PackageActions, type PackageActionProps, upcomingHint } from "@/components/packages/package-card";
+import { actionClass, nextTermsText, PackageActions, type PackageActionProps, upcomingHint } from "@/components/packages/package-card";
+import { PackageHistoryModal } from "@/components/packages/package-history-log";
 import { createFamilyPayLink, type LessonPackageRow, type PackagePurpose } from "@/lib/api";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime } from "@/lib/time";
@@ -74,6 +76,51 @@ function owed(rows: LessonPackageRow[]): { currency: string; amount_minor: numbe
 /** Why the row is owed — a block sold in lessons has no "hours used" to bill. */
 function purposeText(row: LessonPackageRow, purpose: string, t: (key: string) => string): string {
   return row.lesson_minutes && (purpose === "USAGE" || purpose === "OVERDRAFT") ? t(`purposeLessons.${purpose}`) : t(`purpose.${purpose}`);
+}
+
+type Translate = (key: string, values?: Record<string, string | number>) => string;
+
+/**
+ * The payment message a parent gets, ready to paste into WhatsApp: greeting, what each child owes
+ * and for which package, the total, the link, and a thank-you. One builder for the family's message
+ * and a single package's, so the two always read the same.
+ */
+export function paymentMessage({
+  name,
+  rows,
+  url,
+  familyLink,
+  t,
+  locale,
+}: {
+  name: string;
+  rows: LessonPackageRow[];
+  url: string;
+  familyLink: boolean;
+  t: Translate;
+  locale: string;
+}): string {
+  const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
+  return [
+    t("family.messageGreeting", { name }),
+    t(rows.length > 1 ? "family.messageIntro" : "family.messageIntroOne"),
+    "",
+    ...rows.map((r) =>
+      t("family.messageLine", {
+        child: r.student_name,
+        purpose: purposeText(r, r.purpose ?? "NEW", t),
+        label: `#${r.sequence_no} ${r.label}`.trim(),
+        amount: money(r.outstanding_minor, r.currency),
+      }),
+    ),
+    "",
+    t("family.messageTotal", { total: owed(rows).map((o) => money(o.amount_minor, o.currency)).join(" + ") }),
+    "",
+    t(familyLink ? "family.messagePayAll" : "family.messagePayOne"),
+    url,
+    "",
+    t("family.messageThanks"),
+  ].join("\n");
 }
 
 function initials(name: string): string {
@@ -141,23 +188,7 @@ export function FamilyDueGroup({
   }
 
   function message(url: string): string {
-    return [
-      t("family.messageGreeting", { name: family.name }),
-      t("family.messageIntro"),
-      "",
-      ...payable.map((r) =>
-        t("family.messageLine", {
-          child: r.student_name,
-          purpose: purposeText(r, r.purpose ?? "NEW", t),
-          label: r.label,
-          amount: money(r.outstanding_minor, r.currency),
-        }),
-      ),
-      "",
-      t("family.messageTotal", { total: owed(payable).map((o) => money(o.amount_minor, o.currency)).join(" + ") }),
-      t(familyLink ? "family.messagePayAll" : "family.messagePayOne"),
-      url,
-    ].join("\n");
+    return paymentMessage({ name: family.name, rows: payable, url, familyLink, t, locale });
   }
 
   async function sendMessage() {
@@ -187,7 +218,7 @@ export function FamilyDueGroup({
   async function copyLink() {
     setError(false);
     try {
-      await navigator.clipboard.writeText(await link());
+      await navigator.clipboard.writeText(message(await link()));
       setCopied(true);
       window.setTimeout(() => setCopied(false), 1800);
     } catch {
@@ -246,7 +277,14 @@ export function FamilyDueGroup({
           view === "open" ? (
             <OpenRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
           ) : (
-            <DueRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
+            <DueRow
+              key={row.id}
+              row={row}
+              timezone={timezone}
+              actions={actionProps(row)}
+              payerName={family.name}
+              canSendInvoice={canSendInvoice}
+            />
           )
         ))}
       </ul>
@@ -273,8 +311,8 @@ export function FamilyDueGroup({
             type="button"
             onClick={() => void copyLink()}
             className="text-muted-foreground hover:bg-muted hover:text-foreground flex w-10 shrink-0 items-center justify-center border-s transition-colors"
-            aria-label={copied ? t("actions.copied") : t("actions.copyLink")}
-            title={copied ? t("actions.copied") : t("actions.copyLink")}
+            aria-label={copied ? t("actions.copied") : t("actions.copyMessage")}
+            title={copied ? t("actions.copied") : t("actions.copyMessage")}
             data-testid="due-family-copy"
           >
             {copied ? <Check className="size-3.5 text-emerald-600" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
@@ -291,9 +329,40 @@ export function FamilyDueGroup({
  * (a new subscription, a renewal, the hours used…) and how long it has waited; the hours and lessons
  * behind it, with the leading action and "⋯".
  */
-function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: string; actions: PackageActionProps }) {
+/** What the Due page puts outside the menu, or drops: early close and lesson sync are not for this page. */
+const DUE_HIDDEN = ["remind", "copyLink", "close", "sync"] as const;
+
+function DueRow({
+  row,
+  timezone,
+  actions,
+  payerName,
+  canSendInvoice,
+}: {
+  row: LessonPackageRow;
+  timezone: string;
+  actions: PackageActionProps;
+  payerName: string;
+  canSendInvoice: boolean;
+}) {
   const t = useTranslations("packages");
   const locale = useLocale();
+  const invoiceUrl = useInvoiceUrl();
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const remindable = row.outstanding_minor > 0 || row.awaiting_next_package;
+  const copyable = row.invoice_token !== null && row.outstanding_minor > 0;
+
+  async function copyMessage() {
+    if (!copyable) return;
+    const url = invoiceUrl(row.invoice_token as string);
+    await navigator.clipboard.writeText(
+      paymentMessage({ name: payerName, rows: [row], url, familyLink: false, t, locale }),
+    );
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
+
   const owes = row.outstanding_minor > 0;
   const unbilled = row.invoice_id === null && row.minutes_consumed > 0;
   const purpose = row.purpose ?? "NEW";
@@ -358,8 +427,7 @@ function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: s
         </div>
       </div>
 
-      <div className="mt-1.5 flex items-center justify-between gap-2">
-        <p className="text-muted-foreground min-w-0 truncate text-[11px]" data-testid="due-package-usage">
+      <p className="text-muted-foreground mt-1.5 min-w-0 truncate text-[11px]" data-testid="due-package-usage">
           {blockAmount(row.minutes_sold, row.lesson_minutes, t, locale)} · {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
           {row.status === "ACTIVE" ? ` · ${formatNumber(row.percent_used, locale)}%` : ` · ${t(`status.${row.status}`)}`}
           {row.gap !== null && (
@@ -367,9 +435,60 @@ function DueRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: s
               <AlertTriangle className="size-3" aria-hidden />
             </span>
           )}
-        </p>
-        <PackageActions {...actions} featuredCount={1} className="shrink-0" />
+      </p>
+
+      {/* The three things done on this page every day sit outside: the package log, a reminder, and
+          the payment message copied ready to paste. The rest (mark paid first) behind "⋯". */}
+      <div className="mt-2 flex flex-wrap items-stretch gap-1.5">
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className={cn(actionClass(), "min-w-0 flex-1")}
+          data-testid="due-package-history"
+        >
+          <History className="size-3.5 shrink-0" aria-hidden />
+          <span className="truncate">{t("actions.history")}</span>
+        </button>
+        {canSendInvoice && remindable && (
+          <button
+            type="button"
+            onClick={actions.onRemind}
+            disabled={actions.reminding}
+            className={cn(actionClass({ tone: "primary" }), "min-w-0 flex-1")}
+            data-testid="remind-package"
+          >
+            {actions.reminding ? (
+              <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
+            ) : (
+              <BellRing className="size-3.5 shrink-0" aria-hidden />
+            )}
+            <span className="truncate">{t("actions.remind")}</span>
+          </button>
+        )}
+        {copyable && (
+          <button
+            type="button"
+            onClick={() => void copyMessage()}
+            className={cn(actionClass(), "min-w-0 flex-1")}
+            data-testid="due-package-copy"
+          >
+            {copied ? (
+              <Check className="size-3.5 shrink-0 text-emerald-600" aria-hidden />
+            ) : (
+              <Copy className="size-3.5 shrink-0" aria-hidden />
+            )}
+            <span className="truncate">{copied ? t("actions.copied") : t("actions.copyMessage")}</span>
+          </button>
+        )}
+        <PackageActions {...actions} featuredCount={1} hide={DUE_HIDDEN} className="shrink-0" />
       </div>
+
+      <PackageHistoryModal
+        studentId={row.student_id}
+        studentName={row.student_name}
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
     </li>
   );
 }

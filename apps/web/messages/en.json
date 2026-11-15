@@ -1958,8 +1958,8 @@
         "BANK_TRANSFER": "Add the account number or IBAN before switching this on.",
         "PAYPAL": "Add the PayPal email or paypal.me link before switching this on.",
         "OTHER": "Add the details before switching this on.",
-      "link": "That link is not valid — paste the full link, starting with https://",
-      "email": "That PayPal email does not look right."
+        "link": "That link is not valid — paste the full link, starting with https://",
+        "email": "That PayPal email does not look right."
       },
       "paypalAuto": "Automatic PayPal checkout is connected — parents pay right on the page.",
       "xpayNotSetUp": "Not set up yet — contact Acadmyq to turn on card payments."
@@ -3709,7 +3709,9 @@
       "renew": "Open next package",
       "toMonthly": "Switch to monthly",
       "remind": "Send reminder",
-      "billOverdraftLessons": "Bill the extra time"
+      "billOverdraftLessons": "Bill the extra time",
+      "history": "Packages log",
+      "copyMessage": "Copy payment message"
     },
     "form": {
       "title": "Open a package",
@@ -3974,7 +3976,9 @@
       "lessonsTaken": "{count, plural, =0 {no lessons yet} one {{n} lesson taken} other {{n} lessons taken}}",
       "linkFailed": "Could not prepare the link — try again.",
       "nothingDue": "All paid",
-      "left": "{left} left of {total}"
+      "left": "{left} left of {total}",
+      "messageIntroOne": "A reminder of the amount due:",
+      "messageThanks": "Thank you for your cooperation 🌷"
     },
     "purpose": {
       "NEW": "New subscription",
@@ -4008,6 +4012,15 @@
       "save": "Add lessons",
       "saved": "Added {lessons}. {amount} to collect on the bill.",
       "savedNoBill": "Added {lessons} to the subscription."
+    },
+    "history": {
+      "title": "{name}'s packages",
+      "subtitle": "Every package, newest first. Tap one to see its lessons and how each one stands.",
+      "empty": "This student has no packages.",
+      "open": "Open",
+      "finished": "Finished",
+      "noLessons": "No lessons in this package.",
+      "unscheduled": "{count, plural, one {# lesson not on a date yet} other {# lessons not on a date yet}}"
     }
   },
   "attendance": {
@@ -4883,7 +4896,12 @@
       "listEmpty": "No students, teachers or parents to hand over.",
       "nobody": "No supervisor (imported or added by the system)",
       "noName": "Deleted account",
-      "state": {"gone": "Deleted", "inactive": "Switched off", "nobody": "No supervisor", "active": "Active"},
+      "state": {
+        "gone": "Deleted",
+        "inactive": "Switched off",
+        "nobody": "No supervisor",
+        "active": "Active"
+      },
       "title": "Supervision handover",
       "hint": "The students, teachers and parents {name} answers for — added by them, or handed to them.",
       "action": "Hand over",

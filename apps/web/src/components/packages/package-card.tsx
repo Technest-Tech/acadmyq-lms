@@ -547,6 +547,7 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
 export function PackageActions({
   featuredCount = 2,
   className,
+  hide,
   row,
   onOpenDetail,
   onEdit,
@@ -564,7 +565,12 @@ export function PackageActions({
   syncing,
   sendingPayment,
   reminding,
-}: PackageActionProps & { featuredCount?: number; className?: string }) {
+}: PackageActionProps & {
+  featuredCount?: number;
+  className?: string;
+  /** Action keys this surface leaves out — the Due page puts some outside and drops others. */
+  hide?: readonly string[];
+}) {
   const t = useTranslations("packages");
   const [copied, setCopied] = useState(false);
   const isActive = row.status === "ACTIVE";
@@ -705,8 +711,9 @@ export function PackageActions({
     testId: "bill-overdraft",
   });
 
-  const featured = actions.slice(0, featuredCount);
-  const overflow = actions.slice(featuredCount);
+  const shown = hide ? actions.filter((a) => !hide.includes(a.key)) : actions;
+  const featured = shown.slice(0, featuredCount);
+  const overflow = shown.slice(featuredCount);
 
   return (
     <div className={cn("flex items-stretch gap-1.5", className)}>
@@ -948,7 +955,7 @@ function InfoRow({
  * as things you could press — and the ones that WERE filled (view, bill overdraft) then looked
  * like the only real buttons. A surface each, and the hierarchy is carried by colour instead.
  */
-function actionClass({
+export function actionClass({
   tone = "neutral",
 }: {
   tone?: "neutral" | "primary" | "danger";

@@ -957,3 +957,39 @@ describe("Due packages — Paid tab", () => {
     expect(screen.queryByText("Void")).not.toBeInTheDocument();
   });
 });
+
+describe("Due packages — row buttons", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getLessonPackageSummary.mockResolvedValue(summary);
+  });
+
+  it("puts the packages log, reminder and copy outside, drops early close and sync, and copies a ready message", async () => {
+    const due = pkg({ id: "p-due", sequence_no: 3, due: true, outstanding_minor: 100000, invoice_paid_minor: 0, invoice_status: "OPEN" });
+    listLessonPackages.mockResolvedValue({ packages: [due] });
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+
+    renderManager(["invoice.send_link", "invoice.mark_paid"], "due");
+    const row = await screen.findByTestId("due-package-row");
+    expect(within(row).getByTestId("due-package-history")).toBeInTheDocument();
+    expect(within(row).getByTestId("remind-package")).toBeInTheDocument();
+    expect(within(row).queryByTestId("close-package")).not.toBeInTheDocument();
+
+    await userEvent.click(within(row).getByTestId("package-card-menu"));
+    expect(screen.queryByText(arMessages.packages.actions.syncLessons)).not.toBeInTheDocument();
+    expect(screen.queryByText(arMessages.packages.actions.close)).not.toBeInTheDocument();
+    await userEvent.keyboard("{Escape}");
+
+    await userEvent.click(within(row).getByTestId("due-package-copy"));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    const text = writeText.mock.calls[0]![0] as string;
+    expect(text).toContain("/i/tok");
+    expect(text).toContain("#3");
+    expect(text).toContain(arMessages.packages.family.messageThanks);
+
+    // The log lists the student's packages, folded.
+    await userEvent.click(within(row).getByTestId("due-package-history"));
+    expect(await screen.findByTestId("package-history-3")).toBeInTheDocument();
+  });
+});
