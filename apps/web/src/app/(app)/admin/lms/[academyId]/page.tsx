@@ -1,16 +1,14 @@
-import { AdminLmsAcademyScreen } from "./screen";
+import { redirect } from "next/navigation";
 
 /**
- * Super Admin per-client LMS page (docs/lms): the client's course-platform statistics plus the
- * LMS-only controls — capacity caps, the public site handle, course moderation and learner
- * blocking. Module subscription lifecycle stays on the client page (R4, one writer per fact).
+ * /admin/lms/{id} retired (2026-11-15): a client's course-platform numbers, caps and moderation
+ * are the "Course platform" tab of its client page. The redirect keeps old links working.
  */
-export default async function AdminLmsAcademyPage({
+export default async function RetiredPage({
   params,
 }: {
   params: Promise<{ academyId: string }>;
 }) {
   const { academyId } = await params;
-
-  return <AdminLmsAcademyScreen academyId={academyId} />;
+  redirect(`/admin/clients/${academyId}?tab=lms`);
 }

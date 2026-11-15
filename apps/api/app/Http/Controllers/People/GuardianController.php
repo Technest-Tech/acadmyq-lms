@@ -299,7 +299,16 @@ final class GuardianController extends Controller
             abort(422, 'This family still owes money, and removing it lets that go. Ask someone who handles payments. / على هذه الأسرة مستحقات تُلغى مع حذفها. اطلب ذلك ممن يتولى المدفوعات.');
         }
 
-        DB::transaction(function () use ($id, $academyId, $children, $charges): void {
+        // Why they left, and — where the academy has the CRM — a "former parent" lead to win back
+        // (Lingo 2026-11-15: "a deleted parent goes into the CRM as a former parent, with the reason").
+        $extra = $request->validate([
+            'reason' => ['sometimes', 'nullable', 'string', 'max:300'],
+            'to_crm' => ['sometimes', 'boolean'],
+        ]);
+        $reason = isset($extra['reason']) && trim((string) $extra['reason']) !== '' ? trim((string) $extra['reason']) : null;
+        $toCrm = (bool) ($extra['to_crm'] ?? false) && Entitlement::hasCapability($academyId, 'crm') && Gate::allows('crm.manage');
+
+        $leadId = DB::transaction(function () use ($id, $academyId, $children, $charges, $guardian, $reason, $toCrm): ?string {
             $students = app(StudentController::class);
             foreach ($children as $child) {
                 $students->removeFromAcademy((string) $child->id, $academyId, $child);
@@ -308,10 +317,32 @@ final class GuardianController extends Controller
 
             DB::table('guardians')->where('id', $id)->update(['deleted_at' => now(), 'updated_at' => now()]);
             Audit::log('guardian.delete', 'guardian', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
-                after: ['deleted_at' => now()->toIso8601String(), 'recoverable' => true, 'removed_children' => $children->pluck('id')->map(fn ($c) => (string) $c)->all()]);
+                after: ['deleted_at' => now()->toIso8601String(), 'recoverable' => true, 'reason' => $reason, 'removed_children' => $children->pluck('id')->map(fn ($c) => (string) $c)->all()]);
+
+            if (! $toCrm) {
+                return null;
+            }
+            $leadId = (string) Str::uuid();
+            DB::table('crm_leads')->insert([
+                'id' => $leadId,
+                'academy_id' => $academyId,
+                'full_name' => (string) $guardian->full_name,
+                'whatsapp_phone' => $guardian->whatsapp_phone,
+                'source' => 'OTHER',
+                'interested_in' => mb_substr('ولي أمر سابق / Former parent'.($children->isNotEmpty() ? ' — '.$children->pluck('full_name')->implode('، ') : ''), 0, 500),
+                'status' => 'LOST',
+                'lost_reason' => $reason ?? 'ولي أمر سابق / Former parent',
+                'created_by' => $this->ctx()->userId,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+            Audit::log('crm.lead_created', 'crm_lead', $leadId, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                after: ['from_guardian' => $id, 'status' => 'LOST', 'lost_reason' => $reason]);
+
+            return $leadId;
         });
 
-        return response()->json(['ok' => true, 'removed_children' => $children->count()]);
+        return response()->json(['ok' => true, 'removed_children' => $children->count(), 'lead_id' => $leadId]);
     }
 
     /** GET /api/guardians/{id}/removal-dues — what deleting this family would let go, for the confirm dialog. */

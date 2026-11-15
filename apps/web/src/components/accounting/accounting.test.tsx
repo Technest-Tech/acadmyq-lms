@@ -6,6 +6,7 @@ import { makeSession, withAuth } from "@/test/auth";
 import type { GroupAccounts, PayerAccount, ReceiptDetail } from "@/lib/accounting-api";
 import type { GroupDetail } from "@/lib/groups-api";
 import { CollectModal } from "./collect-modal";
+import { ReceiptDetailModal } from "./receipt-detail-modal";
 import { GroupAccountsPanel } from "@/components/groups/group-accounts-panel";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 
@@ -19,10 +20,16 @@ import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 const getPayerAccount = vi.fn();
 const recordReceipt = vi.fn();
 const getGroupAccounts = vi.fn();
+const applyTwoMonthOffer = vi.fn();
+const getReceipt = vi.fn();
+const attachReceiptProof = vi.fn();
 
 vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/accounting-api")>()),
   getPayerAccount: (p: unknown) => getPayerAccount(p),
+  applyTwoMonthOffer: (id: unknown, d: unknown) => applyTwoMonthOffer(id, d),
+  getReceipt: (id: unknown) => getReceipt(id),
+  attachReceiptProof: (id: unknown, f: unknown) => attachReceiptProof(id, f),
   recordReceipt: (i: unknown) => recordReceipt(i),
   getGroupAccounts: (id: unknown, m: unknown) => getGroupAccounts(id, m),
 }));
@@ -103,6 +110,7 @@ const owner = () =>
 beforeEach(() => {
   getPayerAccount.mockReset();
   recordReceipt.mockReset();
+  applyTwoMonthOffer.mockReset();
   getGroupAccounts.mockReset();
 });
 
@@ -124,30 +132,75 @@ describe("Collect", () => {
     await waitFor(() => expect(amount.value).toBe("450"));
   });
 
-  it("takes the two-month offer on one subject only: its charge becomes the amount typed, the other subject stays", async () => {
-    getPayerAccount.mockResolvedValue(account([line("l-eng", "2026-06", 45000), line("l-math", "2026-06", 40000, 0, { group_id: "g2", group_name: "Maths", description: "Maths — 2026-06" })]));
-    recordReceipt.mockResolvedValue({ receipt: receipt({ amount_minor: 120000 }) });
+  it("takes the two-month offer on one subject only: the server's two months less the discount typed, the other subject stays", async () => {
+    // A June joiner: June pro-rated to 300, July a full 450 — the server's quote, never 2 × 300.
+    const quote = { list_minor: 75000, family_discount_minor: 0, family_label: null, amount_minor: 75000 };
+    getPayerAccount.mockResolvedValue(
+      account([line("l-eng", "2026-06", 30000, 0, { two_month: quote }), line("l-math", "2026-06", 40000, 0, { group_id: "g2", group_name: "Maths", description: "Maths — 2026-06" })]),
+    );
+    recordReceipt.mockResolvedValue({ receipt: receipt({ amount_minor: 105000 }) });
     render(withAuth(owner(), <CollectModal open target={{ guardian_id: "gd1" }} onClose={() => {}} />));
 
     const amount = (await screen.findByTestId("collect-amount")) as HTMLInputElement;
-    await waitFor(() => expect(amount.value).toBe("850"));
+    await waitFor(() => expect(amount.value).toBe("700"));
     await userEvent.click(screen.getByTestId("collect-offer-l-eng"));
-    // Suggested at twice the month; the desk types the offer.
-    const offer = screen.getByTestId("collect-offer-amount-l-eng") as HTMLInputElement;
-    expect(offer.value).toBe("900");
-    await userEvent.clear(offer);
-    await userEvent.type(offer, "800");
-    await waitFor(() => expect(amount.value).toBe("1200"));
+    // The two months as quoted (750) + Maths (400); then the offer's discount comes off.
+    await waitFor(() => expect(amount.value).toBe("1150"));
+    await userEvent.type(screen.getByTestId("collect-offer-discount-l-eng"), "100");
+    await waitFor(() => expect(amount.value).toBe("1050"));
     await userEvent.click(screen.getByTestId("collect-submit"));
     await waitFor(() => expect(recordReceipt).toHaveBeenCalledTimes(1));
-    expect(recordReceipt.mock.calls[0]![0]).toMatchObject({ amount_minor: 120000, two_month_offers: [{ line_id: "l-eng", amount_minor: 80000 }] });
+    expect(recordReceipt.mock.calls[0]![0]).toMatchObject({ amount_minor: 105000, two_month_offers: [{ line_id: "l-eng", discount_minor: 10000 }] });
   });
 
-  it("offers no two-month deal on a charge that already covers two months", async () => {
-    getPayerAccount.mockResolvedValue(account([line("l-two", "2026-06", 80000, 0, { group_months: 2 })]));
+  it("offers the two-month deal only where the server priced it (not on a charge already covering two months, nor one whose next month is raised)", async () => {
+    getPayerAccount.mockResolvedValue(account([line("l-two", "2026-06", 80000, 0, { group_months: 2 }), line("l-old", "2026-05", 45000, 0, { two_month: null })]));
     render(withAuth(owner(), <CollectModal open target={{ guardian_id: "gd1" }} onClose={() => {}} />));
     await screen.findByTestId("collect-amount");
     expect(screen.queryByTestId("collect-offer-l-two")).toBeNull();
+    expect(screen.queryByTestId("collect-offer-l-old")).toBeNull();
+  });
+
+  it("turns a subject already paid this month into two months from the family's credit, then reloads the account", async () => {
+    const quote = { list_minor: 90000, family_discount_minor: 9000, family_label: "خصم اخوات", amount_minor: 81000 };
+    getPayerAccount.mockResolvedValue({
+      ...account([]),
+      offer_lines: [{ id: "l-paid", description: "Maths — month 1", student_name: "Adam", group_name: "Maths", amount_minor: 40500, currency: "EGP", two_month: quote }],
+      balance: [{ currency: "EGP", due_minor: 0, credit_minor: 93600, balance_minor: -93600 }],
+    });
+    applyTwoMonthOffer.mockResolvedValue({ line_id: "l-paid", amount_minor: 81000, balance: [] });
+    render(withAuth(owner(), <CollectModal open target={{ guardian_id: "gd1" }} onClose={() => {}} />));
+
+    await userEvent.click(await screen.findByTestId("collect-credit-offer-l-paid"));
+    expect(screen.getByTestId("collect-credit-offers").textContent).toContain("خصم اخوات");
+    await userEvent.type(screen.getByTestId("collect-credit-offer-discount-l-paid"), "10");
+    await userEvent.click(screen.getByTestId("collect-credit-offer-apply-l-paid"));
+    await waitFor(() => expect(applyTwoMonthOffer).toHaveBeenCalledWith("l-paid", 1000));
+    await waitFor(() => expect(getPayerAccount).toHaveBeenCalledTimes(2));
+    expect(recordReceipt).not.toHaveBeenCalled();
+  });
+
+  it("offers only the academy's payment methods, starting on the first when it takes no cash (Lingo 2026-11-15)", async () => {
+    getPayerAccount.mockResolvedValue({ ...account([line("l-jun", "2026-06", 45000)]), methods: ["INSTAPAY", "WALLET", "BANK_TRANSFER"] });
+    render(withAuth(owner(), <CollectModal open target={{ guardian_id: "gd1" }} onClose={() => {}} />));
+    await screen.findByTestId("collect-amount");
+    expect(screen.queryByTestId("collect-method-CASH")).toBeNull();
+    expect(screen.getByTestId("collect-method-INSTAPAY")).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByTestId("collect-method-WALLET")).toBeTruthy();
+  });
+
+  it("records a transfer before the parent sends the screenshot, once the desk says so", async () => {
+    getPayerAccount.mockResolvedValue(account([line("l-jun", "2026-06", 45000)]));
+    recordReceipt.mockResolvedValue({ receipt: receipt({ amount_minor: 45000 }) });
+    render(withAuth(owner(), <CollectModal open target={{ guardian_id: "gd1" }} onClose={() => {}} />));
+    await screen.findByTestId("collect-amount");
+    await userEvent.click(screen.getByTestId("collect-method-INSTAPAY"));
+    expect(screen.getByTestId("collect-submit")).toBeDisabled();
+    await userEvent.click(screen.getByTestId("collect-proof-later"));
+    expect(screen.getByTestId("collect-submit")).not.toBeDisabled();
+    await userEvent.click(screen.getByTestId("collect-submit"));
+    await waitFor(() => expect(recordReceipt).toHaveBeenCalledTimes(1));
+    expect(recordReceipt.mock.calls[0]![0]).toMatchObject({ method: "INSTAPAY", proof: null, proof_later: true });
   });
 
   it("keeps what is beyond every charge as credit, and records one receipt for it", async () => {
@@ -252,5 +305,23 @@ describe("Mark paid", () => {
     await waitFor(() => expect(field.value).toBe("900"));
     expect((screen.getByTestId("collect-line-l-1") as HTMLInputElement).checked).toBe(true);
     expect((screen.getByTestId("collect-line-l-other") as HTMLInputElement).checked).toBe(false);
+  });
+});
+
+describe("A receipt awaiting its screenshot", () => {
+  it("says so and lets the collecting hand attach the picture when it arrives (Lingo 2026-11-15)", async () => {
+    getReceipt.mockResolvedValue({ receipt: receipt({ method: "INSTAPAY", proof_pending: true, can_attach_proof: true }) });
+    attachReceiptProof.mockResolvedValue({ receipt: receipt({ method: "INSTAPAY", proof_pending: false, has_proof: true }) });
+    const onChanged = vi.fn();
+    render(withAuth(owner(), <ReceiptDetailModal receiptId="r1" onClose={() => {}} onChanged={onChanged} />));
+
+    const box = await screen.findByTestId("receipt-proof-pending");
+    expect(box.textContent).toContain(ar.proof.awaiting);
+    const file = new File(["x"], "later.png", { type: "image/png" });
+    await userEvent.upload(screen.getByTestId("receipt-proof-file"), file);
+    await userEvent.click(screen.getByTestId("receipt-proof-attach"));
+    await waitFor(() => expect(attachReceiptProof).toHaveBeenCalledWith("r1", file));
+    await waitFor(() => expect(screen.queryByTestId("receipt-proof-pending")).toBeNull());
+    expect(onChanged).toHaveBeenCalled();
   });
 });

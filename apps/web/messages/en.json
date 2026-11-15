@@ -280,10 +280,9 @@
     "staffDepartments": "Staff Departments",
     "adminSubscriptions": "Subscriptions",
     "adminAutomation": "WhatsApp Ops",
-    "adminVideo": "Video Ops",
-    "adminLms": "Course Platform",
     "demoRequests": "Demo requests",
     "adminFinance": "Accounts",
+    "adminHealth": "System health",
     "platformSettings": "Platform Settings",
     "roles": "Roles & Permissions",
     "academyRoles": "Roles & Permissions",
@@ -330,7 +329,8 @@
     "scheduleCentre": "Timetable",
     "calendarCentre": "Calendar",
     "groupsReportsCentre": "Group statistics",
-    "whatsapp": "WhatsApp"
+    "whatsapp": "WhatsApp",
+    "adminHelp": "Help videos"
   },
   "navGroup": {
     "general": "General",
@@ -426,6 +426,40 @@
       "editorPrice": "Change price",
       "editorExtend": "Extend trial"
     },
+    "tools": {
+      "title": "Maintenance",
+      "hint": "Repairs for this client only. Each one lists what it would do before it changes anything.",
+      "noPermission": "You do not have permission to run maintenance tools.",
+      "loadError": "Could not load the tools. Try refreshing.",
+      "notActive": "This client is not active, so the tools are switched off: they only ever act on an active client.",
+      "preview": "Look first",
+      "apply": "Apply",
+      "applyHint": "This is what will change.",
+      "runNow": "Run now",
+      "applied": "Done.",
+      "failed": "That did not work. Nothing was changed.",
+      "outputPreview": "Would do — nothing changed yet",
+      "outputApplied": "Done — this is what changed",
+      "noOutput": "Nothing to do.",
+      "tool": {
+        "generate_lessons": {
+          "title": "Create the upcoming lessons",
+          "hint": "Runs the nightly roll now for this client: fills the timetable to the end of next month. Safe to repeat, never invents past lessons."
+        },
+        "finish_removals": {
+          "title": "Finish old student removals",
+          "hint": "Students removed long ago who still have lessons, timetables, trials or group seats running. Paid packages are left as they are."
+        },
+        "restore_half_undone": {
+          "title": "Put back lessons that fell off their package",
+          "hint": "Attended lessons a refused undo took off their package: paid, but no longer counted on it."
+        },
+        "clear_deleted_dues": {
+          "title": "Clear dues left by deleted subscriptions",
+          "hint": "Charges that stayed behind after a group seat, a private subscription or a student was deleted (centres)."
+        }
+      }
+    },
     "detail": {
       "back": "All clients",
       "since": "since {date}",
@@ -445,6 +479,8 @@
         "modules": "Modules & features",
         "subscription": "Subscription & money",
         "features": "Features",
+        "lms": "Course platform",
+        "tools": "Maintenance",
         "connections": "Connections"
       },
       "videoCardTitle": "Video settings & rooms",
@@ -1071,7 +1107,7 @@
     "expand": "Expand",
     "breadcrumb": "Breadcrumb",
     "details": "Details",
-    "help": "Help & guide",
+    "help": "Help centre",
     "exitAcademy": "Exit academy"
   },
   "auth": {
@@ -1509,7 +1545,12 @@
         "moved": "{student}’s charges ({amount}) moved to {guardian}.",
         "stuck": "On a closed bill shared with siblings — it cannot be split.",
         "nothing": "Nothing left to move."
-      }
+      },
+      "childSubscriptions": "{name}'s subscriptions",
+      "leaveReason": "Why they are leaving (optional)",
+      "leaveReasonPlaceholder": "e.g. moved to another centre / money",
+      "toCrm": "Add to the CRM as a former parent",
+      "toCrmHint": "Shows in the CRM as a lost customer with this reason, to follow up and win back."
     }
   },
   "teachers": {
@@ -1842,7 +1883,86 @@
       "lessonReminders": "Lesson reminders",
       "whatsapp": "WhatsApp",
       "controls": "Controls",
-      "account": "Account & data"
+      "account": "Account & data",
+      "payments": "Payment methods"
+    },
+    "payments": {
+      "cardTitle": "Payment methods",
+      "cardDesc": "Choose which ways to pay show on the payment page, and fill in their details. Anything switched off stays hidden.",
+      "on": "Shown on the payment page",
+      "off": "Hidden",
+      "save": "Save",
+      "saving": "Saving…",
+      "saved": "Saved",
+      "failed": "Could not save. Please try again.",
+      "loadFailed": "Could not load the payment methods.",
+      "noneActive": "No payment method is on — the payment page will tell parents to contact you.",
+      "methods": {
+        "WALLET": {
+          "title": "Mobile wallets (cash transfer)",
+          "desc": "Vodafone Cash, Etisalat Cash, Orange Cash, WE Pay — for families in Egypt."
+        },
+        "INSTAPAY": {
+          "title": "InstaPay",
+          "desc": "Your InstaPay address or payment link — for families in Egypt."
+        },
+        "BANK_TRANSFER": {
+          "title": "Bank transfer",
+          "desc": "Account number or IBAN and SWIFT — in Egypt or from abroad."
+        },
+        "PAYPAL": {
+          "title": "PayPal",
+          "desc": "Your PayPal email or paypal.me link — for families abroad."
+        },
+        "OTHER": {
+          "title": "Another way",
+          "desc": "Anything not listed (Western Union, Wise…) — you write its name and details."
+        },
+        "XPAY": {
+          "title": "Card payment (XPay)",
+          "desc": "Visa, Mastercard and Meeza — the bill closes by itself once paid."
+        }
+      },
+      "fields": {
+        "number": "Wallet number",
+        "addNumber": "Add another number",
+        "removeNumber": "Remove number",
+        "walletHolder": "Wallet holder name (optional)",
+        "address": "InstaPay address",
+        "link": "Payment link (optional)",
+        "instapayName": "Name shown (optional)",
+        "bankName": "Bank name",
+        "accountHolder": "Account holder",
+        "accountNumber": "Account number",
+        "iban": "IBAN",
+        "swift": "SWIFT code (for transfers from abroad)",
+        "email": "PayPal email",
+        "paypalMe": "paypal.me link (optional)",
+        "title": "Method name",
+        "details": "Details parents will see",
+        "note": "Note for parents (optional)"
+      },
+      "placeholders": {
+        "number": "01xxxxxxxxx",
+        "address": "name@instapay",
+        "link": "https://ipn.eg/S/…",
+        "email": "payments@example.com",
+        "paypalMe": "paypal.me/yourname",
+        "title": "Western Union",
+        "details": "Receiver name, country, phone…",
+        "note": "e.g. Send the transfer screenshot on WhatsApp 01xxxxxxxxx"
+      },
+      "errors": {
+        "WALLET": "Add at least one wallet number before switching this on.",
+        "INSTAPAY": "Add the InstaPay address or link before switching this on.",
+        "BANK_TRANSFER": "Add the account number or IBAN before switching this on.",
+        "PAYPAL": "Add the PayPal email or paypal.me link before switching this on.",
+        "OTHER": "Add the details before switching this on.",
+      "link": "That link is not valid — paste the full link, starting with https://",
+      "email": "That PayPal email does not look right."
+      },
+      "paypalAuto": "Automatic PayPal checkout is connected — parents pay right on the page.",
+      "xpayNotSetUp": "Not set up yet — contact Acadmyq to turn on card payments."
     },
     "specializations": {
       "title": "Courses",
@@ -2717,7 +2837,17 @@
       "deletePrivateHint": "For a subscription opened by mistake: it disappears with its unpaid bill. Only offered while no lesson has been counted on it and nothing has been paid toward it — otherwise end it.",
       "renew": "Renew",
       "addLessons": "Add lessons",
-      "addLessonsTitle": "Add lessons for {name}"
+      "addLessonsTitle": "Add lessons for {name}",
+      "rejoin": "Back to the group",
+      "rejoined": "Back in the group. An hours group continues from the paid lessons they had left.",
+      "showPast": "Show past ({count})",
+      "hidePast": "Hide past",
+      "trialLesson": "One trial lesson instead of joining",
+      "trialLessonHint": "The student attends one lesson only, charged at the group's lesson price. If they continue, press “Back to the group” afterwards.",
+      "trialPickLesson": "Lesson",
+      "trialNoLessons": "No lessons in the next two weeks",
+      "trialPrice": "Lesson price ({currency})",
+      "bookTrial": "Book the trial lesson"
     },
     "monthly": {
       "lessons": "Lessons a month",
@@ -3881,6 +4011,11 @@
     }
   },
   "attendance": {
+    "doubleLesson": {
+      "label": "Counts as two lessons",
+      "hint": "A double lesson: it takes two lessons off the package, not one.",
+      "recorded": "Counted as two lessons on the package."
+    },
     "title": "Attendance & report",
     "loading": "Loading…",
     "outcome": "Outcome",
@@ -4161,7 +4296,18 @@
       "supervisorHint": "The team member who added the student — who answers for this lesson.",
       "noSupervisor": "No supervisor",
       "listSubtitleDate": "Oldest first, under the date each lesson was on — record an outcome on each.",
-      "listSubtitleTeacher": "Under each teacher, whoever owes the most first — record an outcome on each."
+      "listSubtitleTeacher": "Under each teacher, whoever owes the most first — record an outcome on each.",
+      "selectLesson": "Select the lesson of {student}",
+      "selectAll": "Select all ({count})",
+      "clearSelection": "Clear selection",
+      "selectedCount": "{count, plural, one {# lesson selected} other {# lessons selected}}",
+      "deleteSelected": "Delete selected",
+      "cancel": "Cancel",
+      "bulkConfirmTitle": "{count, plural, one {Delete # lesson?} other {Delete # lessons?}}",
+      "bulkConfirmBody": "They are cancelled with no charge to the student and no pay to the teacher, and leave the timetable and every list.",
+      "bulkConfirmWarning": "Delete only lessons that did not take place. A lesson that was held should be recorded as attended, or its fee and the teacher's pay are lost.",
+      "bulkDone": "{count, plural, one {# lesson deleted.} other {# lessons deleted.}}",
+      "bulkSkipped": "{count, plural, one {# was left: already recorded, a trial's, or on a closed invoice or finalized salary.} other {# were left: already recorded, a trial's, or on a closed invoice or finalized salary.}}"
     },
     "lessonSubscription": {
       "title": "Counts on subscription",
@@ -4331,7 +4477,9 @@
     "deleteStatement": "Delete statement",
     "deleteStatementTitle": "Delete this statement?",
     "deleteStatementBody": "The {period} statement for {name} is deleted in full ({amount}): its lessons, rewards and deductions. The lessons themselves stay recorded and only count again if you add them back.",
-    "paidOutNote": "{amount} of this statement was paid from the treasury, so it cannot be edited or deleted. Void that payment first, or correct its lessons and the difference goes on the open statement."
+    "paidOutNote": "{amount} of this statement was paid from the treasury, so it cannot be edited or deleted. Void that payment first, or correct its lessons and the difference goes on the open statement.",
+    "searchTeacher": "Search by teacher name",
+    "searchNoTeacher": "No teacher by that name in this period."
   },
   "audit": {
     "title": "Audit Log",
@@ -4435,6 +4583,7 @@
       "accounting": "Accounting — numbered receipts, partial payments & collection sheets",
       "modern_look": "Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy's own colours",
       "courses_art": "Courses & curricula theme — for English and curriculum academies: the modern look in ocean blue and coral instead of navy and gold, no ornaments, and a books-and-course picture instead of the mushaf and mosque",
+      "packages_in_lessons": "Packages in lessons — a block counts lessons, not minutes: every lesson takes one whatever its length (the length only pays the teacher); running blocks are converted by the platform",
       "centre": "Centre mode — lesson subscriptions, groups first, any student on a manual lesson, salary blocks"
     }
   },
@@ -4543,32 +4692,132 @@
     "confirmSave": "Apply changes",
     "cancel": "Cancel"
   },
+  "adminHealth": {
+    "title": "System health",
+    "subtitle": "Which clients need you, and whether the machine behind them is running.",
+    "noPermission": "You do not have permission to view system health.",
+    "loadError": "Could not load everything. Try refreshing.",
+    "refresh": "Refresh",
+    "never": "never",
+    "checkedAt": "Checked {time}",
+    "tabs": {
+      "attention": "Needs attention",
+      "system": "System"
+    },
+    "headline": {
+      "ok": "Everything is running: cron, queue, scheduled tasks and the WhatsApp gateway.",
+      "crit": "Something is down and clients are affected",
+      "warn": "Running, with something to look at",
+      "details": "Open the system tab"
+    },
+    "problem": {
+      "database_down": "The database is not answering.",
+      "scheduler_never_ran": "The scheduler has never reported in — is the cron installed?",
+      "scheduler_stopped": "The scheduler stopped {minutes} minutes ago. Nothing recurring is running: lessons, bills, reminders.",
+      "roll_stale": "The nightly lesson roll last finished {hours} hours ago. New lessons are not being created.",
+      "queue_stuck": "{pending} jobs have been waiting {minutes} minutes. The queue worker is not running.",
+      "gateway_down": "The WhatsApp gateway is not answering. No message is going out.",
+      "task_failed": "“{task}” failed on its last run.",
+      "task_late": "“{task}” did not run when it was due.",
+      "jobs_failed": "{count} jobs failed in the last 24 hours."
+    },
+    "vital": {
+      "scheduler": "Scheduler",
+      "schedulerSub": "Last heartbeat (every minute)",
+      "roll": "Nightly lesson roll",
+      "rollSub": "Last finished (daily, 00:30)",
+      "queue": "Jobs waiting",
+      "queueSub": "Nothing held up",
+      "queueOldest": "Oldest waiting {minutes} min",
+      "failed": "Failed jobs",
+      "failedSub": "{count} in the last 24 hours",
+      "gateway": "WhatsApp gateway",
+      "gatewayUp": "Up",
+      "gatewayDown": "Down",
+      "gatewaySessions": "{connected} of {total} numbers connected",
+      "deploy": "Running version"
+    },
+    "tasks": {
+      "title": "Scheduled tasks",
+      "hint": "Everything that runs by itself, against when it last actually finished — not when it was queued.",
+      "empty": "The scheduler has not published its tasks yet. They appear a minute after the cron first runs.",
+      "colTask": "Task",
+      "colState": "State",
+      "colLastOk": "Last finished",
+      "colNext": "Next run",
+      "state": {
+        "OK": "On time",
+        "LATE": "Late",
+        "FAILED": "Failed",
+        "WAITING": "Not seen yet"
+      }
+    },
+    "task": {
+      "roll-session-window": "Create upcoming lessons (nightly roll)",
+      "close-monthly-invoices": "Close last month's student bills",
+      "close-monthly-payouts": "Close last month's teacher statements",
+      "open-fixed-salary-payouts": "Open fixed-salary statements",
+      "bill-group-months": "Bill the month's group classes",
+      "flag-overdue-reports": "Flag lessons with no report",
+      "auto-deduct-unreported": "Deduct for unreported lessons",
+      "expire-academy-trials": "End client trials that ran out",
+      "accounts-daily": "Accounts morning: dues and money reminders",
+      "type1-student-billing": "Send student bills over WhatsApp",
+      "type1-student-billing-retry-1": "Send student bills — second try",
+      "type1-student-billing-retry-2": "Send student bills — third try",
+      "type2-lesson-reminders": "Lesson reminders (old private path)",
+      "whatsapp-group-alerts": "WhatsApp alerts and lesson reminders",
+      "purge-expired-recordings": "Delete expired recordings",
+      "verify-custom-domains": "Check clients' own domains"
+    },
+    "failed": {
+      "title": "Failed jobs",
+      "hint": "Jobs that died on the queue, with what killed them. Run one again once the cause is fixed, or dismiss it.",
+      "empty": "No failed jobs.",
+      "retry": "Run again",
+      "dismiss": "Dismiss",
+      "retried": "Back on the queue.",
+      "dismissed": "Dismissed.",
+      "actionError": "Could not do that. Try again."
+    },
+    "attention": {
+      "empty": "No client needs you right now.",
+      "crit": "Affected now",
+      "critSub": "Clients being hurt today",
+      "warn": "To watch",
+      "warnSub": "Will hurt soon, or drifting",
+      "chipCrit": "Now",
+      "chipWarn": "Watch"
+    },
+    "item": {
+      "whatsapp_disconnected_live": "The WhatsApp number dropped while reminders are on — nothing is reaching parents or teachers.",
+      "whatsapp_disconnected": "The WhatsApp number is not connected.",
+      "whatsapp_failing": "{failed} WhatsApp messages failed in the last 24 hours ({sent} went through).",
+      "lessons_stopped": "No lessons in the coming week, although {schedules} timetables are live.",
+      "overdue_lessons": "{count} lessons left unmarked — the oldest {days} days ago.",
+      "bills_overdue": "Owes us {amount}, overdue.",
+      "bills_overdue_plain": "Has an overdue bill.",
+      "trial_ended": "The trial ended {days} days ago and it has not subscribed.",
+      "trial_ending": "The trial ends within {days} days.",
+      "inactive": "Nobody has signed in for {days} days.",
+      "never_signed_in": "Nobody has ever signed in — created {days} days ago."
+    }
+  },
   "platformSettings": {
     "title": "Platform Settings",
-    "subtitle": "Feature kill-switches and global configuration for the whole platform.",
+    "subtitle": "Feature kill-switches, role permissions and staff departments for the whole platform.",
     "noPermission": "You don't have permission to manage platform settings.",
     "loadError": "Could not load platform settings. Please try again.",
     "saved": "Saved.",
-    "saving": "Saving…",
-    "save": "Save",
     "tab": {
       "flags": "Feature flags",
-      "general": "General",
       "roles": "Roles & permissions",
       "departments": "Staff departments"
     },
-    "generalHeading": "Email & notifications",
     "flagsHint": "Turning a flag off disables that capability across every academy, even if their plan grants it.",
     "noFlags": "No feature flags defined.",
     "enabled": "On",
-    "disabled": "Off",
-    "field": {
-      "support_email": "Support email",
-      "smtp_host": "SMTP host",
-      "smtp_port": "SMTP port",
-      "smtp_username": "SMTP username",
-      "smtp_from_name": "Email from-name"
-    }
+    "disabled": "Off"
   },
   "platformUsers": {
     "title": "Users",
@@ -4627,6 +4876,33 @@
     }
   },
   "staff": {
+    "handover": {
+      "listButton": "Hand over",
+      "listTitle": "Hand over a supervisor's people",
+      "listHint": "Everyone who still has students, teachers or parents — deleted and switched-off supervisors first.",
+      "listEmpty": "No students, teachers or parents to hand over.",
+      "nobody": "No supervisor (imported or added by the system)",
+      "noName": "Deleted account",
+      "state": {"gone": "Deleted", "inactive": "Switched off", "nobody": "No supervisor", "active": "Active"},
+      "title": "Supervision handover",
+      "hint": "The students, teachers and parents {name} answers for — added by them, or handed to them.",
+      "action": "Hand over",
+      "none": "Nothing to hand over: no students, teachers or parents are with this login.",
+      "count": {
+        "student": "{count, plural, one {# student} other {# students}}",
+        "teacher": "{count, plural, one {# teacher} other {# teachers}}",
+        "guardian": "{count, plural, one {# parent} other {# parents}}"
+      },
+      "modalTitle": "Hand over {name}'s people",
+      "to": "Hand over to",
+      "toPlaceholder": "Choose a team member",
+      "noTargets": "There is no other active member of the team to hand over to.",
+      "what": "What to hand over",
+      "note": "The lists will name the new supervisor, and those students' lessons move to their \"My lessons\". Teachers' logins, lessons and the history do not change.",
+      "cancel": "Cancel",
+      "confirm": "Hand over",
+      "done": "Handed to {name}: {what}."
+    },
     "title": "Team & permissions",
     "subtitle": "Everyone who signs in and what they can do — add a member and choose their role in one step",
     "new": "Add member",
@@ -7761,7 +8037,8 @@
       "reasonPlaceholder": "Optional",
       "reschedule": "Reschedule",
       "rescheduleTitle": "Reschedule this lesson",
-      "rescheduleFailed": "Couldn’t reschedule."
+      "rescheduleFailed": "Couldn’t reschedule.",
+      "enterRoom": "Enter the lesson"
     },
     "sheet": {
       "title": "Attendance",
@@ -7853,7 +8130,15 @@
       "joinDateTitle": "{name}'s start date",
       "joinDateSaved": "{name}'s start date changed.",
       "joinDateSave": "Save date",
-      "joinDateFailed": "Could not change the join date."
+      "joinDateFailed": "Could not change the join date.",
+      "leaveQuote": "Attended {attended, plural, one {# lesson} other {# lessons}} — {remaining, plural, =0 {part of a lesson} one {# lesson} other {# lessons}} left, worth {amount}",
+      "leaveQuotePaid": "{amount} of it was paid.",
+      "leaveQuoteUnpaid": "None of it was paid yet.",
+      "leaveSettle": {
+        "CREDIT": "Take off the rest ({amount}) — what was paid becomes the parent's credit",
+        "REFUND": "Pay {amount} back in cash from the treasury",
+        "KEEP": "Nothing — the charge stays as it is"
+      }
     },
     "overview": {
       "attendance": "Attendance",
@@ -8090,7 +8375,8 @@
         "export": "Download Excel",
         "exportFile": "Groups timetable"
       }
-    }
+    },
+    "groupSearchPlaceholder": "Search by group or teacher name"
   },
   "academyRoles": {
     "title": "Roles & Permissions",
@@ -10420,7 +10706,17 @@
       "proofNeeded": "Upload the transfer receipt before saving.",
       "twoMonthOffer": "2-month offer",
       "twoMonthAmount": "Amount for two months",
-      "twoMonthHint": "Covers this month and next, for this subject only"
+      "twoMonthHint": "Covers this month and next for this subject only — the second month at its full price.",
+      "twoMonthDiscount": "Offer discount",
+      "twoMonthBase": "Two months: {amount}",
+      "twoMonthFamily": "incl. {label} ({amount})",
+      "twoMonthTotal": "Total: {amount}",
+      "offerPaidTitle": "Two-month offer on a subject already paid this month",
+      "offerPaidHint": "Next month joins the same charge; the family's credit pays first and the rest becomes due.",
+      "offerPaidNow": "Paid {amount}",
+      "offerApply": "Apply the offer",
+      "proofLater": "The parent hasn't sent the transfer screenshot yet",
+      "proofLaterHint": "The payment is recorded now and listed under “Awaiting the screenshot” until it is attached."
     },
     "detail": {
       "title": "Receipt {number}",
@@ -10530,7 +10826,8 @@
       "pickHint": "Pick the student — their family's account opens with everything they owe.",
       "pickPlaceholder": "Student name or phone",
       "pickParent": "Parent: {name}",
-      "pickNone": "No student found."
+      "pickNone": "No student found.",
+      "statusAwaitingProof": "Awaiting screenshot"
     },
     "overview": {
       "title": "Accounting",
@@ -10558,7 +10855,12 @@
       "nothingCollected": "Nothing collected in this period.",
       "hoverHint": "Point at a day to see its total",
       "treasuryNow": "The treasury now",
-      "openTreasury": "Open the treasury"
+      "openTreasury": "Open the treasury",
+      "followUpsTitle": "Today's payment reminders ({count})",
+      "followUpToday": "Due today",
+      "followUpLate": "{days, plural, one {# day} other {# days}} late",
+      "followUpCollect": "Collect",
+      "followUpWhatsApp": "WhatsApp"
     },
     "bucket": {
       "d0_30": "Up to 30 days",
@@ -10778,6 +11080,26 @@
         "closedOn": "Closed {date}",
         "paidUsed": "Paid {paid} · used {used}",
         "decide": "Decide"
+      },
+      "showVoided": "Show cancelled ({count})",
+      "hideVoided": "Hide cancelled",
+      "editDiscount": "Edit",
+      "saveDiscountEdit": "Save changes",
+      "discountEditHint": "The change applies at once to the family's open charges from the discount's first day — no need to cancel and add it again.",
+      "discountUpdated": "Discount updated.",
+      "discountUpdatedLines": "Discount updated; {count, plural, one {# charge} other {# charges}} repriced.",
+      "opening": {
+        "button": "Previous balance",
+        "title": "The family's previous balance",
+        "description": "What the family owed or had before using the system — entered once.",
+        "DUE": "They owe an old amount",
+        "DUEHint": "Added as a charge on the family's account, collected like any other.",
+        "CREDIT": "They have an old amount with us",
+        "CREDITHint": "Comes off their charges, oldest first — never added to a treasury account, never counted as new collection.",
+        "notePlaceholder": "e.g. from the September ledger",
+        "save": "Save",
+        "savedDue": "{amount} added as a previous amount the family owes.",
+        "savedCredit": "{amount} added as the family's previous credit — taken off what they owe."
       }
     },
     "kind": {
@@ -10987,7 +11309,17 @@
       "noTeacherMatch": "No statements under that name.",
       "linesCount": "{count} lessons",
       "group": "Group",
-      "noGroup": "General, not one group"
+      "noGroup": "General, not one group",
+      "spentOn": "Date",
+      "edit": "Edit",
+      "editTitle": "Edit expense {number}",
+      "refundLocked": "Money paid back to a family keeps its amount and category — if the amount is wrong, void it and pay back again.",
+      "updated": "Saved.",
+      "nothingChanged": "Nothing changed.",
+      "customerRefund": "Customer refund",
+      "customerRefundHint": "Pick the student: the money is paid back from their family's credit and recorded under “Refunds to families”.",
+      "refundNoCredit": "{name}'s family holds no credit to pay back. If they paid for something they won't use, cancel that charge on the family card first — what was paid becomes credit.",
+      "refundNoFamily": "Refunds are paid from a family's credit; this student is billed on their own."
     },
     "income": {
       "title": "Income vs expenses",
@@ -11143,6 +11475,20 @@
       "assignHint": "Pick one of the family’s students: the receipt becomes theirs and pays their charges oldest first; the rest is credit.",
       "assigned": "Payer set; their charges are paid.",
       "assignFailed": "Couldn’t set the payer."
+    },
+    "proof": {
+      "awaiting": "Awaiting the screenshot",
+      "awaitingHint": "The parent hasn't sent the transfer screenshot yet — attach it here when it arrives.",
+      "attach": "Attach it",
+      "attached": "Screenshot attached.",
+      "listTitle": "Awaiting the transfer screenshot ({count})"
+    },
+    "methods": {
+      "title": "Payment methods at the desk",
+      "hint": "Only the methods ticked here show on the collect screen. Old receipts stay as they are.",
+      "saved": "Payment methods saved.",
+      "atLeastOne": "Pick at least one method.",
+      "save": "Save"
     }
   },
   "doneBy": {
@@ -12174,6 +12520,116 @@
       "pricesHint": "The agreement form's starting price per module — each client's price is set in its agreement.",
       "perMonth": "Price per month",
       "currency": "Currency"
+    }
+  },
+  "help": {
+    "button": "Explain this page",
+    "eyebrow": "Page guide",
+    "close": "Close",
+    "howTo": "How do I…?",
+    "tips": "Quick tips",
+    "steps": "{count, plural, one {# step} other {# steps}}",
+    "allGuides": "All guides",
+    "openPage": "Open the page",
+    "noTopic": {
+      "title": "No guide for this page yet",
+      "body": "We are writing the guides page by page. Until this one arrives, every guide that is ready is in the help centre."
+    },
+    "video": {
+      "tour": "Watch a tour of this page",
+      "minute": "A short video, about a minute",
+      "task": "Watch the steps on video",
+      "soonTitle": "The video is being recorded",
+      "soonBody": "A short video explaining this page will appear here soon. Until then, follow the written steps below."
+    },
+    "groups": {
+      "start": "Getting started",
+      "people": "People",
+      "teaching": "Lessons & teaching",
+      "money": "Money",
+      "setup": "Setup"
+    },
+    "center": {
+      "title": "Help centre",
+      "subtitle": "Type what you want to do, or pick the page you want explained.",
+      "search": "e.g. add a student, record attendance, WhatsApp…",
+      "noResults": "No guide matches those words",
+      "noResultsHint": "Try a shorter word, like “student” or “bill”.",
+      "teacherGuide": "The full teacher guide",
+      "teacherGuideHint": "Everything a teacher needs from the first sign-in, on one page."
+    },
+    "start": {
+      "title": "Start here",
+      "subtitle": "Five steps and your academy is ready to run.",
+      "progress": "{done} of {total}",
+      "dismiss": "Hide",
+      "go": "Start",
+      "howShort": "How?",
+      "how": "How? — {step}",
+      "steps": {
+        "teacher": {
+          "title": "Add your first teacher",
+          "body": "Their name, pay and lesson link."
+        },
+        "student": {
+          "title": "Add your first student",
+          "body": "Their name, parent and teacher."
+        },
+        "group": {
+          "title": "Create your first group",
+          "body": "The teacher, the times and what a student pays."
+        },
+        "schedule": {
+          "title": "Set the timetable",
+          "body": "The student's days and times each week."
+        },
+        "attendance": {
+          "title": "Record your first lesson",
+          "body": "The lesson's outcome and report."
+        },
+        "money": {
+          "title": "Collect your first payment",
+          "body": "Record what the parent paid."
+        }
+      }
+    },
+    "admin": {
+      "title": "Help videos",
+      "subtitle": "Every place in the system's help where a video can play. Upload your recording or paste its link and every client sees it at once.",
+      "forbidden": "This page is for the platform admin only.",
+      "recorded": "videos ready out of all places",
+      "hint": "Start with the page tours (the first row of each section), then the tasks people ask about most. A place with no video shows the client a “being recorded” card and the written steps.",
+      "filterLabel": "Show",
+      "filter": {
+        "all": "All",
+        "missing": "Not recorded",
+        "ready": "Ready"
+      },
+      "tour": "Page tour",
+      "state": {
+        "missing": "Not recorded yet",
+        "upload": "Uploaded file",
+        "link": "Link"
+      },
+      "script": "Steps to record",
+      "upload": "Upload video",
+      "replace": "Replace",
+      "uploading": "Uploading {percent}%",
+      "link": "Link",
+      "linkLabel": "Video link",
+      "linkHint": "A YouTube or Vimeo link, or a direct link to the video file.",
+      "saveLink": "Save link",
+      "preview": "Preview",
+      "play": "Play the video",
+      "remove": "Remove video",
+      "confirmRemove": "Confirm removal",
+      "close": "Close",
+      "saved": "Video saved. Every client sees it now.",
+      "removed": "Video removed.",
+      "notVideo": "Choose a video file.",
+      "badLink": "Type a link that starts with https://",
+      "uploadFailed": "The upload failed. Try again.",
+      "saveFailed": "Could not save. Try again."
     }
   }
 }

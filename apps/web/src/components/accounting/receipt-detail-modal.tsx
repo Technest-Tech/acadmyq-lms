@@ -12,7 +12,7 @@ import { apiErrorMessage } from "@/components/groups/group-form";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { assignReceipt, fetchReceiptProof, getReceipt, sendReceipt, voidReceipt, type ReceiptDetail } from "@/lib/accounting-api";
+import { assignReceipt, attachReceiptProof, fetchReceiptProof, getReceipt, sendReceipt, voidReceipt, type ReceiptDetail } from "@/lib/accounting-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -43,6 +43,25 @@ export function ReceiptDetailModal({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // The late transfer screenshot, attached when the parent sends it.
+  const [lateProof, setLateProof] = useState<File | null>(null);
+
+  async function attachProof() {
+    if (!receipt || !lateProof) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await attachReceiptProof(receipt.id, lateProof);
+      setReceipt(res.receipt);
+      setLateProof(null);
+      setNotice(t("proof.attached"));
+      onChanged?.();
+    } catch (err) {
+      setError(apiErrorMessage(err, t("detail.proofFailed")));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (receiptId === null) return;
@@ -206,6 +225,22 @@ export function ReceiptDetailModal({
               <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">{t("detail.leftAsCredit", { amount: money(receipt.unallocated_minor) })}</p>
             )}
           </section>
+
+          {receipt.proof_pending && !receipt.voided && (
+            <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3" data-testid="receipt-proof-pending">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">{t("proof.awaiting")}</p>
+              <p className="text-muted-foreground text-xs">{t("proof.awaitingHint")}</p>
+              {receipt.can_attach_proof && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <input type="file" accept="image/jpeg,image/png,image/webp" className="text-xs" onChange={(e) => setLateProof(e.target.files?.[0] ?? null)} data-testid="receipt-proof-file" />
+                  <Button type="button" size="sm" onClick={() => void attachProof()} disabled={busy || lateProof === null} data-testid="receipt-proof-attach">
+                    {busy && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+                    {t("proof.attach")}
+                  </Button>
+                </div>
+              )}
+            </div>
+          )}
 
           {owed && !receipt.voided && (
             <p className="text-muted-foreground text-sm">

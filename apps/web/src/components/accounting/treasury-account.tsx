@@ -27,6 +27,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ExpenseModal } from "@/components/accounting/accounting-expenses";
 import { CloseModal, KIND_ICON, TransferModal } from "@/components/accounting/accounting-treasury";
 import { ACCENTS, AccountingTabs, MethodBadge, Tile, dayLabel, toMajorText, toMinor, todayLocal } from "@/components/accounting/accounting-ui";
+import { ExpenseEditFields, draftOf, patchOf } from "@/components/accounting/expense-edit";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
@@ -42,7 +43,7 @@ import {
   getTreasury,
   reopenDay,
   updateCashAccount,
-  updateExpenseAmount,
+  updateExpense,
   updateTransferAmount,
   voidAdjustment,
   voidExpense,
@@ -643,6 +644,10 @@ function EntryDetailModal({
   const locale = useLocale();
   const [mode, setMode] = useState<"edit" | "act" | null>(null);
   const [amount, setAmount] = useState(toMajorText(e.in_minor || e.out_minor));
+  // An expense is corrected field by field (Lingo 2026-11-15); a refund keeps its amount.
+  const isRefund = e.kind === "EXPENSE" && e.category_key === "refunds";
+  const [initialDraft] = useState(() => draftOf({ spent_on: e.date, payee: e.party, description: e.description, amount_minor: e.out_minor }));
+  const [draft, setDraft] = useState(initialDraft);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -714,8 +719,15 @@ function EntryDetailModal({
     }
   }
 
-  const save = () =>
-    run(() => (e.kind === "EXPENSE" ? updateExpenseAmount(e.id, toMinor(amount)) : updateTransferAmount(e.id, toMinor(amount))), t("treasury.account.amountSaved"));
+  const save = () => {
+    if (e.kind !== "EXPENSE") return run(() => updateTransferAmount(e.id, toMinor(amount)), t("treasury.account.amountSaved"));
+    const patch = patchOf(initialDraft, draft, { amount: isRefund, category: true });
+    if (Object.keys(patch).length === 0) {
+      setError(t("expenses.nothingChanged"));
+      return Promise.resolve();
+    }
+    return run(() => updateExpense(e.id, patch), t("expenses.updated"));
+  };
 
   const act = () =>
     e.kind === "EXPENSE"
@@ -745,7 +757,7 @@ function EntryDetailModal({
           {mode === null && editable && (
             <Button type="button" variant="outline" className="gap-1.5" onClick={() => setMode("edit")} data-testid="entry-edit">
               <Pencil className="size-4" aria-hidden />
-              {t("treasury.account.editAmount")}
+              {e.kind === "EXPENSE" ? t("expenses.edit") : t("treasury.account.editAmount")}
             </Button>
           )}
           {mode === null && action && (
@@ -755,7 +767,12 @@ function EntryDetailModal({
             </Button>
           )}
           {mode === "edit" && (
-            <Button type="button" onClick={() => void save()} disabled={busy || toMinor(amount) <= 0} data-testid="entry-edit-save">
+            <Button
+              type="button"
+              onClick={() => void save()}
+              disabled={busy || (e.kind === "EXPENSE" ? !isRefund && toMinor(draft.amount) <= 0 : toMinor(amount) <= 0)}
+              data-testid="entry-edit-save"
+            >
               {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
               {t("treasury.save")}
             </Button>
@@ -792,7 +809,12 @@ function EntryDetailModal({
             {t("expenses.attachment")}
           </Button>
         )}
-        {mode === "edit" && (
+        {mode === "edit" && e.kind === "EXPENSE" && (
+          <div className="rounded-xl border p-3">
+            <ExpenseEditFields draft={draft} onChange={setDraft} currency={currency} lockAmount={isRefund} lockCategory />
+          </div>
+        )}
+        {mode === "edit" && e.kind !== "EXPENSE" && (
           <div className="space-y-2 rounded-xl border p-3">
             <label className="block text-sm font-medium">
               {t("treasury.account.newAmount", { currency })}

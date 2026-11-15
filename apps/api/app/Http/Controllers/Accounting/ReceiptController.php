@@ -56,7 +56,7 @@ final class ReceiptController extends Controller
             'guardian_id' => ['sometimes', 'nullable', 'uuid'],
             'student_id' => ['sometimes', 'nullable', 'uuid'],
             'q' => ['sometimes', 'nullable', 'string', 'max:120'],
-            'status' => ['sometimes', 'nullable', Rule::in(['active', 'void', 'all', 'unknown'])],
+            'status' => ['sometimes', 'nullable', Rule::in(['active', 'void', 'all', 'unknown', 'awaiting_proof'])],
             'page' => ['sometimes', 'integer', 'min:1'],
             'per_page' => ['sometimes', 'integer', 'min:10', 'max:200'],
         ]);
@@ -66,8 +66,8 @@ final class ReceiptController extends Controller
         $from = $data['from'] ?? $today->copy()->startOfMonth()->format('Y-m-d');
         $to = $data['to'] ?? $today->format('Y-m-d');
         $status = $data['status'] ?? 'active';
-        // Unclaimed money waits whatever its day: the tab lists every one still unknown.
-        if ($status === 'unknown' && ! isset($data['from'])) {
+        // Unclaimed money — and a transfer still waiting for its picture — waits whatever its day.
+        if (in_array($status, ['unknown', 'awaiting_proof'], true) && ! isset($data['from'])) {
             $from = '2000-01-01';
         }
 
@@ -107,6 +107,7 @@ final class ReceiptController extends Controller
         $listed = (clone $base)
             ->when($status === 'active', fn ($q) => $q->whereNull('r.voided_at'))
             ->when($status === 'unknown', fn ($q) => $q->whereNull('r.voided_at')->where('r.payer_unknown', true))
+            ->when($status === 'awaiting_proof', fn ($q) => $q->whereNull('r.voided_at')->where('r.proof_pending', true))
             ->when($status === 'void', fn ($q) => $q->whereNotNull('r.voided_at'));
 
         $perPage = (int) ($data['per_page'] ?? 50);
@@ -151,7 +152,9 @@ final class ReceiptController extends Controller
             'note' => ['nullable', 'string', 'max:1000'],
             'received_on' => ['nullable', 'date_format:Y-m-d', 'before_or_equal:'.Carbon::now($tz)->format('Y-m-d')],
             // Money that moved through a bank, a wallet or a card leaves a picture; cash does not.
-            'proof' => [Rule::requiredIf(fn () => $request->input('method') !== 'CASH'), 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
+            // `proof_later`: the parent has not sent it yet — recorded, and listed until it is attached.
+            'proof_later' => ['sometimes', 'boolean'],
+            'proof' => [Rule::requiredIf(fn () => $request->input('method') !== 'CASH' && ! $request->boolean('proof_later')), 'nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
             'line_ids' => ['nullable', 'array', 'max:500'],
             'line_ids.*' => ['uuid'],
             'apply_rest' => ['nullable', 'boolean'],
@@ -159,9 +162,14 @@ final class ReceiptController extends Controller
             // the next for the amount agreed (GroupBilling::applyTwoMonthOffer), and is paid first.
             'two_month_offers' => ['nullable', 'array', 'max:20'],
             'two_month_offers.*.line_id' => ['required', 'uuid'],
-            'two_month_offers.*.amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000'],
+            // Either the offer's discount off the quoted two months, or the total typed as before.
+            'two_month_offers.*.discount_minor' => ['nullable', 'integer', 'min:0', 'max:100000000000'],
+            'two_month_offers.*.amount_minor' => ['nullable', 'required_without:two_month_offers.*.discount_minor', 'integer', 'min:1', 'max:100000000000'],
         ]);
 
+        if (! in_array((string) $data['method'], Ledger::methodsFor($academyId), true)) {
+            throw ValidationException::withMessages(['method' => ['This academy does not take this payment method. / الأكاديمية لا تقبل وسيلة الدفع هذه.']]);
+        }
         $unknown = (bool) ($data['unknown_payer'] ?? false);
         $payer = $unknown ? ['guardian_id' => null, 'student_id' => null] : $this->ledger->resolvePayer($academyId, $data['guardian_id'] ?? null, $data['student_id'] ?? null);
 
@@ -185,7 +193,13 @@ final class ReceiptController extends Controller
         $receipt = DB::transaction(function () use ($offers, $academyId, $payer, $data, $currency, $proofPath, $unknown, $ctx) {
             $offerLines = [];
             foreach ($offers as $offer) {
-                $line = app(GroupBilling::class)->applyTwoMonthOffer((string) $offer['line_id'], (int) $offer['amount_minor'], $ctx->userId, $ctx->role);
+                $line = app(GroupBilling::class)->applyTwoMonthOffer(
+                    (string) $offer['line_id'],
+                    isset($offer['amount_minor']) ? (int) $offer['amount_minor'] : null,
+                    $ctx->userId,
+                    $ctx->role,
+                    isset($offer['discount_minor']) ? (int) $offer['discount_minor'] : null,
+                );
                 $offerLines[] = (string) $line->id;
             }
 
@@ -196,6 +210,7 @@ final class ReceiptController extends Controller
             'note' => $data['note'] ?? null,
             'received_on' => $data['received_on'] ?? null,
             'proof_path' => is_string($proofPath) && $proofPath !== '' ? $proofPath : null,
+            'proof_pending' => (string) $data['method'] !== 'CASH' && (bool) ($data['proof_later'] ?? false),
             'line_ids' => array_values(array_unique([...$offerLines, ...($data['line_ids'] ?? [])])),
             'apply_rest' => array_key_exists('apply_rest', $data) && $data['apply_rest'] !== null ? (bool) $data['apply_rest'] : true,
             'unknown' => $unknown,
@@ -236,10 +251,75 @@ final class ReceiptController extends Controller
         }
         unset($data['proof']);
         $ctx = app(AuthContext::class);
+        $current = DB::table('receipts')->where('id', $id)->value('method');
+        if (isset($data['method']) && $data['method'] !== $current && ! in_array((string) $data['method'], Ledger::methodsFor($academyId), true)) {
+            throw ValidationException::withMessages(['method' => ['This academy does not take this payment method. / الأكاديمية لا تقبل وسيلة الدفع هذه.']]);
+        }
 
         $this->ledger->amend($id, $data, $ctx->userId, $ctx->role);
 
         return response()->json(['receipt' => $this->detail($id)]);
+    }
+
+    /**
+     * POST /receipts/{id}/proof — the transfer picture a parent sent after the payment was recorded
+     * (Lingo 2026-11-15). The hand that collects may attach it (no void right needed); the receipt
+     * leaves the "awaiting picture" list. Nothing else about it changes.
+     */
+    public function attachProof(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $academyId = $this->academyId();
+        $request->validate(['proof' => ['required', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480']]);
+        $r = DB::table('receipts')->where('id', $id)->first();
+        if ($r === null) {
+            abort(404, 'Receipt not found.');
+        }
+        if ($r->voided_at !== null) {
+            throw ValidationException::withMessages(['receipt' => ['A void receipt cannot be edited. / لا يمكن تعديل إيصال ملغى.']]);
+        }
+        $file = $request->file('proof');
+        $path = $file?->storeAs("receipt-proofs/{$academyId}", Str::uuid().'.'.strtolower((string) ($file->extension() ?: 'jpg')), 'local');
+        DB::table('receipts')->where('id', $id)->update(['proof_path' => $path, 'proof_pending' => false, 'updated_at' => now()]);
+        $ctx = app(AuthContext::class);
+        Audit::log('receipt.proof_attached', 'receipt', $id, $academyId, $ctx->userId, $ctx->role,
+            before: ['number' => $r->number, 'had_proof' => $r->proof_path !== null], after: ['number' => $r->number]);
+
+        return response()->json(['receipt' => $this->detail($id)]);
+    }
+
+    /** GET /accounting/receipt-methods — the methods the desk may take, and every method there is. */
+    public function methods(): JsonResponse
+    {
+        Gate::authorize('invoice.read');
+
+        return response()->json([
+            'methods' => Ledger::methodsFor($this->academyId()),
+            'all' => Ledger::METHODS,
+            'can_manage' => Gate::any(['payment_settings.manage', 'receipt.void']),
+        ]);
+    }
+
+    /** PUT /accounting/receipt-methods { methods[] } — which methods this academy takes (at least one). */
+    public function updateMethods(Request $request): JsonResponse
+    {
+        abort_unless(Gate::any(['payment_settings.manage', 'receipt.void']), 403);
+        $academyId = $this->academyId();
+        $data = $request->validate([
+            'methods' => ['required', 'array', 'min:1', 'max:'.count(Ledger::METHODS)],
+            'methods.*' => ['distinct', Rule::in(Ledger::METHODS)],
+        ]);
+        $methods = array_values(array_filter(Ledger::METHODS, fn ($m) => in_array($m, $data['methods'], true)));
+        $before = Ledger::methodsFor($academyId);
+        DB::statement(
+            'insert into academy_receipt_methods (academy_id, methods, updated_at) values (?, ?::text[], now())
+             on conflict (academy_id) do update set methods = excluded.methods, updated_at = now()',
+            [$academyId, '{'.implode(',', $methods).'}'],
+        );
+        $ctx = app(AuthContext::class);
+        Audit::log('accounting.receipt_methods_updated', 'academy', $academyId, $academyId, $ctx->userId, $ctx->role, before: ['methods' => $before], after: ['methods' => $methods]);
+
+        return response()->json(['methods' => $methods]);
     }
 
     /** POST /receipts/{id}/assign { guardian_id | student_id, line_ids? } — whose an "unknown" receipt is. */
@@ -340,7 +420,21 @@ final class ReceiptController extends Controller
 
         $named = $payer['guardian_id'] === null && $payer['student_id'] === null;
         $lines = $this->ledger->openLines($academyId, $named ? null : $payer, null, $named ? (string) $data['invoice_id'] : null);
-        $groupNames = DB::table('class_groups')->whereIn('id', $lines->pluck('class_group_id')->filter()->unique()->values()->all())->pluck('name', 'id');
+        // Subjects already paid this month that could still take the two-month offer from credit.
+        $settled = $named ? collect() : $this->ledger->settledGroupMonthLines($academyId, $payer);
+        $groupNames = DB::table('class_groups')->whereIn('id', $lines->concat($settled)->pluck('class_group_id')->filter()->unique()->values()->all())->pluck('name', 'id');
+        // The two-month offer as the server would price it, or null where it would refuse — the
+        // screen offers only what will go through.
+        $billing = app(GroupBilling::class);
+        $quote = function (object $l) use ($billing): ?array {
+            if ($l->group_charge !== GroupBilling::MONTHLY || isset($l->group_months) && (int) $l->group_months === 2 || $l->invoice_status !== 'OPEN') {
+                return null;
+            }
+            $row = DB::table('invoice_line_items')->where('id', $l->id)->first();
+
+            return $row !== null ? $billing->twoMonthQuote($row) : null;
+        };
+        $offerLines = $settled->map(fn ($l) => ['line' => $l, 'quote' => $quote($l)])->filter(fn ($x) => $x['quote'] !== null)->values();
 
         $recent = DB::table('receipts')
             ->when($payer['guardian_id'] !== null, fn ($q) => $q->where('guardian_id', $payer['guardian_id']))
@@ -352,6 +446,8 @@ final class ReceiptController extends Controller
         return response()->json([
             'payer' => $this->payerInfo($payer),
             'accounting' => Ledger::enabledFor($academyId),
+            // What the desk may take here (Settings: the academy's payment methods).
+            'methods' => Ledger::methodsFor($academyId),
             'lines' => $lines->map(fn ($l) => [
                 'id' => (string) $l->id,
                 'invoice_id' => (string) $l->invoice_id,
@@ -370,7 +466,17 @@ final class ReceiptController extends Controller
                 'remaining_minor' => (int) $l->amount_minor - (int) $l->allocated,
                 'currency' => (string) $l->currency,
                 'invoice_status' => (string) $l->invoice_status,
+                'two_month' => $quote($l),
             ])->values()->all(),
+            'offer_lines' => $offerLines->map(fn ($x) => [
+                'id' => (string) $x['line']->id,
+                'description' => (string) $x['line']->description,
+                'student_name' => $x['line']->student_name,
+                'group_name' => $groupNames[(string) $x['line']->class_group_id] ?? null,
+                'amount_minor' => (int) $x['line']->amount_minor,
+                'currency' => (string) $x['line']->currency,
+                'two_month' => $x['quote'],
+            ])->all(),
             'balance' => $named ? [] : $this->ledger->balance($academyId, $payer),
             'recent_receipts' => $recent->map(fn ($r) => [
                 'id' => (string) $r->id,
@@ -381,6 +487,30 @@ final class ReceiptController extends Controller
                 'method' => (string) $r->method,
                 'voided' => $r->voided_at !== null,
             ])->all(),
+        ]);
+    }
+
+    /**
+     * POST /two-month-offers — the two-month offer on a subject already paid this month, with no
+     * new money: the charge grows to both months and the family's credit pays what it can (the
+     * rest is owed like any charge). Money coming in goes through store() with the offer instead.
+     */
+    public function twoMonthOffer(Request $request): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $academyId = $this->academyId();
+        $data = $request->validate([
+            'line_id' => ['required', 'uuid'],
+            'discount_minor' => ['nullable', 'integer', 'min:0', 'max:100000000000'],
+        ]);
+        $ctx = app(AuthContext::class);
+        $line = DB::transaction(fn () => app(GroupBilling::class)->applyTwoMonthOffer((string) $data['line_id'], null, $ctx->userId, $ctx->role, (int) ($data['discount_minor'] ?? 0)));
+        $invoice = DB::table('invoices')->where('id', $line->invoice_id)->first();
+
+        return response()->json([
+            'line_id' => (string) $line->id,
+            'amount_minor' => (int) $line->amount_minor,
+            'balance' => $this->ledger->balance($academyId, $this->ledger->payerOfInvoice($invoice)),
         ]);
     }
 
@@ -428,6 +558,8 @@ final class ReceiptController extends Controller
         return $this->presentRow($r, $allocations->pluck('group_name')->filter()->unique()->values()->all()) + [
             'note' => $r->note,
             'has_proof' => $r->proof_path !== null,
+            'proof_pending' => (bool) ($r->proof_pending ?? false),
+            'can_attach_proof' => Gate::allows('invoice.mark_paid') && $r->voided_at === null && (bool) ($r->proof_pending ?? false),
             'payer' => $this->payerInfo($payer),
             'public_url' => AcademyUrl::receipt($academyId, (string) $r->public_token),
             'unallocated_minor' => $r->voided_at === null ? (int) $r->amount_minor - $allocated - $refunded : 0,
@@ -484,6 +616,7 @@ final class ReceiptController extends Controller
             'payer_name' => $r->payer_display,
             'payer_kind' => $r->guardian_id !== null ? 'GUARDIAN' : ($r->student_id !== null ? 'STUDENT' : 'NAME'),
             'payer_unknown' => (bool) ($r->payer_unknown ?? false),
+            'proof_pending' => (bool) ($r->proof_pending ?? false),
             'guardian_id' => $r->guardian_id,
             'student_id' => $r->student_id,
             'amount_minor' => (int) $r->amount_minor,

@@ -130,6 +130,28 @@ it('shows every child\'s due package, what it is for, and the family total, with
         ->and($res->json('card'))->toBeFalse();
 });
 
+it('offers every live manual method for the whole amount, public details only', function () {
+    $this->asAcademy($this->academy);
+    DB::table('academy_payment_settings')->insert([
+        ['academy_id' => $this->academy, 'method' => 'WALLET', 'is_active' => true,
+            'config' => json_encode(['numbers' => ['01012345678'], 'holder' => 'Noor', 'note' => ''])],
+        ['academy_id' => $this->academy, 'method' => 'INSTAPAY', 'is_active' => false,
+            'config' => json_encode(['address' => 'noor@instapay', 'link' => '', 'holder' => '', 'note' => ''])],
+        // API keys only: nothing a parent can send money to, and the secret never leaves the table.
+        ['academy_id' => $this->academy, 'method' => 'PAYPAL', 'is_active' => true,
+            'config' => json_encode(['client_id' => 'AcId', 'client_secret' => 'TopSecretValue', 'email' => '', 'paypal_me' => ''])],
+    ]);
+    $this->clearTenantContext();
+    $token = familyPayToken($this);
+
+    $res = $this->getJson("/api/f/{$token}")->assertOk();
+
+    expect(collect($res->json('methods'))->pluck('method')->all())->toBe(['WALLET', 'BANK_TRANSFER'])
+        ->and($res->json('methods.0.config.numbers'))->toBe(['01012345678'])
+        ->and($res->json('card'))->toBeTrue()
+        ->and(json_encode($res->json()))->not->toContain('TopSecretValue');
+});
+
 it('drops a bill from the page once it is paid', function () {
     $token = familyPayToken($this);
 

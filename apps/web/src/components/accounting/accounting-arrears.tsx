@@ -1,6 +1,7 @@
 "use client";
 
 import { AlarmClock, FileText, Loader2, MessageSquare, Search, Wallet } from "lucide-react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -206,7 +207,18 @@ export function AccountingArrearsScreen() {
               <li key={`${p.kind}-${p.id}`} className="bg-card rounded-xl border p-3 shadow-sm" data-testid={`arrears-${p.id}`}>
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                   <div className="min-w-0 space-y-1">
-                    <p className="font-semibold break-words">{p.name ?? "—"}</p>
+                    {/* The family's own page — its children's subscriptions are edited there (Lingo 2026-11-15). */}
+                    {p.kind === "GUARDIAN" && p.id ? (
+                      <Link href={`/guardians/${p.id}`} className="font-semibold break-words hover:underline" data-testid={`arrears-open-${p.id}`}>
+                        {p.name ?? "—"}
+                      </Link>
+                    ) : p.kind === "STUDENT" && p.id ? (
+                      <Link href={`/students/${p.id}`} className="font-semibold break-words hover:underline" data-testid={`arrears-open-${p.id}`}>
+                        {p.name ?? "—"}
+                      </Link>
+                    ) : (
+                      <p className="font-semibold break-words">{p.name ?? "—"}</p>
+                    )}
                     <p className="text-muted-foreground text-xs break-words">
                       {[p.students.join("، "), p.groups.join(" · ")].filter(Boolean).join(" — ")}
                     </p>

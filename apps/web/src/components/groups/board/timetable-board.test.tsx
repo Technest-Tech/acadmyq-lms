@@ -148,6 +148,26 @@ describe("TimetableBoard — the centre's week by the hour", () => {
     expect(screen.getByTestId("timetable-row-c")).toBeInTheDocument();
   });
 
+  it("puts an Enter button on a lesson whose group has an online room (Lingo 2026-11-15)", async () => {
+    listBoardLessons.mockImplementation(async (p: { view: string }) => ({
+      view: p.view, from: SATURDAY, to: SATURDAY, timezone: "UTC",
+      lessons: p.view === "week"
+        ? [
+            lesson("on", "g1", "Prep 2 English", "16:00", { group: { id: "g1", name: "Prep 2 English", level: null, timezone: "UTC", mode: "ONLINE", location: null, meeting_url: "https://meet.example/abc" } }),
+            lesson("off", "g2", "KG2 English", "17:00", {}, "Room 4"),
+          ]
+        : [],
+    }));
+    const user = userEvent.setup();
+    render(withAuth(centre(), <LessonsBoard />));
+    await user.click(await screen.findByTestId("timetable-day-all"));
+
+    const enter = await screen.findByTestId("timetable-enter-on");
+    expect(enter).toHaveAttribute("href", "https://meet.example/abc");
+    expect(enter).toHaveAttribute("target", "_blank");
+    expect(screen.queryByTestId("timetable-enter-off")).toBeNull();
+  });
+
   it("filters by a room from the centre's list, and sets a group's room from it", async () => {
     listRooms.mockResolvedValue({
       rooms: [

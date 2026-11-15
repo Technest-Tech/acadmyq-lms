@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/app-shell";
 import { AuthProvider } from "@/components/auth-provider";
+import { HelpProvider } from "@/components/help/help-provider";
 import { WORKSPACE_INIT_SCRIPT } from "@/lib/branding";
 
 /**
@@ -31,7 +32,11 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
     <>
       <script dangerouslySetInnerHTML={{ __html: WORKSPACE_INIT_SCRIPT }} />
       <AuthProvider>
-        <AppShell>{children}</AppShell>
+        {/* Around the shell, so the header's "?", a page's own help links and the dashboard's
+            first-steps card all open the one help drawer. */}
+        <HelpProvider>
+          <AppShell>{children}</AppShell>
+        </HelpProvider>
       </AuthProvider>
     </>
   );

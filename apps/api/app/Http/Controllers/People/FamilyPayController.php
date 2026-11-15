@@ -10,6 +10,7 @@ use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\LessonCount;
+use App\Support\ManualPaymentMethods;
 use App\Support\PackagePurpose;
 use App\Support\Tenancy;
 use Illuminate\Database\Query\Builder;
@@ -214,10 +215,12 @@ final class FamilyPayController extends Controller
         }
         ksort($totals);
 
-        // Only the methods a parent can use from here: a bank transfer for the whole amount (its
-        // public details only), XPay for the whole amount in one card payment (split across the
-        // bills when it settles), and PayPal — each bill through its own link.
+        // Only the methods a parent can use from here: the manual ones (wallet, InstaPay, PayPal
+        // email, bank, the academy's own text) for the whole amount — public details only — XPay for
+        // the whole amount in one card payment (split across the bills when it settles), and the
+        // PayPal API checkout — each bill through its own link.
         $methods = DB::table('academy_payment_settings')->where('is_active', true)->pluck('config', 'method');
+        $paypal = isset($methods['PAYPAL']) ? json_decode((string) $methods['PAYPAL'], true) : null;
         $bank = isset($methods['BANK_TRANSFER']) ? json_decode((string) $methods['BANK_TRANSFER'], true) : null;
 
         return [
@@ -229,7 +232,8 @@ final class FamilyPayController extends Controller
             'items' => $items,
             'totals' => collect($totals)->map(fn (int $minor, string $currency): array => ['currency' => $currency, 'amount_minor' => $minor])->values()->all(),
             'bank_transfer' => is_array($bank) ? array_intersect_key($bank, array_flip(['bank_name', 'account_holder', 'account_number', 'iban'])) : null,
-            'card' => isset($methods['XPAY']) || isset($methods['PAYPAL']),
+            'methods' => ManualPaymentMethods::active(),
+            'card' => isset($methods['XPAY']) || (is_array($paypal) && ($paypal['client_id'] ?? '') !== ''),
             'xpay' => isset($methods['XPAY']),
         ];
     }

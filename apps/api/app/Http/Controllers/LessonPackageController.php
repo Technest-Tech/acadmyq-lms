@@ -396,7 +396,8 @@ final class LessonPackageController extends Controller
      */
     private function timetableLengths(array $studentIds): array
     {
-        if ($studentIds === [] || ! Entitlement::hasCapability((string) app(AuthContext::class)->academyId, 'centre')) {
+        // Where a block sold in lessons starts its length: a centre, or an academy counting lessons.
+        if ($studentIds === [] || ! LessonPackages::lessonsOn((string) app(AuthContext::class)->academyId)) {
             return [];
         }
 

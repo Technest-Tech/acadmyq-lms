@@ -20,7 +20,7 @@ import {
   updateLessonPackage,
   type LessonPackageRow,
 } from "@/lib/api";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, usePackagesInLessons } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -79,6 +79,9 @@ export function EditPackageForm({
   // The same fields the package was opened with: lessons of a length — priced by the lesson in a
   // centre, against a total everywhere else.
   const perLesson = useCapability("centre");
+  // A block counted in lessons (a centre, or `packages_in_lessons` once the block was converted):
+  // its lesson length is one of its terms. A block still in hours is converted by the Super Admin.
+  const inLessons = usePackagesInLessons() && (perLesson || row.lesson_minutes !== null);
   const [shape] = useState(() => lessonShapeOf(row));
   const [label, setLabel] = useState(row.label);
   const [unitMinutes, setUnitMinutes] = useState(shape.minutes);
@@ -119,7 +122,7 @@ export function EditPackageForm({
   const minutesFloor = Math.max(
     0,
     // A centre's block counts lessons: what was taught is that many lessons at the length typed.
-    (perLesson && row.lesson_minutes
+    (inLessons && row.lesson_minutes
       ? row.lesson_count * unitMinutes + row.absorbed_overdraft_minutes
       : row.minutes_consumed) - row.carried_over_minutes,
   );
@@ -127,7 +130,7 @@ export function EditPackageForm({
     label.trim() !== row.label ||
     (Number.isFinite(hoursNum) && Math.round(hoursNum * 60) !== row.minutes_total) ||
     priceMinor !== row.price_minor ||
-    (perLesson && unitMinutes !== (row.lesson_minutes ?? shape.minutes));
+    (inLessons && unitMinutes !== (row.lesson_minutes ?? shape.minutes));
   // The question only exists when there IS a next block: one that renews itself.
   const askScope = termsChanged && autoRenew;
   const nextOnly = askScope && appliesTo === "NEXT";
@@ -157,7 +160,7 @@ export function EditPackageForm({
         price_minor: priceMinor,
         expires_on: expiresOn === "" ? null : expiresOn,
         auto_renew: autoRenew,
-        ...(perLesson ? { lesson_minutes: unitMinutes } : {}),
+        ...(inLessons ? { lesson_minutes: unitMinutes } : {}),
         ...(askScope && appliesTo !== null ? { applies_to: appliesTo } : {}),
       });
       onSaved(

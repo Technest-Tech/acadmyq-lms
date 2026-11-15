@@ -14,6 +14,7 @@ use App\Jobs\MonthlyStudentBillingJob;
 use App\Jobs\OpenFixedSalaryPayoutsJob;
 use App\Jobs\PurgeExpiredRecordingsJob;
 use App\Jobs\RollSessionWindowJob;
+use App\Support\JobRuns;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
@@ -29,8 +30,12 @@ Artisan::command('inspire', function () {
 | monitor can alert on, instead of something nobody discovers until an academy reports missing
 | lessons two months later. Cheap: one cache write per minute.
 */
-Schedule::call(fn () => Cache::put('scheduler.heartbeat_at', now()->toIso8601String(), now()->addDay()))
-    ->everyMinute()->name('scheduler-heartbeat');
+Schedule::call(function () {
+    Cache::put('scheduler.heartbeat_at', now()->toIso8601String(), now()->addDay());
+    // The schedule only exists in the console; publish it so Super Admin → System health (a web
+    // request) can list every task against when it last actually finished.
+    JobRuns::publishSchedule(app(Illuminate\Console\Scheduling\Schedule::class));
+})->everyMinute()->name('scheduler-heartbeat');
 
 /*
 | DAILY session roll-forward (Sprint 5 §6, §3.8). The generator extends every active academy's
@@ -139,7 +144,9 @@ Schedule::job(new LessonReminderJob)->hourly()->name('type2-lesson-reminders')->
 | than a queued job, so a "starting now" is never stuck behind a long transcode on the queue worker.
 | Idempotent per (group, alert, subject); overlapping runs cannot double-send (atomic claims).
 */
-Schedule::command('whatsapp:group-alerts')->everyMinute()->name('whatsapp-group-alerts')->withoutOverlapping(10)->runInBackground();
+Schedule::command('whatsapp:group-alerts')->everyMinute()->name('whatsapp-group-alerts')->withoutOverlapping(10)->runInBackground()
+    ->onSuccess(fn () => JobRuns::ok('whatsapp-group-alerts'))
+    ->onFailure(fn () => JobRuns::failed('whatsapp-group-alerts', 'The command exited with an error — see the schedule log.'));
 
 /*
 | Daily recording-retention purge (archive/video-platform/docs, V-REC-2). Each morning, for every active
@@ -155,4 +162,6 @@ Schedule::job(new PurgeExpiredRecordingsJob)->dailyAt('03:30')->name('purge-expi
 | host, and nothing at all once they are live) and scheduled rather than manual because DNS
 | propagation finishes long after whoever set it up has stopped watching the panel.
 */
-Schedule::command('domains:verify')->everyTenMinutes()->name('verify-custom-domains')->withoutOverlapping();
+Schedule::command('domains:verify')->everyTenMinutes()->name('verify-custom-domains')->withoutOverlapping()
+    ->onSuccess(fn () => JobRuns::ok('verify-custom-domains'))
+    ->onFailure(fn () => JobRuns::failed('verify-custom-domains', 'The command exited with an error — see the schedule log.'));

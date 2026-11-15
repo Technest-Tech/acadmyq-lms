@@ -232,7 +232,8 @@ export type ClientRecord = ClientDetail["client"];
  *   connections   WhatsApp, the payment gateway, the domains
  *   settings      identity, owner login, danger zone
  */
-export type ClientTab = "overview" | "subscription" | "features" | "connections" | "settings";
+/** `lms` exists only for a client that holds the course platform; `tools` only for one that runs lessons. */
+export type ClientTab = "overview" | "subscription" | "features" | "lms" | "connections" | "tools" | "settings";
 
 /** The eight-tab page's names, so a bookmark or an old link still lands in the right place. */
 export const LEGACY_CLIENT_TABS: Record<string, ClientTab> = {

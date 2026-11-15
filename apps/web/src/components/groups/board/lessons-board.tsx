@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminNoteButton } from "@/components/attendance/admin-note-button";
+import { GroupEnterLink } from "@/components/groups/group-enter-link";
 import { RescheduleLessonModal } from "@/components/groups/reschedule-lesson-modal";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
@@ -294,6 +295,7 @@ export function LessonsBoard() {
                             {l.status === "HELD" ? t("lessons.editSheet") : t("lessons.takeAttendance")}
                           </Button>
                         )}
+                        {l.status === "SCHEDULED" && l.group.meeting_url && <GroupEnterLink url={l.group.meeting_url} testId={`board-enter-${l.id}`} />}
                         {l.admin_note !== undefined && l.status === "HELD" && (
                           <AdminNoteButton
                             size="sm"
@@ -408,6 +410,7 @@ export function LessonsBoard() {
                             {l.status === "HELD" ? t("lessons.editSheet") : t("lessons.takeAttendance")}
                           </Button>
                         )}
+                        {l.status === "SCHEDULED" && l.group.meeting_url && <GroupEnterLink url={l.group.meeting_url} testId={`board-enter-${l.id}`} />}
                         {l.admin_note !== undefined && l.status === "HELD" && (
                           <AdminNoteButton
                             size="sm"

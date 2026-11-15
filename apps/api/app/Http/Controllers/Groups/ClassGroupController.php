@@ -10,7 +10,9 @@ use App\Services\ClassGroups;
 use App\Services\CourseTerm;
 use App\Services\GroupBilling;
 use App\Services\Ledger;
+use App\Services\GroupLeaveSettlement;
 use App\Services\GroupLessonGenerator;
+use App\Services\GroupTrial;
 use App\Services\GroupPayroll;
 use App\Services\Rooms;
 use App\Services\StudentLevels;
@@ -374,12 +376,95 @@ final class ClassGroupController extends Controller
         $data = $request->validate([
             'left_on' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'reason' => ['sometimes', 'nullable', 'string', 'max:300'],
+            // What becomes of the lessons paid and not taken (GroupLeaveSettlement); absent = KEEP.
+            'settlement' => ['sometimes', 'nullable', Rule::in(GroupLeaveSettlement::MODES)],
+            'cash_account_id' => ['sometimes', 'nullable', 'uuid'],
         ]);
+        $leftOn = $data['left_on'] ?? ClassGroups::localToday((string) $group->timezone);
+        $mode = $data['settlement'] ?? null;
+        if ($mode !== null && $mode !== 'KEEP') {
+            Gate::authorize('invoice.mark_paid');
+            if ($mode === 'REFUND') {
+                Gate::authorize('expense.manage');
+            }
+        }
 
-        $this->groups->removeMember($group, $studentId, $data['left_on'] ?? ClassGroups::localToday((string) $group->timezone),
-            $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role);
+        $settled = DB::transaction(function () use ($group, $studentId, $leftOn, $data, $mode): ?array {
+            // Read before the membership ends: what was bought and not used, as of that day.
+            $quote = $mode !== null && GroupLeaveSettlement::availableFor((string) $group->academy_id) ? $this->billing->leaveQuote($group, $studentId, $leftOn) : null;
+            $this->groups->removeMember($group, $studentId, $leftOn, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role);
 
-        return response()->json(['group' => $this->detail($id)]);
+            return $quote !== null
+                ? app(GroupLeaveSettlement::class)->settle($group, $studentId, $leftOn, $quote, (string) $mode, $data['cash_account_id'] ?? null, $this->ctx()->userId, $this->ctx()->role)
+                : null;
+        });
+
+        return response()->json(['group' => $this->detail($id), 'settlement' => $settled]);
+    }
+
+    /** GET /api/groups/{id}/trial-price?lesson_id= — one lesson's price in this group, for a trial. */
+    public function trialPrice(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('group.manage');
+        $group = $this->findGroup($id);
+        $data = $request->validate(['lesson_id' => ['required', 'uuid']]);
+        $lesson = DB::table('class_group_lessons')->where('id', $data['lesson_id'])->where('group_id', $group->id)->first();
+        if ($lesson === null) {
+            abort(404, 'Lesson not found.');
+        }
+
+        return response()->json(['amount_minor' => app(GroupTrial::class)->lessonPrice($group, $lesson), 'currency' => $group->currency]);
+    }
+
+    /**
+     * POST /api/groups/{id}/trial { student_id, lesson_id, amount_minor? } — one trial lesson: the
+     * student on that lesson only, charged one lesson at the group's price (or the amount typed, by
+     * whoever may set prices). Lingo 2026-11-15.
+     */
+    public function bookTrial(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('group.manage');
+        $group = $this->findGroup($id);
+        $data = $request->validate([
+            'student_id' => ['required', 'uuid', Rule::exists('students', 'id')->whereNull('deleted_at')],
+            'lesson_id' => ['required', 'uuid'],
+            'amount_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:100000000000'],
+        ]);
+        if (array_key_exists('amount_minor', $data) && $data['amount_minor'] !== null) {
+            Gate::authorize('student.set_price');
+        }
+        $lesson = DB::table('class_group_lessons')->where('id', $data['lesson_id'])->first();
+        if ($lesson === null) {
+            abort(404, 'Lesson not found.');
+        }
+        $booked = app(GroupTrial::class)->book($group, (string) $data['student_id'], $lesson, isset($data['amount_minor']) ? (int) $data['amount_minor'] : null, $this->ctx()->userId, $this->ctx()->role);
+
+        return response()->json(['trial' => $booked, 'group' => $this->detail($id)], 201);
+    }
+
+    /**
+     * GET /api/groups/{id}/members/{studentId}/leave-quote?left_on= — before removing a student:
+     * lessons attended, lessons paid and left, what they are worth, and how much of it was paid
+     * (Lingo 2026-11-15). Null quote when nothing monthly was charged or the academy is not on receipts.
+     */
+    public function leaveQuote(Request $request, string $id, string $studentId): JsonResponse
+    {
+        Gate::authorize('group.manage');
+        $group = $this->findGroup($id);
+        $data = $request->validate(['left_on' => ['sometimes', 'nullable', 'date_format:Y-m-d']]);
+        $leftOn = $data['left_on'] ?? ClassGroups::localToday((string) $group->timezone);
+        $seesMoney = Gate::allows('invoice.read');
+        $quote = $seesMoney && GroupLeaveSettlement::availableFor((string) $group->academy_id) ? $this->billing->leaveQuote($group, $studentId, $leftOn) : null;
+
+        return response()->json([
+            'quote' => $quote,
+            'can_settle' => Gate::allows('invoice.mark_paid'),
+            'can_refund' => Gate::allows('invoice.mark_paid') && Gate::allows('expense.manage'),
+            'accounts' => $quote !== null && Gate::allows('expense.manage')
+                ? DB::table('cash_accounts')->where('is_active', true)->where('currency', $quote['currency'])->orderBy('sort_order')->get(['id', 'name', 'currency'])
+                    ->map(fn ($a) => ['id' => (string) $a->id, 'name' => (string) $a->name, 'currency' => (string) $a->currency])->all()
+                : [],
+        ]);
     }
 
     /**

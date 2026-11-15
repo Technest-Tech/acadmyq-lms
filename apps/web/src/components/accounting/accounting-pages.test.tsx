@@ -129,6 +129,22 @@ describe("Overview", () => {
     await userEvent.click(screen.getByTestId("aging-d31_60"));
     expect(push).toHaveBeenCalledWith("/accounting/arrears?bucket=d31_60");
   });
+
+  it("leads with today's payment reminders: who promised today or is late, what they owe, collect from there", async () => {
+    api.getAccountingOverview.mockResolvedValue({
+      month: "2026-06", today: "2026-06-17", collected: [], billed: [], owed: [], credit: [], top_debtors: [], recent_receipts: [],
+      follow_ups: [
+        { guardian_id: "gd1", name: "Parent of two", phone: "+201001112223", follow_up_on: "2026-06-17", days_late: 0, note: "Will pay Thursday", due: [{ currency: "EGP", due_minor: 90000, credit_minor: 0 }] },
+        { guardian_id: "gd2", name: "Celine’s mother", phone: null, follow_up_on: "2026-06-14", days_late: 3, note: "", due: [{ currency: "EGP", due_minor: 45000, credit_minor: 0 }] },
+      ],
+    } satisfies AccountingOverview);
+    render(withAuth(owner(), <AccountingOverviewScreen />));
+
+    const box = await screen.findByTestId("overview-follow-ups");
+    expect(within(box).getByText("Will pay Thursday")).toBeTruthy();
+    expect(within(screen.getByTestId("follow-up-gd1")).getByText(ar.overview.followUpToday)).toBeTruthy();
+    expect(within(screen.getByTestId("follow-up-gd2")).getByRole("link", { name: "Celine’s mother" })).toHaveAttribute("href", "/guardians/gd2");
+  });
 });
 
 describe("Group collections", () => {

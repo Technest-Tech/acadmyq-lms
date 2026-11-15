@@ -38,6 +38,7 @@ vi.mock("@/lib/api", async (importActual) => ({
   getPlatformSettings: vi.fn(),
   getAcademyOwner: vi.fn(),
   getClientDomains: vi.fn(),
+  getLmsAcademy: vi.fn(),
   whatsappStatus: vi.fn(),
   suspendAcademy: vi.fn(),
   reactivateAcademy: vi.fn(),
@@ -267,6 +268,88 @@ describe("ClientScreen", () => {
     await heading();
     expect(screen.getByTestId("tab-overview")).toHaveAttribute("aria-selected", "true");
     expect(screen.getByTestId("client-overview")).toBeInTheDocument();
+  });
+
+  it("offers Maintenance only to a platform admin, on a client that runs lessons", async () => {
+    const first = render(wrap(["academy.read"]));
+    await heading();
+    expect(screen.queryByTestId("tab-tools")).toBeNull();
+    first.unmount();
+
+    const second = render(wrap(["academy.read", "platform.manage"]));
+    await heading();
+    expect(screen.getByTestId("tab-tools")).toBeInTheDocument();
+    second.unmount();
+
+    // A WhatsApp-only client has no lessons to repair.
+    vi.mocked(api.getClient).mockResolvedValue(detail({ modules: [sub({ module: "WHATSAPP" })] }));
+    render(wrap(["academy.read", "platform.manage"]));
+    await heading();
+    expect(screen.queryByTestId("tab-tools")).toBeNull();
+  });
+
+  it("gives a client that holds the course platform its own tab, and nobody else", async () => {
+    // No LMS module: no tab, and a link that names it falls back to the overview.
+    nav.params = new URLSearchParams("tab=lms");
+    const first = render(wrap(["academy.read", "platform.manage"]));
+    await heading();
+    expect(screen.queryByTestId("tab-lms")).toBeNull();
+    expect(screen.getByTestId("tab-overview")).toHaveAttribute("aria-selected", "true");
+    expect(api.getLmsAcademy).not.toHaveBeenCalled();
+    first.unmount();
+
+    vi.mocked(api.getClient).mockResolvedValue(
+      detail({ modules: [sub({}), sub({ id: "s3", module: "LMS" })] }),
+    );
+    vi.mocked(api.getLmsAcademy).mockResolvedValue({
+      academy: {
+        id: "c1",
+        name: "Bright Steps",
+        subdomain: "bright",
+        created_at: "2026-03-01T00:00:00Z",
+        currency: "EGP",
+        plan_name: null,
+        lms_plan_name: null,
+        lms_status: "ACTIVE",
+        lms_enabled: true,
+        trial_start: null,
+        trial_end: null,
+        lms_limits: { maxCourses: 10 },
+        lms_overrides: null,
+      },
+      subscription: null,
+      stats: {
+        courses_total: 4,
+        courses_published: 3,
+        courses_draft: 1,
+        lessons: 40,
+        learners: 25,
+        active_learners: 20,
+        enrollments: 30,
+        active_enrollments: 28,
+        codes: 50,
+        active_codes: 20,
+        redeemed_codes: 30,
+        storage_bytes: 2e9,
+        media_processing: 0,
+        media_failed: 0,
+        certificates: 5,
+        quiz_attempts: 12,
+        completed_lessons: 90,
+      },
+      courses: [],
+      learners: [],
+      recent_enrollments: [],
+      site: { subdomain: "bright", url: "https://bright.acadmyq.com", root_domain: "acadmyq.com", configured: true },
+    });
+    render(wrap(["academy.read", "platform.manage"]));
+    await heading();
+
+    expect(screen.getByTestId("tab-lms")).toHaveAttribute("aria-selected", "true");
+    expect(await screen.findByTestId("lms-limits-save")).toBeInTheDocument();
+    expect(api.getLmsAcademy).toHaveBeenCalledWith("c1");
+    // The site's address is the Settings tab's to write — it is not repeated here.
+    expect(screen.queryByTestId("lms-subdomain-input")).toBeNull();
   });
 
   it("suspends with a reason from the header dialog, then shows the suspended banner", async () => {

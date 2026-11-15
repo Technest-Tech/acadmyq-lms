@@ -40,6 +40,7 @@ import {
 import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES, CURRENCIES } from "@/lib/countries";
 import { hoursText, monthLessons } from "@/components/groups/group-format";
+import { filterGroups, GroupSearchBox } from "@/components/groups/group-search";
 import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
 import { LevelSelect } from "@/components/levels/level-select";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
@@ -283,6 +284,7 @@ export function StudentForm({
   const billing: Billing =
     billingPick ?? (groupsOnlyChoice ? "none" : subscriptionAvailable ? "subscription" : centre && packagesAvailable ? "package" : "monthly");
   const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
+  const [groupQuery, setGroupQuery] = useState("");
   // The student's level / grade (docs/centre-profile, Phase 2.1) — optional, from the academy's
   // list: a centre's always, a Quran academy's once it switched levels on in Settings.
   const levelsOn = useLevelsOn();
@@ -339,7 +341,7 @@ export function StudentForm({
 
   useEffect(() => {
     if (!fixedGuardianId) {
-      void listGuardians({ pageSize: 200 }).then((r) => {
+      void fetchRoster(listGuardians).then((r) => {
         setGuardians(r.rows);
         // Nobody to pick yet: the only way forward is a new parent, so start there.
         if (r.rows.length === 0 && canCreateGuardian) setNewParent(true);
@@ -847,6 +849,7 @@ export function StudentForm({
                   </ul>
                 )}
                 {/* Always under the list, full width: where the next group is added. */}
+                <GroupSearchBox count={groupOptions?.length ?? 0} value={groupQuery} onChange={setGroupQuery} testId="group-subs-search" />
                 <div className="relative">
                   <Plus className="text-primary pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
                   <select
@@ -866,7 +869,7 @@ export function StudentForm({
                             ? t("form.addGroup")
                             : t("form.addAnotherGroup")}
                     </option>
-                    {(groupOptions ?? [])
+                    {filterGroups(groupOptions ?? [], groupQuery)
                       .filter((g) => !groupIds.includes(g.id))
                       .map((g) => (
                         <option key={g.id} value={g.id}>

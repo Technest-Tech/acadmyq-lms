@@ -48,6 +48,9 @@ final class Ledger
 
     public const SOURCE_MIGRATED = 'MIGRATED';
 
+    /** A family's credit from before the system, entered once: pays charges, never money in. */
+    public const SOURCE_OPENING = 'OPENING';
+
     /** Does this academy hold the feature (and invoicing, which it is a layer of)? */
     public static function enabledFor(string $academyId): bool
     {
@@ -69,6 +72,25 @@ final class Ledger
     }
 
     /** Is this academy's money kept by receipts right now (adopted)? Cheap — one column. */
+    /**
+     * The payment methods this academy takes at the desk, in the usual order (Lingo 2026-11-15:
+     * transfers and wallets only, no cash). No row = every method — nothing changes for an academy
+     * that never set it. Old receipts keep whatever method they were recorded with.
+     *
+     * @return list<string>
+     */
+    public static function methodsFor(string $academyId): array
+    {
+        $raw = DB::table('academy_receipt_methods')->where('academy_id', $academyId)->value('methods');
+        if ($raw === null) {
+            return self::METHODS;
+        }
+        $chosen = is_array($raw) ? $raw : str_getcsv(trim((string) $raw, '{}'));
+        $methods = array_values(array_filter(self::METHODS, fn ($m) => in_array($m, $chosen, true)));
+
+        return $methods !== [] ? $methods : self::METHODS;
+    }
+
     public static function keeps(string $academyId): bool
     {
         return DB::table('academy_ledgers')->where('academy_id', $academyId)->exists();
@@ -393,8 +415,10 @@ final class Ledger
                 'reference' => array_key_exists('reference', $changes) ? $this->clean($changes['reference']) : $r->reference,
                 'note' => array_key_exists('note', $changes) ? $this->clean($changes['note']) : $r->note,
                 'proof_path' => $proof,
+                // The picture came: the receipt no longer waits for it.
+                'proof_pending' => ($proof === null || $proof === '') && (bool) ($r->proof_pending ?? false),
             ];
-            $before = ['method' => $r->method, 'received_on' => $oldOn, 'cash_account_id' => $oldAccount, 'reference' => $r->reference, 'note' => $r->note, 'proof_path' => $r->proof_path];
+            $before = ['method' => $r->method, 'received_on' => $oldOn, 'cash_account_id' => $oldAccount, 'reference' => $r->reference, 'note' => $r->note, 'proof_path' => $r->proof_path, 'proof_pending' => (bool) ($r->proof_pending ?? false)];
             if ($after === $before) {
                 return $r;
             }
@@ -585,6 +609,25 @@ final class Ledger
         }
 
         return $query->get();
+    }
+
+    /**
+     * The payer's monthly group charges already paid in full (by money or credit) on open bills,
+     * newest last — the subjects a family could still turn into a two-month offer paid from what
+     * they hold, since a covered month never reaches the unpaid list.
+     *
+     * @param  array{guardian_id: ?string, student_id: ?string, payer_name: ?string}  $payer
+     * @return Collection<int, object>
+     */
+    public function settledGroupMonthLines(string $academyId, array $payer): Collection
+    {
+        return $this->linesQuery($academyId, $payer, null, null)
+            ->whereRaw('li.amount_minor <= coalesce(a.allocated, 0)')
+            ->where('li.group_charge', 'MONTHLY')
+            ->whereNull('li.group_months')
+            ->whereNull('li.cancelled_at')
+            ->where('i.status', 'OPEN')
+            ->get();
     }
 
     /**
@@ -834,7 +877,7 @@ final class Ledger
         $source = $opts['source'] ?? self::SOURCE_MANUAL;
         $receivedOn = $opts['received_on'] ?? Carbon::now($this->timezone($academyId))->format('Y-m-d');
         $treasury = app(Treasury::class);
-        $accountId = $opts['cash_account_id'] ?? ($source === self::SOURCE_MIGRATED ? null : $treasury->accountForReceipt($academyId, $method, $currency));
+        $accountId = $opts['cash_account_id'] ?? (in_array($source, [self::SOURCE_MIGRATED, self::SOURCE_OPENING], true) ? null : $treasury->accountForReceipt($academyId, $method, $currency));
         if ($accountId !== null && $source === self::SOURCE_MANUAL) {
             $treasury->assertOpenDay($accountId, $receivedOn);
         }
@@ -854,6 +897,8 @@ final class Ledger
             'method' => $method,
             'reference' => $this->clean($opts['reference'] ?? null),
             'proof_path' => $opts['proof_path'] ?? null,
+            // A transfer recorded before its screenshot came: listed until the picture is attached.
+            'proof_pending' => (bool) ($opts['proof_pending'] ?? false) && ($opts['proof_path'] ?? null) === null,
             'note' => $this->clean($opts['note'] ?? null),
             'source' => $source,
             'received_on' => $receivedOn,

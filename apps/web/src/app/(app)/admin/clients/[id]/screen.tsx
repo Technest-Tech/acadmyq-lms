@@ -3,10 +3,12 @@
 import {
   ArrowLeft,
   LayoutDashboard,
+  LibraryBig,
   PlugZap,
   ReceiptText,
   Settings2,
   SlidersHorizontal,
+  Wrench,
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
@@ -22,9 +24,11 @@ import { SectionTabs, type SectionTab } from "@/components/admin/section-tabs";
 import { useAuth } from "@/components/auth-provider";
 import { ClientHeader } from "@/components/clients/client-header";
 import { ClientKpis } from "@/components/clients/client-kpis";
+import { ClientLmsTab } from "@/components/clients/client-lms";
 import { ClientOverview } from "@/components/clients/client-overview";
 import { ClientDomainsCard } from "@/components/clients/client-domains-card";
 import { ClientSettingsTab } from "@/components/clients/client-settings";
+import { ClientToolsTab } from "@/components/clients/client-tools";
 import { LEGACY_CLIENT_TABS, type ClientTab } from "@/components/clients/client-summary";
 import { ClientXpayCard } from "@/components/clients/client-xpay-card";
 import { FeaturesCard } from "@/components/clients/features-card";
@@ -57,7 +61,11 @@ import {
  *   Subscription & money  what it holds and pays (THE writer for modules, prices, trials) and our
  *                         bills to it with their proofs — one story, one tab
  *   Features              the per-client switches, opt-in extras first
+ *   Course platform       only for a client that holds the LMS module: its usage, caps, moderation
+ *                         (was the separate /admin/lms pages until 2026-11-15)
  *   Connections           WhatsApp (when held), the payment gateway it collects with, its domains
+ *   Maintenance           the repair commands for this one client — look, then apply (only for a
+ *                         client that runs lessons, and only with platform.manage)
  *   Settings              identity, owner login, danger zone
  *
  * `?tab=` on the URL names the open section, so a refresh keeps its place; the old eight names
@@ -119,15 +127,19 @@ export function ClientScreen({ clientId }: { clientId: string }) {
     [data],
   );
 
+  const holdsLms = activeModules.has("LMS");
+  const hasTools = activeModules.has("MANAGEMENT") && can("platform.manage");
   const tabs = useMemo<SectionTab<ClientTab>[]>(
     () => [
       { key: "overview", label: t("tabs.overview"), icon: LayoutDashboard },
       { key: "subscription", label: t("tabs.subscription"), icon: ReceiptText },
       { key: "features", label: t("tabs.features"), icon: SlidersHorizontal },
+      ...(holdsLms ? [{ key: "lms" as const, label: t("tabs.lms"), icon: LibraryBig }] : []),
       { key: "connections", label: t("tabs.connections"), icon: PlugZap },
+      ...(hasTools ? [{ key: "tools" as const, label: t("tabs.tools"), icon: Wrench }] : []),
       { key: "settings", label: t("tabs.settings"), icon: Settings2 },
     ],
-    [t],
+    [t, holdsLms, hasTools],
   );
 
   // The open section lives on the URL. An old tab name maps onto its new home; anything else
@@ -299,6 +311,8 @@ export function ClientScreen({ clientId }: { clientId: string }) {
         </div>
       )}
 
+      {tab === "lms" && <ClientLmsTab clientId={clientId} />}
+
       {tab === "connections" && (
         <TabSection
           title={t("sections.connections")}
@@ -314,6 +328,8 @@ export function ClientScreen({ clientId }: { clientId: string }) {
           <ClientDomainsCard clientId={clientId} />
         </TabSection>
       )}
+
+      {tab === "tools" && <ClientToolsTab clientId={clientId} />}
 
       {tab === "settings" && (
         <TabSection

@@ -35,6 +35,8 @@ const api = {
   updateCashAccount: vi.fn(),
   createAdjustment: vi.fn(),
   updateExpenseAmount: vi.fn(),
+  updateExpense: vi.fn(),
+  updateFamilyDiscount: vi.fn(),
   closeDay: vi.fn(),
   getExpenses: vi.fn(),
   createExpense: vi.fn(),
@@ -52,7 +54,10 @@ const api = {
   createDiscountPreset: vi.fn(),
   updateDiscountPreset: vi.fn(),
   refundFamilyCredit: vi.fn(),
+  getPayerAccount: vi.fn(),
+  addOpeningBalance: vi.fn(),
 };
+const listStudents = vi.fn();
 const getPayout = vi.fn();
 const settlePackage = vi.fn();
 const closeSubscription = vi.fn();
@@ -64,6 +69,7 @@ vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   getPayout: (...a: unknown[]) => getPayout(...a),
   settlePackage: (...a: unknown[]) => settlePackage(...a),
+  listStudents: (...a: unknown[]) => listStudents(...a),
 }));
 vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/accounting-api")>()),
@@ -77,6 +83,10 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   updateCashAccount: (...a: unknown[]) => api.updateCashAccount(...a),
   createAdjustment: (...a: unknown[]) => api.createAdjustment(...a),
   updateExpenseAmount: (...a: unknown[]) => api.updateExpenseAmount(...a),
+  updateExpense: (...a: unknown[]) => api.updateExpense(...a),
+  getPayerAccount: (...a: unknown[]) => api.getPayerAccount(...a),
+  addOpeningBalance: (...a: unknown[]) => api.addOpeningBalance(...a),
+  updateFamilyDiscount: (...a: unknown[]) => api.updateFamilyDiscount(...a),
   closeDay: (...a: unknown[]) => api.closeDay(...a),
   getExpenses: (...a: unknown[]) => api.getExpenses(...a),
   createExpense: (...a: unknown[]) => api.createExpense(...a),
@@ -283,21 +293,24 @@ describe("Treasury account page", () => {
     await waitFor(() => expect(api.createAdjustment).toHaveBeenCalledWith({ cash_account_id: "a1", actual_minor: 75000, reason: "Counted at noon" }));
   });
 
-  it("corrects an expense's amount from its detail, and locks the opening once a day is counted", async () => {
+  it("corrects an expense from its detail — only the fields changed go up — and locks the opening once a day is counted", async () => {
     const accounts = treasury().accounts;
     api.getTreasury.mockResolvedValue(treasury({ accounts: [{ ...accounts[0]!, last_closing: { day: "2026-06-16", difference_minor: 0 } }, accounts[1]!] }));
     api.getAccountLedger.mockResolvedValue(ledger());
-    api.updateExpenseAmount.mockResolvedValue({ ok: true });
+    api.updateExpense.mockResolvedValue({ ok: true, changed: ["amount_minor", "payee"] });
     render(withAuth(owner(), <TreasuryAccountScreen accountId="a1" />));
 
     await userEvent.click(await screen.findByTestId("entry-e1"));
     await userEvent.click(screen.getByTestId("entry-edit"));
-    const amount = screen.getByTestId("entry-amount") as HTMLInputElement;
+    const amount = screen.getByTestId("expense-edit-amount") as HTMLInputElement;
     expect(amount.value).toBe("100");
     await userEvent.clear(amount);
     await userEvent.type(amount, "120");
+    const payee = screen.getByTestId("expense-edit-payee") as HTMLInputElement;
+    await userEvent.clear(payee);
+    await userEvent.type(payee, "Copy shop");
     await userEvent.click(screen.getByTestId("entry-edit-save"));
-    await waitFor(() => expect(api.updateExpenseAmount).toHaveBeenCalledWith("e1", 12000));
+    await waitFor(() => expect(api.updateExpense).toHaveBeenCalledWith("e1", { amount_minor: 12000, payee: "Copy shop" }));
 
     await userEvent.click(await screen.findByTestId("account-edit"));
     expect(screen.getByTestId("edit-account-opening")).toBeDisabled();
@@ -330,6 +343,39 @@ function expensesPage(): ExpensesPage {
 }
 
 describe("Expenses", () => {
+  it("pays a customer back from the expenses page: pick the student, the family's credit is offered (Lingo 2026-11-15)", async () => {
+    api.getExpenses.mockResolvedValue(expensesPage());
+    listStudents.mockResolvedValue({ rows: [{ id: "s1", full_name: "Adam", guardian_name: "Parent of two" }], total: 1, page: 1, pageSize: 20 });
+    api.getPayerAccount.mockResolvedValue({
+      payer: { kind: "GUARDIAN", id: "gd1", name: "Parent of two", phone: null },
+      accounting: true,
+      lines: [],
+      balance: [{ currency: "EGP", due_minor: 0, credit_minor: 30000, balance_minor: -30000 }],
+      recent_receipts: [],
+    });
+    render(withAuth(owner(), <AccountingExpensesScreen />));
+
+    await userEvent.click(await screen.findByTestId("expense-refund"));
+    await userEvent.click(await screen.findByTestId("picker-s1"));
+    await waitFor(() => expect(api.getPayerAccount).toHaveBeenCalledWith({ student_id: "s1" }));
+    expect(await screen.findByTestId("refund-amount")).toHaveValue("300");
+  });
+
+  it("says why there is nothing to pay back when the family holds no credit", async () => {
+    api.getExpenses.mockResolvedValue(expensesPage());
+    listStudents.mockResolvedValue({ rows: [{ id: "s1", full_name: "Adam", guardian_name: "Parent of two" }], total: 1, page: 1, pageSize: 20 });
+    api.getPayerAccount.mockResolvedValue({
+      payer: { kind: "GUARDIAN", id: "gd1", name: "Parent of two", phone: null },
+      accounting: true, lines: [], balance: [{ currency: "EGP", due_minor: 45000, credit_minor: 0, balance_minor: 45000 }], recent_receipts: [],
+    });
+    render(withAuth(owner(), <AccountingExpensesScreen />));
+
+    await userEvent.click(await screen.findByTestId("expense-refund"));
+    await userEvent.click(await screen.findByTestId("picker-s1"));
+    expect(await screen.findByText(ar.expenses.refundNoCredit.replace("{name}", "Parent of two"))).toBeTruthy();
+    expect(screen.queryByTestId("refund-amount")).toBeNull();
+  });
+
   it("records an expense from the chosen account", async () => {
     api.getExpenses.mockResolvedValue(expensesPage());
     api.createExpense.mockResolvedValue({ id: "e1", number: "E-000001" });
@@ -460,6 +506,57 @@ describe("Family card", () => {
     await userEvent.type(within(form).getByPlaceholderText(ar.family.notePlaceholder), "Called the father");
     await userEvent.click(within(form).getByRole("button", { name: ar.family.addNote }));
     await waitFor(() => expect(api.addFamilyNote).toHaveBeenCalledWith("gd1", "Called the father", null));
+  });
+
+  it("edits a family discount in the same form, prefilled, instead of cancelling and adding again (Lingo 2026-11-15)", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.updateFamilyDiscount.mockResolvedValue({ moved: { lines: 2, amount_minor: 4500 } });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("discount-edit-d1"));
+    const value = screen.getByTestId("discount-value") as HTMLInputElement;
+    expect(value.value).toBe("10");
+    expect((screen.getByTestId("discount-label") as HTMLInputElement).value).toBe("Sibling");
+    expect(screen.queryByTestId("discount-preset")).toBeNull();
+    await userEvent.clear(value);
+    await userEvent.type(value, "15");
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() =>
+      expect(api.updateFamilyDiscount).toHaveBeenCalledWith("gd1", "d1", { kind: "PERCENT", value: 15, label: "Sibling", scope: "ALL", student_id: null, targets: [] }),
+    );
+    expect(api.addFamilyDiscount).not.toHaveBeenCalled();
+  });
+
+  it("enters a family's previous balance — an old credit — from the card (Lingo 2026-11-15)", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.addOpeningBalance.mockResolvedValue({ kind: "CREDIT", receipt_id: "r9", number: "R-000009" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("family-opening"));
+    await userEvent.click(screen.getByTestId("opening-kind-CREDIT"));
+    await userEvent.type(screen.getByTestId("opening-amount"), "300");
+    await userEvent.type(screen.getByTestId("opening-note"), "old ledger");
+    await userEvent.click(screen.getByTestId("opening-save"));
+    await waitFor(() => expect(api.addOpeningBalance).toHaveBeenCalledWith("gd1", { kind: "CREDIT", amount_minor: 30000, currency: "EGP", note: "old ledger" }));
+    await waitFor(() => expect(api.getFamilyAccount).toHaveBeenCalledTimes(2));
+  });
+
+  it("keeps a voided receipt out of the timeline until asked for, then marks it unmistakably (Lingo 2026-11-15)", async () => {
+    api.getFamilyAccount.mockResolvedValue({
+      ...family(),
+      timeline: [
+        { kind: "RECEIPT", at: "2026-06-16T10:00:00Z", date: "2026-06-16", id: "r1", number: "R-000001", amount_minor: 45000, currency: "EGP", method: "CASH", by: "Owner", voided: false, void_reason: null },
+        { kind: "RECEIPT", at: "2026-06-15T10:00:00Z", date: "2026-06-15", id: "r0", number: "R-000000", amount_minor: 99000, currency: "EGP", method: "CASH", by: "Owner", voided: true, void_reason: "خطأ" },
+      ],
+    });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    const timeline = await screen.findByTestId("family-timeline");
+    expect(timeline.textContent).toContain("R-000001");
+    expect(timeline.textContent).not.toContain("R-000000");
+    await userEvent.click(screen.getByTestId("family-show-voided"));
+    expect(screen.getByTestId("family-timeline").textContent).toContain("R-000000");
+    expect(within(screen.getByTestId("family-timeline")).getByTestId("voided-pill")).toHaveTextContent(ar.register.void);
   });
 
   it("shows the family's discounts, what each charge was before its discount, and records a new one", async () => {

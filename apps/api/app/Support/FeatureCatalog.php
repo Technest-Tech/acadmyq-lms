@@ -44,6 +44,7 @@ final class FeatureCatalog
         'groups' => 'Group classes — groups, members, timetable & attendance',
         'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
         'centre' => 'Centre mode — lesson subscriptions of its own (centre_subscriptions), groups first, any student on a manual lesson, salary blocks',
+        'packages_in_lessons' => 'Packages in lessons — a block counts lessons, not minutes: each lesson takes one whatever its length (the length only pays the teacher)',
         'modern_look' => 'Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy\'s own colours',
         'courses_art' => 'Courses & curricula theme — the modern look in ocean blue and coral, no ornaments, and a books-and-course banner picture (switches the modern look on with it)',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
@@ -186,6 +187,7 @@ final class FeatureCatalog
             'groups',
             'accounting',
             'centre',
+            'packages_in_lessons',
             'modern_look',
             'courses_art',
         ],
@@ -219,6 +221,9 @@ final class FeatureCatalog
         // The courses & curricula theme for an academy that teaches courses and curricula, not the
         // Quran (EnglishSpirit and the like, 2026-11-10): the modern look in its own colours and picture.
         'courses_art',
+        // A Quran academy's packages counted in lessons, not minutes (2026-11-15): the clients we try
+        // it with first, because their running blocks are converted (`packages:count-in-lessons`).
+        'packages_in_lessons',
     ];
 
     /**

@@ -2086,10 +2086,14 @@ export function getStudentRemovalDues(id: string): Promise<RemovalDues> {
   return apiFetch(`/api/students/${id}/removal-dues`);
 }
 
-export function deleteGuardian(id: string, withChildren: boolean): Promise<{ ok: boolean; removed_children: number }> {
+export function deleteGuardian(
+  id: string,
+  withChildren: boolean,
+  extra: { reason?: string | null; to_crm?: boolean } = {},
+): Promise<{ ok: boolean; removed_children: number; lead_id?: string | null }> {
   return apiFetch(`/api/guardians/${id}`, {
     method: "DELETE",
-    body: JSON.stringify({ with_children: withChildren }),
+    body: JSON.stringify({ with_children: withChildren, ...extra }),
   });
 }
 
@@ -2269,6 +2273,45 @@ export interface TeamActor {
 /** GET /api/team/actors — who can appear in a list's "Done by" column and filter. */
 export function listTeamActors(): Promise<{ actors: TeamActor[] }> {
   return apiFetch("/api/team/actors");
+}
+
+/** What a supervisor answers for and can hand over to another (supervisor_assignments). */
+export type HandoverType = "student" | "teacher" | "guardian";
+export type HandoverCounts = Record<HandoverType, number>;
+
+/**
+ * Someone who answers for students / teachers / parents, on the team or not: `gone` = no longer on
+ * the team (role removed, account deleted), `inactive` = switched off, `nobody` = records no team
+ * login added (user_id null, hand over from "none").
+ */
+export interface HandoverOwner {
+  user_id: string | null;
+  name: string | null;
+  role: string | null;
+  state: "active" | "inactive" | "gone" | "nobody";
+  counts: HandoverCounts;
+}
+
+/** Everyone who still has people, the gone ones first (GET /api/team/handover, staff.update). */
+export function listHandoverOwners(): Promise<{ owners: HandoverOwner[] }> {
+  return apiFetch("/api/team/handover");
+}
+
+/** How many live students / teachers / parents this login answers for (added, or handed to them). */
+export function getHandoverCounts(userId: string): Promise<{ counts: HandoverCounts }> {
+  return apiFetch(`/api/team/actors/${userId}/handover`);
+}
+
+/** Give what this login answers for to another member of the team; answers how many moved. */
+export function handOverSupervision(
+  userId: string,
+  toUserId: string,
+  types: HandoverType[],
+): Promise<{ moved: HandoverCounts }> {
+  return apiFetch(`/api/team/actors/${userId}/handover`, {
+    method: "POST",
+    body: JSON.stringify({ to_user_id: toUserId, types }),
+  });
 }
 
 export function getTeacher(id: string): Promise<{
@@ -2741,18 +2784,46 @@ export function applyLessonReportPreset(preset: string): Promise<LessonReportSet
 
 // ── Payment Settings (Settings → Payment) ────────────────────────────────────
 
-export type PaymentMethodKey = "BANK_TRANSFER" | "PAYPAL" | "XPAY";
+export type PaymentMethodKey = "WALLET" | "INSTAPAY" | "BANK_TRANSFER" | "PAYPAL" | "OTHER" | "XPAY";
+
+/** Mobile-wallet numbers (Vodafone Cash, Etisalat Cash, …) — up to three. */
+export interface WalletConfig {
+  numbers: string[];
+  holder: string;
+  note: string;
+}
+
+/** An InstaPay address (name@instapay or a number) and/or a payment link (ipn.eg/S/…). */
+export interface InstapayConfig {
+  address: string;
+  link: string;
+  holder: string;
+  note: string;
+}
 
 export interface BankTransferConfig {
   account_number: string;
   account_holder: string;
   bank_name: string;
   iban: string;
+  swift?: string;
+  note?: string;
 }
 
 export interface PaypalConfig {
   email: string;
+  /** Normalised by the API to https://paypal.me/… */
+  paypal_me?: string;
+  note?: string;
+  /** API keys for the automatic checkout (the secret is write-only, never returned). */
+  client_id?: string;
   mode: "sandbox" | "live";
+}
+
+/** Anything else (Western Union, Wise, …): a title the payer sees and free-text details. */
+export interface OtherPaymentConfig {
+  title: string;
+  details: string;
 }
 
 /**
@@ -2769,8 +2840,11 @@ export interface PaymentSetting {
   method: PaymentMethodKey;
   is_active: boolean;
   config:
+    | WalletConfig
+    | InstapayConfig
     | BankTransferConfig
     | PaypalConfig
+    | OtherPaymentConfig
     | XpayPublicConfig
     | Record<string, never>;
   /**
@@ -2779,6 +2853,8 @@ export interface PaymentSetting {
    * from "there is nothing to turn on yet" — without revealing anything about the keys themselves.
    */
   configured?: boolean;
+  /** PAYPAL only: an API secret is stored (it is never sent back). */
+  has_client_secret?: boolean;
 }
 
 // ── Academy profile (Settings → General) ─────────────────────────────────────
@@ -3870,6 +3946,10 @@ export interface SessionDetail {
   followed_at?: string | null;
   followed_by_user_id?: string | null;
   followed_by_name?: string | null;
+  /** How many lessons it takes off a block counted in lessons: 1, or 2 for a double lesson. */
+  package_lessons?: number;
+  /** Its block counts lessons, not minutes (a centre, or `packages_in_lessons`). */
+  counts_in_lessons?: boolean;
   classification: SessionClassification;
   /** A teacher-raised cancellation awaiting owner approval. The session stays SCHEDULED while
    *  this is present; null once there is no PENDING request (approved, rejected, or never raised). */
@@ -4041,6 +4121,8 @@ export function markAttendance(
     pay_teacher?: boolean;
     /** Share of the lesson the teacher is paid when pay_teacher is true (default 100). */
     teacher_pay_percent?: TeacherPayPercent;
+    /** On a block counted in lessons: 2 = a double lesson, taking two off the block. */
+    package_lessons?: 1 | 2;
   },
 ): Promise<{
   status: string;
@@ -4249,6 +4331,35 @@ export function getOverdueSessions(params: { mine?: boolean } = {}): Promise<{
   grace_hours: number;
 }> {
   return apiFetch(params.mine ? "/api/sessions/overdue?mine=1" : "/api/sessions/overdue");
+}
+
+/** Why a bulk delete left a lesson alone: gone already, recorded, a trial's, or refused by the books. */
+export type BulkDeleteSkipReason = "not_found" | "recorded" | "trial" | "blocked";
+
+export interface BulkDeleteResult {
+  deleted: number;
+  skipped: { id: string; reason: BulkDeleteSkipReason; message?: string }[];
+}
+
+/** Most lesson ids one POST /api/sessions/bulk-delete takes (SessionController::BULK_DELETE_MAX). */
+export const BULK_DELETE_CHUNK = 200;
+
+/**
+ * Delete held-up lessons in bulk (الحصص المعلقة → حذف المحدد), each exactly as one delete does:
+ * cancelled with no charge and no pay, then hidden. A longer list goes in chunks, one after the
+ * other, and the answers are added up.
+ */
+export async function bulkDeleteSessions(ids: string[]): Promise<BulkDeleteResult> {
+  const out: BulkDeleteResult = { deleted: 0, skipped: [] };
+  for (let i = 0; i < ids.length; i += BULK_DELETE_CHUNK) {
+    const res = await apiFetch<BulkDeleteResult>("/api/sessions/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ session_ids: ids.slice(i, i + BULK_DELETE_CHUNK) }),
+    });
+    out.deleted += res.deleted;
+    out.skipped.push(...res.skipped);
+  }
+  return out;
 }
 
 // ── Supervision statistics (GET /api/supervision/stats) ─────────────────────────────────────
@@ -5264,6 +5375,160 @@ export interface AdminDashboard {
 
 export function getAdminDashboard(): Promise<AdminDashboard> {
   return apiFetch("/api/admin/dashboard");
+}
+
+// ── Super Admin → System health (2026-11-15) ─────────────────────────────────────────────────
+// Is the machine running (cron, queue, scheduled tasks, WhatsApp gateway), and which clients need
+// stepping in for. Both reads are platform-scoped (platform.manage).
+
+export type HealthSeverity = "OK" | "WARN" | "CRIT";
+
+export interface HealthProblem {
+  code:
+    | "database_down"
+    | "scheduler_never_ran"
+    | "scheduler_stopped"
+    | "roll_stale"
+    | "queue_stuck"
+    | "gateway_down"
+    | "task_failed"
+    | "task_late"
+    | "jobs_failed";
+  severity: Exclude<HealthSeverity, "OK">;
+  params: Record<string, string | number>;
+}
+
+export interface ScheduledTask {
+  /** The name routes/console.php gives the task. */
+  name: string;
+  /** The job class doing the work, or null for a scheduled command. */
+  job: string | null;
+  cron: string;
+  last_due_at: string | null;
+  next_due_at: string | null;
+  /** When it last FINISHED — not when it was queued. */
+  last_ok_at: string | null;
+  last_failed_at: string | null;
+  last_error: string | null;
+  /** WAITING = never seen to finish, but tracking only began after its last slot. */
+  state: "OK" | "LATE" | "FAILED" | "WAITING";
+}
+
+export interface FailedJob {
+  id: string;
+  job: string | null;
+  queue: string;
+  failed_at: string;
+  /** The first line of the exception. */
+  error: string;
+}
+
+export interface SystemHealth {
+  status: HealthSeverity;
+  problems: HealthProblem[];
+  app: { environment: string; commit: string | null; deployed_at: string | null };
+  database: { ok: boolean };
+  scheduler: {
+    heartbeat_at: string | null;
+    heartbeat_age_seconds: number | null;
+    last_roll_at: string | null;
+    last_roll_age_hours: number | null;
+  };
+  queue: {
+    pending: number;
+    oldest_pending_age_seconds: number | null;
+    failed_total: number;
+    failed_24h: number;
+  };
+  tasks: ScheduledTask[];
+  failed_jobs: FailedJob[];
+  gateway: { configured: boolean; up: boolean; sessions: GatewaySessionCounts | null };
+  checked_at: string;
+}
+
+export function getSystemHealth(): Promise<SystemHealth> {
+  return apiFetch("/api/admin/system/health");
+}
+
+/** Put a dead job back on the queue. */
+export function retryFailedJob(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/system/failed-jobs/${id}/retry`, { method: "POST" });
+}
+
+/** Dismiss a dead job without running it. */
+export function dismissFailedJob(id: string): Promise<{ ok: boolean }> {
+  return apiFetch(`/api/admin/system/failed-jobs/${id}`, { method: "DELETE" });
+}
+
+// ── Super Admin → client page → Maintenance ─────────────────────────────────────────────────
+// The repair commands for one client: list what a tool would do, then apply it.
+
+export type ClientToolKey =
+  | "generate_lessons"
+  | "finish_removals"
+  | "restore_half_undone"
+  | "clear_deleted_dues";
+
+export interface ClientTool {
+  key: ClientToolKey;
+  /** False = nothing to preview: the tool can only be run. */
+  preview: boolean;
+}
+
+export interface ClientToolRun {
+  ok: boolean;
+  applied: boolean;
+  /** What the command printed. */
+  output: string;
+}
+
+/** `runnable` is false for a client that is not ACTIVE — the commands skip it. */
+export function getClientTools(clientId: string): Promise<{ tools: ClientTool[]; runnable: boolean }> {
+  return apiFetch(`/api/admin/clients/${clientId}/tools`);
+}
+
+export function runClientTool(clientId: string, tool: ClientToolKey, apply: boolean): Promise<ClientToolRun> {
+  return apiFetch(`/api/admin/clients/${clientId}/tools/${tool}`, {
+    method: "POST",
+    body: JSON.stringify({ apply }),
+  });
+}
+
+export type AttentionCode =
+  | "whatsapp_disconnected"
+  | "whatsapp_failing"
+  | "lessons_stopped"
+  | "overdue_lessons"
+  | "bills_overdue"
+  | "trial_ended"
+  | "trial_ending"
+  | "inactive"
+  | "never_signed_in";
+
+export interface AttentionItem {
+  code: AttentionCode;
+  severity: Exclude<HealthSeverity, "OK">;
+  params: Record<string, unknown>;
+}
+
+export interface AttentionClient {
+  id: string;
+  name: string;
+  client_type: string | null;
+  /** The worst of its items. */
+  severity: Exclude<HealthSeverity, "OK">;
+  items: AttentionItem[];
+}
+
+export interface ClientAttention {
+  clients: AttentionClient[];
+  counts: { clients: number; crit: number; warn: number };
+  checked_at: string;
+}
+
+/** Every client with something wrong, worst first. */
+export function getClientAttention(): Promise<ClientAttention> {
+  return apiFetch("/api/admin/system/attention");
 }
 
 /** plans.features documented shape: capabilities ∪ numeric limits. */

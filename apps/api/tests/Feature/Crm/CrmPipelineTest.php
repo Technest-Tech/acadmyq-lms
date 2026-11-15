@@ -245,3 +245,23 @@ it('forbids a teacher from reaching the CRM', function () {
         'duration_minutes' => 30,
     ])->assertForbidden();
 });
+
+it('puts a deleted parent into the CRM as a former parent, lost, with the reason given (Lingo 2026-11-15)', function () {
+    Sanctum::actingAs($this->owner);
+    $guardianId = $this->postJson('/api/guardians', ['full_name' => 'Umm Lara', 'whatsapp_phone' => '+201000000777'])->assertCreated()->json('guardianId');
+    $this->createStudent($this->academy, $guardianId, ['full_name' => 'Lara']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+
+    $leadId = $this->deleteJson("/api/guardians/{$guardianId}", ['with_children' => true, 'reason' => 'Moved to another centre', 'to_crm' => true])
+        ->assertOk()->json('lead_id');
+    expect($leadId)->not->toBeNull();
+    $lead = collect($this->getJson('/api/crm/leads?filter[status]=LOST')->assertOk()->json('rows'))->firstWhere('id', $leadId);
+    expect($lead)->toMatchArray(['full_name' => 'Umm Lara', 'status' => 'LOST', 'lost_reason' => 'Moved to another centre'])
+        ->and($lead['interested_in'])->toContain('Lara');
+
+    // Without asking for it, no lead.
+    $other = $this->postJson('/api/guardians', ['full_name' => 'Abu Omar', 'whatsapp_phone' => '+201000000778'])->assertCreated()->json('guardianId');
+    $this->deleteJson("/api/guardians/{$other}", ['reason' => 'Done'])->assertOk()->assertJsonPath('lead_id', null);
+});
+

@@ -15,6 +15,7 @@ import {
 vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
   getOverdueSessions: vi.fn(),
+  bulkDeleteSessions: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
@@ -53,11 +54,13 @@ function Harness({
   onOpen,
   onReschedule,
   isTeacher,
+  onBulkDeleted,
 }: {
   s: OverdueState;
   onOpen: (s: api.OverdueSession) => void;
   onReschedule?: (s: api.OverdueSession) => void;
   isTeacher: boolean;
+  onBulkDeleted?: () => void;
 }) {
   const [filters, setFilters] = useState<OverdueFilters>(EMPTY_OVERDUE_FILTERS);
   return (
@@ -71,6 +74,7 @@ function Harness({
       showSupervisorFilter={!isTeacher}
       canFollow={false}
       onError={vi.fn()}
+      onBulkDeleted={onBulkDeleted}
     />
   );
 }
@@ -81,15 +85,17 @@ function renderBoard(
     onOpen = vi.fn<(s: api.OverdueSession) => void>(),
     onReschedule,
     isTeacher = false,
+    onBulkDeleted,
   }: {
     onOpen?: Mock<(s: api.OverdueSession) => void>;
     onReschedule?: Mock<(s: api.OverdueSession) => void>;
     isTeacher?: boolean;
+    onBulkDeleted?: Mock<() => void>;
   } = {},
 ) {
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
-      <Harness s={s} onOpen={onOpen} onReschedule={onReschedule} isTeacher={isTeacher} />
+      <Harness s={s} onOpen={onOpen} onReschedule={onReschedule} isTeacher={isTeacher} onBulkDeleted={onBulkDeleted} />
     </NextIntlClientProvider>,
   );
   return onOpen;
@@ -337,6 +343,71 @@ describe("OverdueLessonsBoard (الحصص المعلقة)", () => {
     expect(screen.queryByTestId("overdue-teacher")).not.toBeInTheDocument();
     expect(screen.queryByTestId("overdue-supervisor")).not.toBeInTheDocument();
     expect(screen.queryByTestId("overdue-group-teacher")).not.toBeInTheDocument();
+  });
+});
+
+describe("OverdueLessonsBoard — delete the ticked lessons", () => {
+  const backlog = () =>
+    state({
+      sessions: [
+        row({ id: "se1", student_name: "Abdullah" }),
+        row({ id: "se2", student_name: "Maryam" }),
+        row({ id: "se3", student_name: "Trial kid", student_status: "TRIAL" }),
+      ],
+      count: 3,
+    });
+
+  beforeEach(() => vi.mocked(api.bulkDeleteSessions).mockReset());
+
+  it("offers no tick boxes to a login that may not delete lessons", () => {
+    renderBoard(backlog());
+    expect(screen.queryAllByTestId("overdue-select")).toHaveLength(0);
+    expect(screen.queryByTestId("overdue-select-all")).not.toBeInTheDocument();
+  });
+
+  it("deletes the ticked lessons after the warning, then asks the page to re-read", async () => {
+    vi.mocked(api.bulkDeleteSessions).mockResolvedValue({ deleted: 2, skipped: [] });
+    const onBulkDeleted = vi.fn<() => void>();
+    renderBoard(backlog(), { onBulkDeleted });
+
+    // A trial's lesson cannot be ticked: two boxes for three rows.
+    const boxes = table().getAllByTestId("overdue-select");
+    expect(boxes).toHaveLength(2);
+    await userEvent.click(boxes[0]!);
+    await userEvent.click(boxes[1]!);
+    expect(screen.getByTestId("overdue-bulk-bar")).toHaveTextContent("2 lessons selected");
+
+    await userEvent.click(screen.getByTestId("overdue-bulk-delete"));
+    expect(await screen.findByText(board.bulkConfirmWarning)).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("overdue-bulk-confirm"));
+
+    await waitFor(() => expect(onBulkDeleted).toHaveBeenCalledTimes(1));
+    expect(api.bulkDeleteSessions).toHaveBeenCalledWith(["se1", "se2"]);
+    expect(await screen.findByText("2 lessons deleted.")).toBeInTheDocument();
+    expect(screen.queryByTestId("overdue-bulk-bar")).not.toBeInTheDocument();
+  });
+
+  it("selects every lesson the filters leave on screen, and nothing hidden by them", async () => {
+    vi.mocked(api.bulkDeleteSessions).mockResolvedValue({ deleted: 1, skipped: [] });
+    renderBoard(backlog(), { onBulkDeleted: vi.fn() });
+
+    await userEvent.type(screen.getByRole("searchbox"), "Maryam");
+    await userEvent.click(screen.getByTestId("overdue-select-all"));
+    await userEvent.click(screen.getByTestId("overdue-bulk-delete"));
+    await userEvent.click(await screen.findByTestId("overdue-bulk-confirm"));
+
+    await waitFor(() => expect(api.bulkDeleteSessions).toHaveBeenCalledWith(["se2"]));
+  });
+
+  it("says how many were left alone", async () => {
+    vi.mocked(api.bulkDeleteSessions).mockResolvedValue({ deleted: 1, skipped: [{ id: "se2", reason: "blocked" }] });
+    renderBoard(backlog(), { onBulkDeleted: vi.fn() });
+
+    await userEvent.click(screen.getByTestId("overdue-select-all"));
+    await userEvent.click(screen.getByTestId("overdue-bulk-delete"));
+    await userEvent.click(await screen.findByTestId("overdue-bulk-confirm"));
+
+    expect(await screen.findByText(/1 lesson deleted\. 1 was left/)).toBeInTheDocument();
   });
 });
 

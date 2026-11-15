@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Accounting;
 
 use App\Http\Controllers\Controller;
 use App\Services\ChargeCancellation;
+use App\Services\Invoicing;
 use App\Services\Ledger;
 use App\Services\PackageSettlement;
 use App\Services\SubscriptionSettlement;
@@ -461,6 +462,130 @@ final class FamilyAccountController extends Controller
         $applied = ($data['apply_to_existing'] ?? false) ? $this->applied($guardianId, $id) : ['lines' => 0, 'discount_minor' => 0];
 
         return response()->json(['id' => $id, 'applied' => $applied], 201);
+    }
+
+    /**
+     * POST /api/accounting/family/{guardianId}/opening-balance { kind: DUE|CREDIT, amount_minor,
+     * currency?, note? } — what a family carried in from before the system (Lingo 2026-11-15):
+     *   • DUE: an old amount they still owe → a charge on their account (a hand-made bill), paid like
+     *     any other and listed in their dues;
+     *   • CREDIT: money they already had with the academy → a receipt marked OPENING that pays their
+     *     charges, oldest first, but is not money in: no treasury account takes it and no "collected"
+     *     figure counts it ("deducted, but never added to the treasury again").
+     * Both are ordinary records afterwards: a wrong one is voided / its bill deleted like any other.
+     */
+    public function openingBalance(Request $request, string $guardianId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $academyId = $this->academyId();
+        $data = $request->validate([
+            'kind' => ['required', Rule::in(['DUE', 'CREDIT'])],
+            'amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000'],
+            'currency' => ['nullable', 'string', 'size:3'],
+            'note' => ['nullable', 'string', 'max:300'],
+        ]);
+        $guardian = DB::table('guardians')->where('id', $guardianId)->whereNull('deleted_at')->first();
+        if ($guardian === null) {
+            throw ValidationException::withMessages(['guardian' => ['Unknown family. / أسرة غير معروفة.']]);
+        }
+        $currency = strtoupper((string) ($data['currency'] ?? $guardian->currency ?? DB::table('academies')->where('id', $academyId)->value('default_currency') ?? 'EGP'));
+        $note = isset($data['note']) && trim((string) $data['note']) !== '' ? trim((string) $data['note']) : null;
+        $ctx = app(AuthContext::class);
+
+        if ($data['kind'] === 'DUE') {
+            $today = Carbon::now($this->timezone($academyId));
+            $invoiceId = app(Invoicing::class)->createManualInvoice(
+                $academyId, $guardianId, null, (int) $today->year, (int) $today->month, $currency,
+                [['description' => 'رصيد سابق / Previous balance'.($note !== null ? ' — '.$note : ''), 'amount_minor' => (int) $data['amount_minor'], 'student_id' => null]],
+                (string) $ctx->userId, (string) $ctx->role,
+            );
+            Audit::log('accounting.opening_balance', 'guardian', $guardianId, $academyId, $ctx->userId, $ctx->role,
+                after: ['kind' => 'DUE', 'amount_minor' => (int) $data['amount_minor'], 'currency' => $currency, 'invoice_id' => $invoiceId, 'note' => $note]);
+
+            return response()->json(['kind' => 'DUE', 'invoice_id' => $invoiceId], 201);
+        }
+
+        $receipt = $this->ledger->record($academyId, ['guardian_id' => $guardianId, 'student_id' => null, 'payer_name' => null], (int) $data['amount_minor'], $currency, [
+            'method' => 'OTHER',
+            'source' => Ledger::SOURCE_OPENING,
+            'note' => 'رصيد سابق للأسرة / Opening credit'.($note !== null ? ' — '.$note : ''),
+            'apply_rest' => true,
+            'received_by' => $ctx->userId,
+            'actor_role' => $ctx->role,
+        ]);
+        Audit::log('accounting.opening_balance', 'guardian', $guardianId, $academyId, $ctx->userId, $ctx->role,
+            after: ['kind' => 'CREDIT', 'amount_minor' => (int) $data['amount_minor'], 'currency' => $currency, 'receipt_id' => (string) $receipt->id, 'note' => $note]);
+
+        return response()->json(['kind' => 'CREDIT', 'receipt_id' => (string) $receipt->id, 'number' => (string) $receipt->number], 201);
+    }
+
+    /**
+     * PATCH /api/accounting/family/{guardianId}/discounts/{id} — correct a discount in place: its
+     * kind and value, its name, which child, and what it reaches. The family's open charges follow at
+     * once (PayerDiscounts::edit). A cancelled discount is not edited — give a new one.
+     */
+    public function updateDiscount(Request $request, string $guardianId, string $discountId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $d = $this->familyDiscount($guardianId, $discountId);
+        if ($d->cancelled_at !== null) {
+            throw ValidationException::withMessages(['discount' => ['This discount was cancelled. / هذا الخصم أُلغي.']]);
+        }
+        $data = $request->validate([
+            'kind' => ['sometimes', Rule::in(['PERCENT', 'FIXED'])],
+            'value' => ['sometimes', 'integer', 'min:1', 'max:1000000000000'],
+            'label' => ['sometimes', 'string', 'min:1', 'max:80'],
+            'scope' => ['sometimes', Rule::in(['ALL', 'GROUP', 'PRIVATE'])],
+            'student_id' => ['sometimes', 'nullable', 'uuid'],
+            'targets' => ['sometimes', 'array', 'max:50'],
+            'targets.*.class_group_id' => ['nullable', 'uuid'],
+            'targets.*.student_id' => ['nullable', 'uuid'],
+            'targets.*.teacher_id' => ['nullable', 'uuid'],
+        ]);
+        $kind = $data['kind'] ?? (string) $d->kind;
+        if (isset($data['kind']) && ! array_key_exists('value', $data)) {
+            throw ValidationException::withMessages(['value' => ['Give the value with the kind. / أدخل القيمة مع النوع.']]);
+        }
+        if (array_key_exists('value', $data) && $kind === 'PERCENT' && (int) $data['value'] > 100) {
+            throw ValidationException::withMessages(['value' => ['A percentage is 1–100. / النسبة من 1 إلى 100.']]);
+        }
+        $studentId = array_key_exists('student_id', $data) ? $data['student_id'] : ($d->student_id !== null ? (string) $d->student_id : null);
+        if ($studentId !== null && ! DB::table('students')->where('id', $studentId)->where('guardian_id', $guardianId)->exists()) {
+            throw ValidationException::withMessages(['student_id' => ['Not one of this family\'s children. / ليس من أبناء هذه الأسرة.']]);
+        }
+
+        $changes = [];
+        if (array_key_exists('value', $data)) {
+            $changes['kind'] = $kind;
+            $changes['value'] = $kind === 'PERCENT' ? (int) $data['value'] * 100 : (int) $data['value'];
+        }
+        if (isset($data['label'])) {
+            $changes['label'] = trim((string) $data['label']);
+        }
+        if (array_key_exists('student_id', $data)) {
+            $changes['student_id'] = $studentId;
+            $changes['guardian_id'] = $studentId === null ? $guardianId : null;
+        }
+        $targets = null;
+        if (array_key_exists('targets', $data) || array_key_exists('scope', $data) || array_key_exists('student_id', $data)) {
+            $targets = $this->discountTargets($guardianId, $studentId, $data['targets'] ?? []);
+            $scope = $data['scope'] ?? (string) $d->scope;
+            if ($targets !== []) {
+                $kinds = array_unique(array_map(fn ($t) => $t['class_group_id'] !== null ? 'GROUP' : 'PRIVATE', $targets));
+                $scope = count($kinds) === 1 ? $kinds[0] : 'ALL';
+            }
+            $changes['scope'] = $scope;
+        }
+        // Edited by hand: no longer the preset's (a preset edit never reaches it either).
+        $changes['preset_id'] = null;
+
+        $ctx = app(AuthContext::class);
+        $moved = $this->discounts->edit($this->academyId(), $discountId, $changes, $targets);
+        Audit::log('accounting.discount_updated', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role,
+            before: ['discount' => $discountId, 'kind' => $d->kind, 'value' => (int) $d->value, 'label' => $d->label, 'scope' => $d->scope, 'student_id' => $d->student_id],
+            after: array_diff_key($changes, ['preset_id' => true]) + ['targets' => $targets, 'lines' => $moved['lines']]);
+
+        return response()->json(['moved' => ['lines' => $moved['lines'], 'amount_minor' => $moved['discount_minor']]]);
     }
 
     /**

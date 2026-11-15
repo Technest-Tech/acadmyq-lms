@@ -22,6 +22,11 @@ use Illuminate\Support\Str;
  * `audit_log_academy_entity_idx` (academy_id, entity_type, entity_id), one index probe per row.
  *
  * A row whose creator was the system (an import, a job) has a null actor and reads as "—".
+ *
+ * A student, teacher or parent can be HANDED OVER to another supervisor (one who left, their
+ * people followed by someone else): `supervisor_assignments` then names who answers for the row,
+ * and that wins over the creator everywhere this class is read — the column, the filter, "My
+ * lessons". The audit log itself is never rewritten. See {@see ownerSql()}.
  */
 final class DoneBy
 {
@@ -32,6 +37,33 @@ final class DoneBy
     private const NOT_TEAM = ['TEACHER', 'STUDENT', 'GUARDIAN', 'SUPER_ADMIN'];
 
     /**
+     * What a supervisor answers for and can hand over: entity type => its table and the audit
+     * action that created it.
+     */
+    public const HANDOVER_ENTITIES = [
+        'student' => ['table' => 'students', 'action' => 'student.create'],
+        'teacher' => ['table' => 'teachers', 'action' => 'teacher.create'],
+        'guardian' => ['table' => 'guardians', 'action' => 'guardian.create'],
+    ];
+
+    /**
+     * The SQL expression for who answers for a row, with its bindings: the supervisor it was
+     * handed over to, else whoever made it (its first `$action` audit entry). `$idColumn` and
+     * `$academyColumn` are the caller's own column references — code, never input.
+     *
+     * @return array{0: string, 1: list<string>}
+     */
+    public static function ownerSql(string $entityType, string $action, string $idColumn, string $academyColumn): array
+    {
+        $sql = 'coalesce('
+            ."(select dbs.user_id from supervisor_assignments dbs where dbs.academy_id = {$academyColumn} and dbs.entity_type = ? and dbs.entity_id = {$idColumn}), "
+            ."(select dba.actor_user_id from audit_log dba where dba.academy_id = {$academyColumn} and dba.entity_type = ? and dba.entity_id = {$idColumn} and dba.action = ? order by dba.created_at limit 1)"
+            .')';
+
+        return [$sql, [$entityType, $entityType, $action]];
+    }
+
+    /**
      * Add `added_by_user_id` / `added_by_name` to a list query: the login behind the row's
      * `$action` audit entry (its creation). The columns come out of the lateral under those two
      * names only, so an unqualified `full_name` or `id` in the caller's query never turns
@@ -39,15 +71,11 @@ final class DoneBy
      */
     public static function joinCreator(Builder $query, string $entityType, string $action, string $idColumn, string $academyColumn): Builder
     {
-        $creator = DB::table('audit_log as dba')
-            ->leftJoin('users as dbu', 'dbu.id', '=', 'dba.actor_user_id')
-            ->whereColumn('dba.academy_id', $academyColumn)
-            ->where('dba.entity_type', $entityType)
-            ->whereColumn('dba.entity_id', $idColumn)
-            ->where('dba.action', $action)
-            ->orderBy('dba.created_at')
-            ->limit(1)
-            ->select(['dba.actor_user_id as added_by_user_id', 'dbu.full_name as added_by_name']);
+        [$owner, $bindings] = self::ownerSql($entityType, $action, $idColumn, $academyColumn);
+        $creator = DB::query()
+            ->fromRaw("(select {$owner} as uid) as dbo", $bindings)
+            ->leftJoin('users as dbu', 'dbu.id', '=', 'dbo.uid')
+            ->select(['dbo.uid as added_by_user_id', 'dbu.full_name as added_by_name']);
 
         return $query
             ->leftJoinLateral($creator, 'dbl')
@@ -66,18 +94,15 @@ final class DoneBy
     }
 
     /**
-     * Keep only the rows whose `$action` audit entry (their creation) was made by `$userId` — the
-     * same answer {@see joinCreator()} reads, as a filter. A supervisor's "my lessons" is the
-     * lessons of the students they added; a row the system created belongs to nobody.
+     * Keep only the rows `$userId` answers for — the same answer {@see joinCreator()} reads, as a
+     * filter. A supervisor's "my lessons" is the lessons of the students they added or were handed;
+     * a row the system created belongs to nobody.
      */
     public static function createdBy(Builder $query, string $userId, string $entityType, string $action, string $idColumn, string $academyColumn): Builder
     {
-        return $query->whereExists(fn (Builder $q) => $q->from('audit_log as dbm')
-            ->whereColumn('dbm.academy_id', $academyColumn)
-            ->where('dbm.entity_type', $entityType)
-            ->whereColumn('dbm.entity_id', $idColumn)
-            ->where('dbm.action', $action)
-            ->where('dbm.actor_user_id', $userId));
+        [$owner, $bindings] = self::ownerSql($entityType, $action, $idColumn, $academyColumn);
+
+        return $query->whereRaw("{$owner} = ?", [...$bindings, $userId]);
     }
 
     /**

@@ -1,12 +1,13 @@
 "use client";
 
-import { KeyRound, Plus, ShieldCheck, UserCheck, Users, UserX } from "lucide-react";
+import { ArrowLeftRight, KeyRound, Plus, ShieldCheck, UserCheck, Users, UserX } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { StaffForm } from "@/components/staff/staff-form";
 import { StaffList } from "@/components/staff/staff-list";
+import { TeamHandoverModal } from "@/components/staff/team-handover-modal";
 import { RolesPanel } from "@/components/team/roles-panel";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -69,6 +70,7 @@ export function StaffManager() {
   }
 
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
+  const [handoverOpen, setHandoverOpen] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
   const [stats, setStats] = useState<Stats | null>(null);
   const [alert, setAlert] = useState<{
@@ -165,6 +167,20 @@ export function StaffManager() {
                 <Users className="size-3.5" aria-hidden />
                 {t("hero.onRoster", { count: stats.total })}
               </HeroPill>
+            )}
+            {/* Move a supervisor's people to another — reaches the deleted ones, who have no page. */}
+            {can("staff.update") && (
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                onClick={() => setHandoverOpen(true)}
+                data-testid="team-handover-open"
+                className="gap-2 border-white/40 bg-white/10 px-4 text-white hover:bg-white/20"
+              >
+                <ArrowLeftRight className="size-4" aria-hidden />
+                {t("handover.listButton")}
+              </Button>
             )}
             {can("staff.create") && (
               <Button
@@ -338,6 +354,7 @@ export function StaffManager() {
           </div>
         )}
       </Modal>
+      <TeamHandoverModal open={handoverOpen} onClose={() => setHandoverOpen(false)} />
     </div>
   );
 }

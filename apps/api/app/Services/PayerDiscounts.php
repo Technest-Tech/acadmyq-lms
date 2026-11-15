@@ -196,6 +196,42 @@ final class PayerDiscounts
         });
     }
 
+    /**
+     * Change a discount in place — its kind, value, name, child or reach — instead of cancelling it
+     * and giving it again (Lingo 2026-11-15: 48 added, 41 cancelled in a fortnight, for want of an
+     * edit). Every open charge it reached before or reaches now, from its first day, is priced again
+     * under the discounts then standing; closed bills never move, paid money stays paid (overpaid →
+     * credit through the reprice trigger).
+     *
+     * @param  array<string, mixed>  $changes  payer_discounts columns
+     * @param  list<array{class_group_id:?string, student_id:?string, teacher_id:?string}>|null  $targets  null = unchanged
+     * @return array{lines:int, discount_minor:int}
+     */
+    public function edit(string $academyId, string $discountId, array $changes, ?array $targets = null): array
+    {
+        return DB::transaction(function () use ($academyId, $discountId, $changes, $targets): array {
+            $before = $this->lockDiscount($discountId);
+            if ($before === null) {
+                return ['lines' => 0, 'discount_minor' => 0];
+            }
+            $from = Carbon::parse($before->starts_on)->format('Y-m-d');
+            $lines = $this->openLinesInReach($academyId, $before, $from);
+
+            DB::table('payer_discounts')->where('id', $discountId)->update($changes + ['updated_at' => now()]);
+            if ($targets !== null) {
+                DB::table('payer_discount_targets')->where('discount_id', $discountId)->delete();
+                foreach ($targets as $t) {
+                    DB::table('payer_discount_targets')->insert(['academy_id' => $academyId, 'discount_id' => $discountId] + $t);
+                }
+            }
+            $after = $this->lockDiscount($discountId);
+            $lines = $lines->concat($this->openLinesInReach($academyId, $after, $from))
+                ->unique('id')->sortBy(fn ($l) => (string) $l->session_date)->values();
+
+            return $this->reprice($academyId, $lines);
+        });
+    }
+
     private function lockDiscount(string $discountId): ?object
     {
         $d = DB::table('payer_discounts')->where('id', $discountId)->lockForUpdate()->first();
@@ -232,6 +268,10 @@ final class PayerDiscounts
             ->whereIn('li.student_id', $studentIds)
             // A charge let go (إلغاء المستحق) keeps what it was cancelled to.
             ->whereNull('li.cancelled_at')
+            // A two-month offer is a price agreed at the desk for both months, the family's discount
+            // already inside it (GroupBilling::applyTwoMonthOffer): pricing it again from its list
+            // took the discount off a second time.
+            ->where(fn ($q) => $q->whereNull('li.group_months')->orWhere('li.group_months', '<>', 2))
             ->whereNotNull('li.session_date')
             ->when($fromDate !== null, fn ($q) => $q->where('li.session_date', '>=', $fromDate))
             ->whereRaw('coalesce(li.list_amount_minor, li.amount_minor) > 0')

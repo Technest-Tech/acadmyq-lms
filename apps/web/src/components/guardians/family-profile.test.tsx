@@ -36,6 +36,12 @@ vi.mock("@/lib/portal-api", () => ({
   sendPortalLink: vi.fn(),
 }));
 
+// The children's subscription cards are their own component (tested on their own); here only
+// that the parent's page carries one per child.
+vi.mock("@/components/students/subscriptions-card", () => ({
+  SubscriptionsCard: ({ studentId, title }: { studentId: string; title?: string }) => <div data-testid={`child-subs-${studentId}`}>{title}</div>,
+}));
+
 import * as api from "@/lib/api";
 
 function child(overrides: Partial<api.GuardianChild> = {}): api.GuardianChild {
@@ -118,6 +124,12 @@ describe("FamilyProfile", () => {
       page: 1,
       pageSize: 200,
     });
+  });
+
+  it("carries each child's subscriptions, edited from the parent's page (Lingo 2026-11-15)", async () => {
+    renderProfile();
+    expect(await screen.findByTestId("child-subs-s1")).toHaveTextContent("Yusuf");
+    expect(screen.getByTestId("child-subs-s2")).toHaveTextContent("Maryam");
   });
 
   it("lists the family's children with their teacher", async () => {
@@ -345,7 +357,20 @@ describe("FamilyProfile", () => {
     await user.click(within(screen.getByTestId("delete-guardian-children")).getByRole("checkbox"));
     await user.click(confirm);
 
-    await waitFor(() => expect(api.deleteGuardian).toHaveBeenCalledWith("g1", true));
+    await waitFor(() => expect(api.deleteGuardian).toHaveBeenCalledWith("g1", true, { reason: null, to_crm: false }));
+  });
+
+  it("asks why the family leaves and, with the CRM, files them as a former parent (Lingo 2026-11-15)", async () => {
+    vi.mocked(api.deleteGuardian).mockResolvedValue({ ok: true, removed_children: 2, lead_id: "lead1" });
+    renderProfile({ only: [...OWNER_CAPS, "crm.manage"], capabilities: ["crm"] });
+    await screen.findByTestId("family-profile");
+    const user = userEvent.setup();
+    await user.click(screen.getByTestId("deactivate-guardian"));
+    await user.type(screen.getByTestId("guardian-leave-reason"), "Moved away");
+    expect(screen.getByTestId("guardian-to-crm")).toBeChecked();
+    await user.click(within(screen.getByTestId("delete-guardian-children")).getByRole("checkbox"));
+    await user.click(screen.getByTestId("confirm-deactivate-guardian"));
+    await waitFor(() => expect(api.deleteGuardian).toHaveBeenCalledWith("g1", true, { reason: "Moved away", to_crm: true }));
   });
 
   it("does not offer to take the children for a role that may not remove students", async () => {

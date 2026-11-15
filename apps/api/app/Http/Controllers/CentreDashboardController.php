@@ -189,6 +189,7 @@ final class CentreDashboardController extends Controller
             $byCurrency = [];
             foreach (DB::table('receipts as r')
                 ->whereNull('r.voided_at')
+                ->where('r.source', '<>', 'OPENING')
                 ->where('r.received_on', '>=', $from)
                 ->selectRaw("r.currency, to_char(r.received_on, 'YYYY-MM') as month, sum(r.amount_minor) as total")
                 ->groupBy('r.currency', 'month')

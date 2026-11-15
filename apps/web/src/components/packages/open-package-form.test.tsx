@@ -462,3 +462,33 @@ describe("OpenPackageForm — a centre sells one subscription per subject", () =
     );
   });
 });
+
+describe("OpenPackageForm — a Quran academy counting packages in lessons", () => {
+  async function openTenOf40(capabilities: string[]) {
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", { permissions: ["package.read", "package.manage"], capabilities }),
+        <OpenPackageForm onSaved={() => {}} onCancel={() => {}} />,
+      ),
+    );
+    await waitFor(() => expect(listPackageStudents).toHaveBeenCalled());
+    await pickStudent("Sara");
+    await userEvent.type(screen.getByLabelText(arMessages.packages.form.lessons), "10");
+    await userEvent.selectOptions(screen.getByTestId("pkg-count-length"), "40");
+    await userEvent.click(screen.getByRole("button", { name: arMessages.packages.actions.open }));
+    await waitFor(() => expect(openLessonPackage).toHaveBeenCalled());
+    return openLessonPackage.mock.lastCall?.[0] as { lesson_minutes?: number; price_minor: number };
+  }
+
+  beforeEach(() => openLessonPackage.mockClear());
+
+  it("keeps its total price and sends the lesson length, so the block counts lessons", async () => {
+    const sent = await openTenOf40(["invoicing", "packages", "packages_in_lessons"]);
+    expect(sent.lesson_minutes).toBe(40);
+  });
+
+  it("sends no lesson length without the switch: the block counts minutes as before", async () => {
+    const sent = await openTenOf40(["invoicing", "packages"]);
+    expect(sent.lesson_minutes).toBeUndefined();
+  });
+});

@@ -39,6 +39,7 @@ import { Modal } from "@/components/ui/modal";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard, ProfileCard } from "@/components/ui/profile-card";
 import { FamilyAccountsCard } from "@/components/accounting/family-accounts-card";
+import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { ParentPortalCard } from "@/components/guardians/parent-portal-card";
 import { SuspendFamilyConfirm } from "@/components/guardians/suspend-family";
 import {
@@ -487,6 +488,10 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
   const [modal, setModal] = useState<"none" | "add" | "deactivate">("none");
   // Deleting a parent with children takes the children too — ticked by hand, never assumed.
   const [alsoChildren, setAlsoChildren] = useState(false);
+  // Why the family left, and (with the CRM) a "former parent" lead to win them back.
+  const [leaveReason, setLeaveReason] = useState("");
+  const [toCrm, setToCrm] = useState(true);
+  const crmOn = useCapability("crm") && can("crm.manage");
   const [deleting, setDeleting] = useState(false);
   // A centre's suspend asks first: the dues raised ahead, each with a box to let it go. Every other
   // academy suspends on the click, as it always has.
@@ -900,6 +905,20 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
       {/* ── The family's money (accounting academies only; renders nothing otherwise) ── */}
       <FamilyAccountsCard key={moneyTick} guardianId={guardianId} />
 
+      {/* ── Each child's subscriptions, edited right here (centre only; Lingo 2026-11-15: "open
+          editing subscriptions from inside the parent's account"). A change refreshes the money. ── */}
+      {children
+        .filter((c) => c.deleted_at == null)
+        .map((c) => (
+          <SubscriptionsCard
+            key={c.id}
+            studentId={c.id}
+            studentName={c.full_name}
+            title={t("detail.childSubscriptions", { name: c.full_name })}
+            onChanged={() => setMoneyTick((n) => n + 1)}
+          />
+        ))}
+
       {/* ── Billing contact ──────────────────────────────────────────── */}
       {canEdit && (
         <ProfileCard
@@ -1284,7 +1303,10 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
                 setError(null);
                 setDeleting(true);
                 try {
-                  await deleteGuardian(guardianId, activeChildren > 0 && alsoChildren);
+                  await deleteGuardian(guardianId, activeChildren > 0 && alsoChildren, {
+                    reason: leaveReason.trim() || null,
+                    to_crm: crmOn && toCrm,
+                  });
                   router.push("/guardians");
                 } catch (err) {
                   setError(err instanceof ApiError ? err.message : String(err));
@@ -1302,6 +1324,26 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
         <div className="space-y-3 text-sm">
           <p>{t("detail.deleteConfirmBody")}</p>
           {modal === "deactivate" && <RemovalDuesNote load={() => getGuardianRemovalDues(guardianId)} />}
+          <label className="block space-y-1.5">
+            <span className="text-muted-foreground text-xs font-medium">{t("detail.leaveReason")}</span>
+            <input
+              className="border-input bg-background w-full rounded-xl border px-3 py-2 text-sm"
+              value={leaveReason}
+              maxLength={300}
+              onChange={(e) => setLeaveReason(e.target.value)}
+              placeholder={t("detail.leaveReasonPlaceholder")}
+              data-testid="guardian-leave-reason"
+            />
+          </label>
+          {crmOn && (
+            <label className="flex items-start gap-2 text-xs">
+              <input type="checkbox" className="accent-primary mt-0.5 size-4" checked={toCrm} onChange={(e) => setToCrm(e.target.checked)} data-testid="guardian-to-crm" />
+              <span>
+                {t("detail.toCrm")}
+                <span className="text-muted-foreground block">{t("detail.toCrmHint")}</span>
+              </span>
+            </label>
+          )}
           {activeChildren > 0 && (
             <label
               className="border-destructive/30 bg-destructive/5 flex cursor-pointer items-start gap-2.5 rounded-xl border p-3"

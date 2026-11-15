@@ -3,6 +3,7 @@
 import {
   AlarmClock,
   Ban,
+  Pencil,
   Banknote,
   BellRing,
   CalendarClock,
@@ -26,7 +27,7 @@ import {
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MethodBadge, Panel, Tile, dayLabel, toMajorText, waLink } from "@/components/accounting/accounting-ui";
+import { MethodBadge, Panel, Tile, VOIDED_ROW, VoidedPill, dayLabel, toMajorText, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-control";
 import { RefundCreditModal, SettleModal } from "@/components/accounting/settle-package";
@@ -36,6 +37,7 @@ import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
+import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import {
   addFamilyDiscount,
@@ -44,6 +46,8 @@ import {
   cancelFamilyCharge,
   deleteFamilyNote,
   cancelFamilyDiscount,
+  updateFamilyDiscount,
+  addOpeningBalance,
   endFamilyDiscount,
   createDiscountPreset,
   getFamilyAccount,
@@ -94,6 +98,10 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
   const [source, setSource] = useState<Source>("ALL");
   const [collect, setCollect] = useState<CollectTarget | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
+  // Voided receipts/refunds stay on record but out of the way until asked for.
+  const [showVoided, setShowVoided] = useState(false);
+  // A balance carried in from before the system (Lingo 2026-11-15).
+  const [opening, setOpening] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reminding, setReminding] = useState(false);
   const [note, setNote] = useState("");
@@ -217,6 +225,12 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
               <FileText className="size-4" aria-hidden />
               {t("arrears.statement")}
             </Link>
+            {data.can_collect && (
+              <Button type="button" variant="outline" className="gap-1.5" onClick={() => setOpening(true)} data-testid="family-opening">
+                <History className="size-4" aria-hidden />
+                {t("family.opening.button")}
+              </Button>
+            )}
           </div>
         </div>
 
@@ -482,11 +496,22 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
         {data.timeline.length === 0 ? (
           <p className="text-muted-foreground py-4 text-center text-sm">{t("family.noEvents")}</p>
         ) : (
-          <ol className="border-border space-y-3 border-s ps-4" data-testid="family-timeline">
-            {data.timeline.map((e) => (
-              <TimelineItem key={`${e.kind}-${e.id}`} event={e} money={money} onReceipt={setReceiptId} onDelete={(id) => void removeNote(id)} />
-            ))}
-          </ol>
+          <>
+            <ol className="border-border space-y-3 border-s ps-4" data-testid="family-timeline">
+              {data.timeline
+                .filter((e) => showVoided || !("voided" in e && e.voided))
+                .map((e) => (
+                  <TimelineItem key={`${e.kind}-${e.id}`} event={e} money={money} onReceipt={setReceiptId} onDelete={(id) => void removeNote(id)} />
+                ))}
+            </ol>
+            {data.timeline.some((e) => "voided" in e && e.voided) && (
+              <button type="button" className="text-muted-foreground mt-3 text-xs hover:underline" onClick={() => setShowVoided((v) => !v)} data-testid="family-show-voided">
+                {showVoided
+                  ? t("family.hideVoided")
+                  : t("family.showVoided", { count: data.timeline.filter((e) => "voided" in e && e.voided).length })}
+              </button>
+            )}
+          </>
         )}
       </Panel>
 
@@ -509,6 +534,17 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
         onClose={() => setSettlingSubscription(null)}
         onDone={(message) => {
           setSettlingSubscription(null);
+          setNotice(message);
+          void load();
+        }}
+      />
+      <OpeningBalanceModal
+        open={opening}
+        guardianId={guardianId}
+        currency={data.balance[0]?.currency ?? data.charges[0]?.currency ?? "EGP"}
+        onClose={() => setOpening(false)}
+        onDone={(message) => {
+          setOpening(false);
           setNotice(message);
           void load();
         }}
@@ -558,19 +594,29 @@ function TimelineItem({
           <p className="flex flex-wrap items-center gap-1.5 font-medium">
             <Icon className="text-muted-foreground size-3.5" aria-hidden />
             {e.kind === "RECEIPT" && (
-              <button type="button" onClick={() => onReceipt(e.id)} className={cn("hover:underline", e.voided && "line-through opacity-60")}>
+              <button type="button" onClick={() => onReceipt(e.id)} className={cn("hover:underline", e.voided && VOIDED_ROW)}>
                 {t("family.event.RECEIPT", { number: e.number, amount: money(e.amount_minor, e.currency) })}
               </button>
             )}
             {e.kind === "RECEIPT" && <MethodBadge method={e.method} />}
-            {e.kind === "RECEIPT" && e.voided && <span className="text-xs text-rose-700 dark:text-rose-300">{t("family.voided", { reason: e.void_reason ?? "" })}</span>}
+            {e.kind === "RECEIPT" && e.voided && (
+              <>
+                <VoidedPill label={t("register.void")} />
+                {e.void_reason && <span className="text-xs text-rose-700 dark:text-rose-300">{e.void_reason}</span>}
+              </>
+            )}
             {e.kind === "REMINDER" && t("family.event.REMINDER")}
             {e.kind === "BILL_SENT" && t("family.event.BILL_SENT", { period: e.period, amount: money(e.amount_minor, e.currency) })}
             {e.kind === "NOTE" && <span className="font-normal break-words whitespace-pre-line">{e.body}</span>}
             {e.kind === "REFUND" && (
-              <span className={cn(e.voided && "line-through opacity-60")}>{t("family.event.REFUND", { number: e.number, amount: money(e.amount_minor, e.currency) })}</span>
+              <span className={cn(e.voided && VOIDED_ROW)}>{t("family.event.REFUND", { number: e.number, amount: money(e.amount_minor, e.currency) })}</span>
             )}
-            {e.kind === "REFUND" && e.voided && <span className="text-xs text-rose-700 dark:text-rose-300">{t("family.voided", { reason: e.void_reason ?? "" })}</span>}
+            {e.kind === "REFUND" && e.voided && (
+              <>
+                <VoidedPill label={t("register.void")} />
+                {e.void_reason && <span className="text-xs text-rose-700 dark:text-rose-300">{e.void_reason}</span>}
+              </>
+            )}
           </p>
           <p className="text-muted-foreground text-xs">
             {dayLabel(e.date, locale)}
@@ -608,6 +654,8 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   const t = useTranslations("accounting");
   const locale = useLocale();
   const [adding, setAdding] = useState(false);
+  // The discount being corrected in the same form (null = adding a new one).
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [kind, setKind] = useState<DiscountKind>("PERCENT");
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
@@ -689,11 +737,65 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     (presetId !== "" || (label.trim().length > 0 && Number.isFinite(valueNumber) && valueNumber > 0 && (kind !== "PERCENT" || valueNumber <= 100))) &&
     (scope !== "PICK" || pickedOptions.length > 0);
 
+  function startEditing(d: FamilyDiscount) {
+    setEditingId(d.id);
+    setAdding(true);
+    setPresetId("");
+    setSavePreset(false);
+    setKind(d.kind);
+    setValue(d.kind === "PERCENT" ? String(d.value / 100) : toMajorText(d.value));
+    setLabel(d.label);
+    setStudentId(d.student_id ?? "");
+    if (d.targets.length > 0) {
+      setScope("PICK");
+      setPicked(d.targets.map((x) => (x.class_group_id !== null ? `g:${x.class_group_id}` : `p:${x.student_id}:${x.teacher_id ?? ""}`)));
+    } else {
+      setScope(d.scope);
+      setPicked([]);
+    }
+    setError(null);
+  }
+
+  function stopForm() {
+    setAdding(false);
+    setEditingId(null);
+    setValue("");
+    setLabel("");
+    setScope("ALL");
+    setPicked([]);
+    setStudentId("");
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    const res = await updateFamilyDiscount(guardianId, editingId, {
+      kind,
+      value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100),
+      label: label.trim(),
+      scope: scope === "PICK" ? "ALL" : scope,
+      student_id: studentId || null,
+      targets: scope === "PICK" ? pickedOptions.map((o) => o.target) : [],
+    });
+    stopForm();
+    onNotice(res.moved.lines > 0 ? t("family.discountUpdatedLines", { count: res.moved.lines }) : t("family.discountUpdated"));
+    onChanged();
+  }
+
   async function save(e: React.FormEvent) {
     e.preventDefault();
     if (!valid) return;
     setBusy(true);
     setError(null);
+    if (editingId) {
+      try {
+        await saveEdit();
+      } catch (err) {
+        setError(apiErrorMessage(err, t("family.discountFailed")));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     try {
       const where = {
         scope: scope === "PICK" ? ("ALL" as const) : scope,
@@ -785,6 +887,7 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
     >
       {adding && (
         <form onSubmit={(e) => void save(e)} className="bg-muted/30 mb-4 space-y-3 rounded-xl border p-3" data-testid="discount-form">
+          {editingId === null && (
           <div className="space-y-1">
             <label className="text-muted-foreground block text-xs">
               {t("family.preset")}
@@ -806,6 +909,8 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
               )}
             </p>
           </div>
+          )}
+          {editingId !== null && <p className="text-muted-foreground text-xs">{t("family.discountEditHint")}</p>}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <label className="text-muted-foreground text-xs">
               {t("family.discountKind.PERCENT")} / {t("family.discountKind.FIXED")}
@@ -876,6 +981,7 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
               )}
             </fieldset>
           )}
+          {editingId === null && (
           <label className="flex items-start gap-2 text-xs">
             <input type="checkbox" className="mt-0.5 size-4" checked={applyExisting} onChange={(e) => setApplyExisting(e.target.checked)} data-testid="discount-apply-existing" />
             <span>
@@ -883,7 +989,8 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
               <span className="text-muted-foreground block text-[11px]">{t("family.applyToExistingHint")}</span>
             </span>
           </label>
-          {presetId === "" && canManagePresets && (
+          )}
+          {editingId === null && presetId === "" && canManagePresets && (
             <label className="flex items-center gap-2 text-xs">
               <input type="checkbox" className="size-4" checked={savePreset} onChange={(e) => setSavePreset(e.target.checked)} data-testid="discount-save-preset" />
               {t("family.saveAsPreset")}
@@ -891,12 +998,12 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
           )}
           {error && <AlertBanner variant="error" message={error} />}
           <div className="flex justify-end gap-2">
-            <Button type="button" variant="ghost" size="sm" onClick={() => setAdding(false)} disabled={busy}>
+            <Button type="button" variant="ghost" size="sm" onClick={stopForm} disabled={busy}>
               {t("collect.cancel")}
             </Button>
             <Button type="submit" size="sm" disabled={busy || !valid} data-testid="discount-save">
-              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
-              {t("family.addDiscount")}
+              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : editingId ? <Pencil className="size-3.5" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
+              {editingId ? t("family.saveDiscountEdit") : t("family.addDiscount")}
             </Button>
           </div>
         </form>
@@ -923,6 +1030,10 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
                 <div className="flex flex-wrap gap-1">
                   {d.active && (
                     <>
+                      <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={() => startEditing(d)} data-testid={`discount-edit-${d.id}`}>
+                        <Pencil className="size-3.5" aria-hidden />
+                        {t("family.editDiscount")}
+                      </Button>
                       <Button type="button" size="xs" variant="ghost" className="gap-1" onClick={() => void applyToExisting(d.id)} title={t("family.applyToExistingHint")} data-testid={`discount-apply-${d.id}`}>
                         <History className="size-3.5" aria-hidden />
                         {t("family.applyToExistingShort")}
@@ -964,5 +1075,87 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
         </ul>
       )}
     </Panel>
+  );
+}
+
+/**
+ * What a family carried in from before the system: an old amount they owe (becomes a charge on their
+ * account), or money they already had with the academy (pays their charges first — never counted as
+ * money in, never added to a treasury account).
+ */
+function OpeningBalanceModal({
+  open,
+  guardianId,
+  currency,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  guardianId: string;
+  currency: string;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const t = useTranslations("accounting");
+  const locale = useLocale();
+  const [kind, setKind] = useState<"DUE" | "CREDIT">("DUE");
+  const [amount, setAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const minor = Math.round(Number.parseFloat(amount.replace(",", ".")) * 100);
+  const valid = Number.isFinite(minor) && minor > 0;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addOpeningBalance(guardianId, { kind, amount_minor: minor, currency, note: note.trim() || null });
+      setAmount("");
+      setNote("");
+      onDone(t(kind === "DUE" ? "family.opening.savedDue" : "family.opening.savedCredit", { amount: formatMoney({ amount: minor, currency }, locale) }));
+    } catch (err) {
+      setError(apiErrorMessage(err, t("family.discountFailed")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={t("family.opening.title")} description={t("family.opening.description")} size="sm">
+      <form onSubmit={(e) => void save(e)} className="space-y-3" data-testid="opening-form">
+        <div className="grid grid-cols-1 gap-2">
+          {(["DUE", "CREDIT"] as const).map((k) => (
+            <label key={k} className={cn("flex cursor-pointer items-start gap-2 rounded-xl border p-3 text-sm", kind === k && "border-primary bg-primary/5")}>
+              <input type="radio" name="opening-kind" className="accent-primary mt-0.5" checked={kind === k} onChange={() => setKind(k)} data-testid={`opening-kind-${k}`} />
+              <span>
+                <span className="font-semibold">{t(`family.opening.${k}`)}</span>
+                <span className="text-muted-foreground block text-xs">{t(`family.opening.${k}Hint`)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <label className="block text-sm font-medium">
+          {t("collect.amount", { currency })}
+          <input className={cn(fieldClass, "mt-1.5 text-lg font-semibold")} inputMode="decimal" dir="ltr" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="opening-amount" />
+        </label>
+        <label className="block text-sm font-medium">
+          {t("collect.note")}
+          <input className={cn(fieldClass, "mt-1.5")} maxLength={300} value={note} onChange={(e) => setNote(e.target.value)} placeholder={t("family.opening.notePlaceholder")} data-testid="opening-note" />
+        </label>
+        {error && <AlertBanner variant="error" message={error} />}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+            {t("collect.cancel")}
+          </Button>
+          <Button type="submit" disabled={busy || !valid} data-testid="opening-save">
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            {t("family.opening.save")}
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }

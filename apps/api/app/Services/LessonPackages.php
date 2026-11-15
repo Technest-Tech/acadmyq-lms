@@ -371,22 +371,135 @@ final class LessonPackages
      * long it ran (Ahmed, 2026-11-03): a family that bought 4 has 4, and neither a short lesson stretches
      * the block nor a long one eats two. Everywhere else a lesson burns its minutes. The teacher is paid
      * from the lesson's real length either way, so this is only about what the family's block counts.
+     *
+     * A Quran academy gets the same with `packages_in_lessons` (2026-11-15: minutes left blocks open on
+     * a few stray minutes and a mistyped length closed them early). See {@see lessonsOn()}.
      */
     public static function countsLessons(object $package): bool
     {
         $length = self::lessonLength($package);
 
-        return $length !== null && $length > 0 && Entitlement::hasCapability((string) $package->academy_id, 'centre');
+        return $length !== null && $length > 0 && self::lessonsOn((string) $package->academy_id);
+    }
+
+    /** The switch a Quran academy's blocks count lessons under; a centre always does. */
+    public const LESSONS_CAPABILITY = 'packages_in_lessons';
+
+    /** Whether this academy's blocks sold in lessons count lessons, not minutes. */
+    public static function lessonsOn(string $academyId): bool
+    {
+        return Entitlement::hasCapability($academyId, 'centre')
+            || Entitlement::hasCapability($academyId, self::LESSONS_CAPABILITY);
     }
 
     /**
-     * What one lesson takes off a block counted in lessons. The last whole lesson takes any stray
+     * What a lesson takes off a block counted in lessons. The last whole lesson takes any stray
      * remainder with it (a block of 200 minutes in 60s is 3 lessons), so the block ends on its last
      * lesson with nothing left over, and a remainder never turns into a free lesson or an overdraft.
+     *
+     * `$count` is how many lessons this one counts — 1, or 2 for a double lesson marked so on the
+     * attendance popup (`sessions.package_lessons`). Whatever the block cannot cover is an overdraft
+     * of whole lessons, as one lesson past the end is.
      */
-    private function lessonTake(int $lessonMinutes, int $available): int
+    private function lessonTake(int $lessonMinutes, int $available, int $count = 1): int
     {
-        return $available > 0 && $available < 2 * $lessonMinutes ? $available : $lessonMinutes;
+        // Lessons still on the block; a stray remainder rides with the last one.
+        $left = $available <= 0 ? 0 : max(1, intdiv($available, $lessonMinutes));
+        $covered = min($count, $left);
+        $beyond = ($count - $covered) * $lessonMinutes;
+
+        return ($covered === $left ? max(0, $available) : $covered * $lessonMinutes) + $beyond;
+    }
+
+    /**
+     * A running block sold in hours, read again as lessons of `$lessonMinutes` — what it would show
+     * had it counted lessons from its first day ({@see countsLessons()}). Its lessons are replayed in
+     * date order, each taking one lesson (or what the popup marked) with the last taking any stray
+     * remainder, so a block left open on a few minutes ends on its last lesson, and lessons a long
+     * length ate come back. Minutes the block absorbed from the one before stay as they were.
+     * Reads only; {@see convertToLessons()} writes it.
+     *
+     * @return array{lesson_minutes: int, lessons_sold: int, lessons_used: int, consumed_before: int, consumed_after: int, overdrawn_after: int, left_after: int, credits: list<array{id: string, minutes: int, overdrawn: int}>}
+     */
+    public function lessonReplay(object $package, int $lessonMinutes): array
+    {
+        $capacity = (int) $package->minutes_total + (int) $package->carried_over_minutes;
+        $absorbed = (int) $package->absorbed_overdraft_minutes;
+        $available = $capacity - $absorbed;
+
+        $credits = DB::table('lesson_package_credits as c')
+            ->join('sessions as se', 'se.id', '=', 'c.session_id')
+            ->where('c.package_id', $package->id)
+            ->orderBy('se.scheduled_at_utc')
+            ->orderBy('c.consumed_at')
+            ->get(['c.id', 'se.package_lessons']);
+
+        $out = [];
+        $used = 0;
+        $over = 0;
+        $lessons = 0;
+        foreach ($credits as $credit) {
+            $count = self::lessonCountOf($credit);
+            $take = $this->lessonTake($lessonMinutes, $available, $count);
+            $beyond = max(0, $take - max(0, $available));
+            $available -= $take;
+            $used += $take;
+            $over += $beyond;
+            $lessons += $count;
+            $out[] = ['id' => (string) $credit->id, 'minutes' => $take, 'overdrawn' => $beyond];
+        }
+
+        return [
+            'lesson_minutes' => $lessonMinutes,
+            'lessons_sold' => max(1, intdiv(max(0, $capacity - $absorbed), $lessonMinutes)),
+            'lessons_used' => $lessons,
+            'consumed_before' => (int) $package->minutes_consumed,
+            'consumed_after' => $absorbed + $used,
+            'overdrawn_after' => $over,
+            'left_after' => $capacity - $absorbed - $used,
+            'credits' => $out,
+        ];
+    }
+
+    /**
+     * Turn a running block sold in hours into one counted in lessons ({@see lessonReplay()}). A block
+     * the replay finds finished closes the way a block that runs out always does — and renews, if it
+     * renews. Only an ACTIVE block still in hours; anything else is left alone (null).
+     *
+     * @return array<string, mixed>|null the replay that was written
+     */
+    public function convertToLessons(string $packageId, int $lessonMinutes, ?string $actorUserId, ?string $actorRole): ?array
+    {
+        $package = DB::table('lesson_packages')->where('id', $packageId)->lockForUpdate()->first();
+        if ($package === null || $package->status !== 'ACTIVE' || $package->lesson_minutes !== null) {
+            return null;
+        }
+
+        $plan = $this->lessonReplay($package, $lessonMinutes);
+        foreach ($plan['credits'] as $credit) {
+            DB::table('lesson_package_credits')->where('id', $credit['id'])->update([
+                'minutes' => $credit['minutes'],
+                'minutes_overdrawn' => $credit['overdrawn'],
+                'amount_minor' => $this->rateFor($package, $credit['overdrawn']),
+            ]);
+        }
+        DB::table('lesson_packages')->where('id', $packageId)->update([
+            'lesson_minutes' => $lessonMinutes,
+            'minutes_consumed' => $plan['consumed_after'],
+            'minutes_overdrawn' => $plan['overdrawn_after'],
+            'updated_at' => now(),
+        ]);
+
+        Audit::log('lesson_package.counted_in_lessons', 'lesson_package', $packageId, (string) $package->academy_id, $actorUserId, $actorRole,
+            before: ['minutes_consumed' => $plan['consumed_before'], 'lesson_minutes' => null],
+            after: ['lesson_minutes' => $lessonMinutes, 'minutes_consumed' => $plan['consumed_after'], 'minutes_overdrawn' => $plan['overdrawn_after'],
+                'lessons_sold' => $plan['lessons_sold'], 'lessons_used' => $plan['lessons_used']]);
+
+        if ($plan['left_after'] <= 0) {
+            $this->complete($packageId, 'EXHAUSTED', $actorUserId, $actorRole);
+        }
+
+        return $plan;
     }
 
     /**
@@ -397,7 +510,7 @@ final class LessonPackages
     public function recountLessons(string $packageId, int $lessonMinutes): int
     {
         $package = DB::table('lesson_packages')->where('id', $packageId)->first(['absorbed_overdraft_minutes']);
-        $lessons = DB::table('lesson_package_credits')->where('package_id', $packageId)->count();
+        $lessons = $this->lessonsTaught($packageId);
         $consumed = $lessons * $lessonMinutes + (int) ($package->absorbed_overdraft_minutes ?? 0);
 
         DB::table('lesson_package_credits')->where('package_id', $packageId)->update([
@@ -431,7 +544,7 @@ final class LessonPackages
         $length = max(1, (int) $session->duration_minutes);
         $available = $this->remainingMinutes($package);
         $minutes = self::countsLessons($package)
-            ? $this->lessonTake((int) $package->lesson_minutes, $available)
+            ? $this->lessonTake((int) $package->lesson_minutes, $available, self::lessonCountOf($session))
             : $length;
 
         // The whole lesson lands on THIS package. Whatever part of it exceeds the balance is an
@@ -1686,7 +1799,7 @@ final class LessonPackages
             && (int) $lessonMinutes !== (int) $package->lesson_minutes
             && self::countsLessons((object) ['academy_id' => $package->academy_id, 'lesson_minutes' => $lessonMinutes]);
         if ($recount) {
-            $consumed = DB::table('lesson_package_credits')->where('package_id', $packageId)->count() * (int) $lessonMinutes
+            $consumed = $this->lessonsTaught($packageId) * (int) $lessonMinutes
                 + (int) $package->absorbed_overdraft_minutes;
         }
 
@@ -2345,6 +2458,12 @@ final class LessonPackages
 
         $next = $finished->next_terms !== null ? (array) json_decode((string) $finished->next_terms, true) : [];
 
+        // An academy that switched to lessons: a block still sold in hours renews in lessons.
+        $lessonMinutes = $next['lesson_minutes'] ?? ($finished->lesson_minutes !== null ? (int) $finished->lesson_minutes : null);
+        if ($lessonMinutes === null && self::lessonsOn((string) $finished->academy_id)) {
+            $lessonMinutes = $this->detectLessonLength($finished);
+        }
+
         return $this->open([
             'student_id' => (string) $finished->student_id,
             // The same subject: a Maths block renews as Maths.
@@ -2352,7 +2471,7 @@ final class LessonPackages
             'course' => $finished->course,
             'label' => (string) ($next['label'] ?? $finished->label),
             'minutes_total' => (int) ($next['minutes_total'] ?? $finished->minutes_total),
-            'lesson_minutes' => $next['lesson_minutes'] ?? ($finished->lesson_minutes !== null ? (int) $finished->lesson_minutes : null),
+            'lesson_minutes' => $lessonMinutes,
             'price_minor' => (int) ($next['price_minor'] ?? $finished->price_minor),
             'currency' => (string) $finished->currency,
             'bill_timing' => (string) $finished->bill_timing,
@@ -2788,6 +2907,9 @@ final class LessonPackages
     {
         $date = Carbon::parse($session->scheduled_at_utc)->toDateString();
         $label = $this->humanHours($minutes).' — '.$date;
+        if (self::lessonCountOf($session) > 1) {
+            $label .= ' (×'.self::lessonCountOf($session).')';
+        }
 
         return $overdrawn > 0
             ? $label.' ('.$this->humanHours($overdrawn).' beyond the package)'
@@ -2836,6 +2958,64 @@ final class LessonPackages
     private static function lessonLength(object $package): ?int
     {
         return isset($package->lesson_minutes) ? (int) $package->lesson_minutes : null;
+    }
+
+    /** The lessons taught on a block, a double lesson counting two. */
+    private function lessonsTaught(string $packageId): int
+    {
+        return (int) DB::table('lesson_package_credits as c')
+            ->join('sessions as se', 'se.id', '=', 'c.session_id')
+            ->where('c.package_id', $packageId)
+            ->sum(DB::raw('coalesce(se.package_lessons, 1)'));
+    }
+
+    /** How many lessons a lesson counts on a block counted in lessons: 1, or what the popup marked. */
+    public static function lessonCountOf(object $session): int
+    {
+        return max(1, (int) ($session->package_lessons ?? 1));
+    }
+
+    /**
+     * The length of one lesson for a block that never said (sold in hours), so it can count lessons:
+     * the "N × M" its label was written as, else the student's timetable for that subject, else the
+     * length most of its own lessons ran, else most of the student's lessons. Null when nothing says.
+     */
+    public function detectLessonLength(object $package): ?int
+    {
+        if (preg_match('/(\d+)\s*[×x]\s*(\d+)/u', strtr((string) $package->label, '٠١٢٣٤٥٦٧٨٩', '0123456789'), $m) === 1) {
+            $minutes = (int) $m[2];
+            if ($minutes >= 5 && $minutes <= 600 && (int) $m[1] * $minutes <= (int) $package->minutes_total + 60) {
+                return $minutes;
+            }
+        }
+
+        $usual = fn ($durations): ?int => $durations->isEmpty()
+            ? null
+            : (int) $durations->countBy()->sortDesc()->keys()->first();
+
+        $slots = DB::table('schedules as sc')
+            ->join('schedule_slots as sl', 'sl.schedule_id', '=', 'sc.id')
+            ->where('sc.student_id', $package->student_id)
+            ->where('sc.is_active', true)
+            ->whereNull('sc.deleted_at')
+            ->when($package->teacher_id !== null, fn ($q) => $q->where('sc.teacher_id', $package->teacher_id))
+            ->pluck('sl.duration_minutes')
+            ->map(fn ($d) => (int) $d)
+            ->filter(fn (int $d) => $d >= 5 && $d <= 600);
+        if (($fromTimetable = $usual($slots)) !== null) {
+            return $fromTimetable;
+        }
+
+        // What its lessons ran, else what the student's lessons ran on any block.
+        $taught = fn (string $column, string $value) => DB::table('lesson_package_credits as c')
+            ->join('sessions as se', 'se.id', '=', 'c.session_id')
+            ->where($column, $value)
+            ->pluck('se.duration_minutes')
+            ->map(fn ($d) => (int) $d)
+            ->filter(fn (int $d) => $d >= 5 && $d <= 600);
+
+        return $usual($taught('c.package_id', (string) $package->id))
+            ?? $usual($taught('c.student_id', (string) $package->student_id));
     }
 
     /** Minutes → "2h 30m" / "45m". Display only; the stored quantity is always minutes. */

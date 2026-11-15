@@ -1,4 +1,4 @@
-/** Shared formatters for the Super Admin LMS oversight pages. */
+/** Formatters for the client page's course-platform tab. */
 
 export function fmtBytes(bytes: number): string {
   if (!bytes || bytes <= 0) return "0 GB";
@@ -6,9 +6,6 @@ export function fmtBytes(bytes: number): string {
   if (gb >= 1) return `${gb.toFixed(gb >= 10 ? 0 : 1)} GB`;
   return `${(bytes / 1e6).toFixed(bytes / 1e6 >= 10 ? 0 : 1)} MB`;
 }
-
-/** Re-export of the shared helper (superadmin-reorg) so existing imports keep working. */
-export { daysUntil } from "@/lib/time";
 
 /**
  * How full a capacity cap is, as a percentage — or null when the cap is absent (unlimited), so a

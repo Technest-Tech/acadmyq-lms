@@ -76,6 +76,7 @@ import { formatMoney } from "@/lib/money";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { useCapability } from "@/lib/capabilities";
 import { useLevelsOn } from "@/lib/levels";
+import { fetchRoster } from "@/lib/roster";
 import { cn } from "@/lib/utils";
 
 // The manually-settable active states. Terminal states (GRADUATED/WITHDRAWN) are not editable
@@ -690,7 +691,7 @@ function ParentCard({
     if (action !== "move") return;
     setPicked("");
     setLoadingOptions(true);
-    void listGuardians({ pageSize: 200, filter: { status: "active" } })
+    void fetchRoster(listGuardians, { filter: { status: "active" } })
       .then(({ rows }) =>
         setOptions(
           rows

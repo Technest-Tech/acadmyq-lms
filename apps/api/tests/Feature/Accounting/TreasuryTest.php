@@ -331,6 +331,31 @@ it('shows the year month by month: money in, money out, net', function () {
     expect($res->json('categories.0'))->toMatchArray(['name' => 'طباعة وأدوات مكتبية', 'amount_minor' => 15000]);
 });
 
+it('lists today\'s payment reminders on the overview: promised today or missed, still owing; a newer note or paying clears it (Lingo 2026-11-15)', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    // Today is 17 June: a promise for today shows; one for tomorrow does not yet.
+    $this->postJson("/api/accounting/family/{$this->parent}/notes", ['body' => 'Will pay on the 17th', 'follow_up_on' => '2026-06-17'])->assertCreated();
+    $due = $this->getJson('/api/accounting/overview')->assertOk()->json('follow_ups');
+    expect($due)->toHaveCount(1)
+        ->and($due[0])->toMatchArray(['guardian_id' => $this->parent, 'follow_up_on' => '2026-06-17', 'days_late' => 0, 'note' => 'Will pay on the 17th'])
+        ->and($due[0]['due'][0]['due_minor'])->toBe(180000);
+
+    // Two days later nobody wrote again: still listed, two days late.
+    Carbon::setTestNow('2026-06-19 09:00:00');
+    expect($this->getJson('/api/accounting/overview')->json('follow_ups.0.days_late'))->toBe(2);
+
+    // A newer note with a new date moves it out of today.
+    $this->postJson("/api/accounting/family/{$this->parent}/notes", ['body' => 'Called — next week', 'follow_up_on' => '2026-06-25'])->assertCreated();
+    expect($this->getJson('/api/accounting/overview')->json('follow_ups'))->toBe([]);
+
+    // On the day, back again — until the family pays everything.
+    Carbon::setTestNow('2026-06-25 09:00:00');
+    expect($this->getJson('/api/accounting/overview')->json('follow_ups'))->toHaveCount(1);
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 180000, 'method' => 'CASH'])->assertCreated();
+    expect($this->getJson('/api/accounting/overview')->json('follow_ups'))->toBe([]);
+});
+
 it('builds the family card: children, what they are in, what is owed and the timeline with notes', function () {
     trsOn($this->academy);
     Sanctum::actingAs($this->owner);
@@ -379,6 +404,77 @@ it('sums each child’s own account for an academy that bills per student', func
         ->and($charges->where('payer_kind', 'GUARDIAN')->count())->toBe(4);
     // The card's total is the whole family's: the parent's account and Carl's together.
     expect($res->json('balance.0.due_minor'))->toBe(180000 + (int) $own->sum('remaining_minor'));
+});
+
+it('corrects an expense in place — date, payee, description, category, amount — while a refund keeps its amount and a salary its category (Lingo 2026-11-15)', function () {
+    trsOn($this->academy);
+    [$drawer] = trsAccounts($this);
+    $cats = collect($this->getJson('/api/expenses')->assertOk()->json('categories'));
+    $printing = $cats->firstWhere('key', 'printing')['id'];
+    $other = $cats->first(fn ($c) => ! in_array($c['key'], ['printing', 'teacher_salaries', 'refunds'], true))['id'];
+    $id = $this->postJson('/api/expenses', ['category_id' => $printing, 'cash_account_id' => $drawer, 'amount_minor' => 15000, 'payee' => 'Old', 'spent_on' => '2026-06-16'])->assertCreated()->json('id');
+
+    $this->patchJson("/api/expenses/{$id}", ['spent_on' => '2026-06-15', 'payee' => 'Copy shop', 'description' => 'Exam papers', 'category_id' => $other, 'amount_minor' => 12000])
+        ->assertOk()->assertJsonPath('changed', ['amount_minor', 'spent_on', 'payee', 'description', 'category_id']);
+    $row = collect($this->getJson('/api/expenses')->json('expenses'))->firstWhere('id', $id);
+    expect($row)->toMatchArray(['spent_on' => '2026-06-15', 'payee' => 'Copy shop', 'description' => 'Exam papers', 'category_id' => $other, 'amount_minor' => 12000]);
+    // Never into the salary or refund categories, and never a day still to come.
+    $this->patchJson("/api/expenses/{$id}", ['category_id' => $cats->firstWhere('key', 'refunds')['id'] ?? $cats->firstWhere('key', 'teacher_salaries')['id']])->assertStatus(422);
+    $this->patchJson("/api/expenses/{$id}", ['spent_on' => '2026-06-30'])->assertStatus(422);
+
+    // A refund to a family: the amount stays (drawn on their receipts), the note can be fixed.
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 200000, 'method' => 'CASH'])->assertCreated();
+    $refund = $this->postJson("/api/accounting/family/{$this->parent}/refund", ['amount_minor' => 10000, 'currency' => 'EGP', 'cash_account_id' => $drawer])->assertSuccessful()->json('expense_id');
+    $this->patchJson("/api/expenses/{$refund}", ['amount_minor' => 5000])->assertStatus(422);
+    $this->patchJson("/api/expenses/{$refund}", ['description' => 'Paid back in cash to the mother'])->assertOk();
+});
+
+it('carries a family\'s balance from before the system: an old due becomes a charge, an old credit pays their charges but never enters the treasury or the collected figures (Lingo 2026-11-15)', function () {
+    trsOn($this->academy);
+    [$drawer] = trsAccounts($this);
+    $due = fn () => $this->getJson("/api/accounting/family/{$this->parent}")->assertOk()->json('balance.0.due_minor');
+    expect($due())->toBe(180000);
+
+    // They had 300 with us: it pays their oldest charges, not one piastre lands in a drawer.
+    $this->postJson("/api/accounting/family/{$this->parent}/opening-balance", ['kind' => 'CREDIT', 'amount_minor' => 30000, 'note' => 'من الدفتر القديم'])
+        ->assertCreated()->assertJsonPath('kind', 'CREDIT');
+    expect($due())->toBe(150000)
+        ->and(trsAccount($this, $drawer)['balance_minor'])->toBe(50000)
+        ->and($this->getJson('/api/accounting/overview')->json('collected'))->toBe([]);
+    expect(collect($this->getJson('/api/receipts?status=all')->json('receipts'))->pluck('source')->all())->toBe(['OPENING']);
+
+    // They still owed 500 from before: a charge on their account like any other.
+    $this->postJson("/api/accounting/family/{$this->parent}/opening-balance", ['kind' => 'DUE', 'amount_minor' => 50000, 'note' => 'سبتمبر'])->assertCreated();
+    expect($due())->toBe(200000);
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('charges'))->pluck('description')->filter(fn ($d) => str_contains((string) $d, 'رصيد سابق'))->count())->toBe(1);
+
+    $teacher = $this->makeUser($this->academy, 'TEACHER', ['email' => 't-open@test.local']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($teacher);
+    $this->postJson("/api/accounting/family/{$this->parent}/opening-balance", ['kind' => 'CREDIT', 'amount_minor' => 100])->assertForbidden();
+});
+
+it('edits a family discount in place: the new value reprices the open charges at once, no cancel-and-add (Lingo 2026-11-15)', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    $id = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'Sibling', 'starts_on' => '2026-05-01', 'apply_to_existing' => true])->assertCreated()->json('id');
+    $amounts = fn () => collect($this->getJson("/api/accounting/family/{$this->parent}")->json('charges'))->pluck('amount_minor')->unique()->values()->all();
+    expect($amounts())->toBe([40500]);
+
+    $this->patchJson("/api/accounting/family/{$this->parent}/discounts/{$id}", ['kind' => 'PERCENT', 'value' => 20, 'label' => 'Sibling 20', 'scope' => 'ALL', 'student_id' => null, 'targets' => []])
+        ->assertOk()->assertJsonPath('moved.lines', 4);
+    expect($amounts())->toBe([36000]);
+    $d = collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('id', $id);
+    expect($d)->toMatchArray(['label' => 'Sibling 20', 'value' => 2000]);
+
+    // Narrowed to Adam alone: Bassel's charges go back to full price.
+    $this->patchJson("/api/accounting/family/{$this->parent}/discounts/{$id}", ['kind' => 'PERCENT', 'value' => 20, 'label' => 'Sibling 20', 'scope' => 'ALL', 'student_id' => $this->adam, 'targets' => []])->assertOk();
+    $byKid = collect($this->getJson("/api/accounting/family/{$this->parent}")->json('charges'))->groupBy('student_name')->map(fn ($c) => $c->pluck('amount_minor')->unique()->values()->all());
+    expect($byKid['Adam'])->toBe([36000])->and($byKid['Bassel'])->toBe([45000]);
+
+    // A cancelled discount is not edited.
+    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$id}")->assertOk();
+    $this->patchJson("/api/accounting/family/{$this->parent}/discounts/{$id}", ['kind' => 'PERCENT', 'value' => 5, 'label' => 'x', 'scope' => 'ALL', 'student_id' => null, 'targets' => []])->assertStatus(422);
 });
 
 it('takes a family discount off every charge raised from now on — percent and fixed stack, and nothing already billed moves', function () {

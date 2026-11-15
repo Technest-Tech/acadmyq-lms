@@ -332,10 +332,46 @@ export function addGroupMembers(
   return apiFetch(`/api/groups/${id}/members`, { method: "POST", body: JSON.stringify(input) });
 }
 
+/** One lesson's price in a group, for a trial lesson. */
+export function getTrialPrice(groupId: string, lessonId: string): Promise<{ amount_minor: number | null; currency: string | null }> {
+  return apiFetch(`/api/groups/${groupId}/trial-price?lesson_id=${encodeURIComponent(lessonId)}`);
+}
+
+/** One trial lesson: the student on that lesson only, charged one lesson (the group's price unless typed). */
+export function bookGroupTrial(groupId: string, input: { student_id: string; lesson_id: string; amount_minor?: number | null }): Promise<{ trial: { member_id: string; line_id: string | null; amount_minor: number } }> {
+  return apiFetch(`/api/groups/${groupId}/trial`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** What leaving on a day leaves unused of the member's monthly charge (null = nothing to settle). */
+export interface LeaveQuote {
+  line_id: string;
+  invoice_id: string;
+  kind: "HOURS" | "MONTH";
+  attended: number;
+  remaining: number;
+  unused_minutes: number;
+  unused_minor: number;
+  line_minor: number;
+  paid_minor: number;
+  /** Paid beyond what was used: can become credit or cash. */
+  refundable_minor: number;
+  currency: string;
+}
+
+export type LeaveSettlement = "CREDIT" | "REFUND" | "KEEP";
+
+export function getLeaveQuote(
+  id: string,
+  studentId: string,
+  leftOn: string,
+): Promise<{ quote: LeaveQuote | null; can_settle: boolean; can_refund: boolean; accounts: { id: string; name: string; currency: string }[] }> {
+  return apiFetch(`/api/groups/${id}/members/${studentId}/leave-quote?left_on=${encodeURIComponent(leftOn)}`);
+}
+
 export function removeGroupMember(
   id: string,
   studentId: string,
-  input: { left_on?: string; reason?: string | null } = {},
+  input: { left_on?: string; reason?: string | null; settlement?: LeaveSettlement | null; cash_account_id?: string | null } = {},
 ): Promise<{ group: GroupDetail }> {
   return apiFetch(`/api/groups/${id}/members/${studentId}`, {
     method: "DELETE",
@@ -547,6 +583,8 @@ export interface BoardLesson extends GroupLesson {
     location: string | null;
     room?: GroupRoomRef | null;
     specialization_name?: string | null;
+    /** The online room to enter: the group's own link, else (online groups) the teacher's. */
+    meeting_url?: string | null;
   };
   /** The weekly time this lesson came from; null = an extra lesson. */
   slot?: GroupSlot | null;

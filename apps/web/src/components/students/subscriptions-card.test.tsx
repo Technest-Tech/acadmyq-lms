@@ -12,7 +12,7 @@ import { SubscriptionsCard } from "./subscriptions-card";
  * enrol in a group from it, edit or end any open row — and nothing at all for an academy without
  * `centre`. The private half reads the centre's own table (docs/centre-profile/01), never packages.
  */
-const groupsApi = { listBoardMembers: vi.fn(), listGroups: vi.fn(), addGroupMembers: vi.fn(), getGroup: vi.fn(), updateGroupMember: vi.fn(), removeGroupMember: vi.fn(), undoGroupMember: vi.fn() };
+const groupsApi = { listBoardMembers: vi.fn(), listGroups: vi.fn(), addGroupMembers: vi.fn(), getGroup: vi.fn(), updateGroupMember: vi.fn(), removeGroupMember: vi.fn(), undoGroupMember: vi.fn(), getLeaveQuote: vi.fn(), listBoardLessons: vi.fn(), getTrialPrice: vi.fn(), bookGroupTrial: vi.fn() };
 vi.mock("@/lib/groups-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/groups-api")>()),
   listBoardMembers: (...a: unknown[]) => groupsApi.listBoardMembers(...a),
@@ -22,6 +22,10 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   updateGroupMember: (...a: unknown[]) => groupsApi.updateGroupMember(...a),
   removeGroupMember: (...a: unknown[]) => groupsApi.removeGroupMember(...a),
   undoGroupMember: (...a: unknown[]) => groupsApi.undoGroupMember(...a),
+  getLeaveQuote: (...a: unknown[]) => groupsApi.getLeaveQuote(...a),
+  listBoardLessons: (...a: unknown[]) => groupsApi.listBoardLessons(...a),
+  getTrialPrice: (...a: unknown[]) => groupsApi.getTrialPrice(...a),
+  bookGroupTrial: (...a: unknown[]) => groupsApi.bookGroupTrial(...a),
 }));
 const policyApi = { getStudentRenewalPolicy: vi.fn(), setStudentRenewalPolicy: vi.fn() };
 vi.mock("@/lib/accounting-api", async (importOriginal) => ({
@@ -71,6 +75,7 @@ beforeEach(() => {
   Object.values(policyApi).forEach((f) => f.mockReset());
   listLessonPackages.mockReset();
   groupsApi.getGroup.mockResolvedValue({ group: groupDetail });
+  groupsApi.getLeaveQuote.mockResolvedValue({ quote: null, can_settle: true, can_refund: true, accounts: [] });
   groupsApi.listBoardMembers.mockResolvedValue({ members: [member()], thresholds: { streak: 3, low_rate: 0.6 }, sees_money: true });
   subsApi.listSubscriptions.mockResolvedValue({ rows: [subRow()], summary: {}, meta: {} });
   subsApi.listSubscriptionStudents.mockResolvedValue({ rows: [studentPick()] });
@@ -108,6 +113,92 @@ describe("SubscriptionsCard", () => {
     await userEvent.selectOptions(pick, "g2");
     await userEvent.click(screen.getByTestId("subs-join-confirm"));
     await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", expect.objectContaining({ student_ids: ["s1"], joined_on: "2026-06-10" })));
+  });
+
+  it("brings a paused student back into the group they left in one press, and folds older rows away", async () => {
+    groupsApi.listBoardMembers.mockResolvedValue({
+      members: [
+        member({ id: "m-old", status: "LEFT", joined_on: "2026-03-01", left_on: "2026-04-01", left_reason: "STOPPED: x" }),
+        member({ id: "m-paused", status: "LEFT", joined_on: "2026-05-01", left_on: "2026-06-01", left_reason: "PAUSED: لم يدفع" }),
+      ],
+      thresholds: { streak: 3, low_rate: 0.6 },
+      sees_money: true,
+    });
+    subsApi.listSubscriptions.mockResolvedValue({ rows: [subRow({ id: "sub-x", status: "CANCELLED" })], summary: {}, meta: {} });
+    groupsApi.listGroups.mockResolvedValue({ groups: [{ id: "g1", name: "English A1", start_date: "2026-04-01", lessons: { held: 9 } }], counts: {} });
+    groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    // Only the last time they left shows (with the way back); the older row and the cancelled block fold away.
+    const groups = await screen.findByTestId("subs-groups");
+    expect(within(groups).getAllByTestId("subs-group-g1")).toHaveLength(1);
+    expect(screen.queryByTestId("subscription-sub-x")).toBeNull();
+    expect(screen.getByTestId("subs-show-past")).toHaveTextContent("2");
+
+    await userEvent.click(screen.getByTestId("subs-rejoin-g1"));
+    await waitFor(() => expect((screen.getByTestId("subs-group-pick") as HTMLSelectElement).value).toBe("g1"));
+    await userEvent.click(screen.getByTestId("subs-join-confirm"));
+    await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g1", expect.objectContaining({ student_ids: ["s1"] })));
+
+    await userEvent.click(screen.getByTestId("subs-show-past"));
+    expect(within(screen.getByTestId("subs-groups")).getAllByTestId("subs-group-g1")).toHaveLength(2);
+  });
+
+  it("books one trial lesson in a group at the group's lesson price instead of joining (Lingo 2026-11-15)", async () => {
+    groupsApi.listGroups.mockResolvedValue({ groups: [{ id: "g2", name: "Math B2", teacher_name: "Mr Ali", start_date: "2026-05-01", lessons: { held: 4 } }], counts: {} });
+    const future = "2999-01-05";
+    groupsApi.listBoardLessons.mockResolvedValue({
+      view: "week", from: future, to: future, timezone: "Africa/Cairo",
+      lessons: [{ id: "les1", group_id: "g2", occurrence_local_date: future, scheduled_at_utc: `${future}T15:00:00Z`, status: "SCHEDULED", duration_minutes: 60, group: { id: "g2", name: "Math B2", level: null, timezone: "Africa/Cairo", mode: "ONLINE", location: null } }],
+    });
+    groupsApi.getTrialPrice.mockResolvedValue({ amount_minor: 10000, currency: "EGP" });
+    groupsApi.bookGroupTrial.mockResolvedValue({ trial: { member_id: "m9", line_id: "l9", amount_minor: 10000 } });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    await userEvent.click(await screen.findByTestId("subs-join-group"));
+    await waitFor(() => expect(within(screen.getByTestId("subs-group-pick")).queryByRole("option", { name: /Math B2/ })).toBeTruthy());
+    await userEvent.selectOptions(screen.getByTestId("subs-group-pick"), "g2");
+    await userEvent.click(screen.getByTestId("subs-trial"));
+    await waitFor(() => expect(screen.getByTestId("subs-trial-lesson")).toHaveValue("les1"));
+    expect(await screen.findByTestId("subs-trial-price")).toHaveValue("100");
+    await userEvent.click(screen.getByTestId("subs-join-confirm"));
+    await waitFor(() => expect(groupsApi.bookGroupTrial).toHaveBeenCalledWith("g2", { student_id: "s1", lesson_id: "les1" }));
+    expect(groupsApi.addGroupMembers).not.toHaveBeenCalled();
+  });
+
+  it("narrows a long list of groups by name or teacher (Lingo runs ~100 groups)", async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `gx${i}`, name: `Prep ${i} English`, teacher_name: "Miss Mona", start_date: "2026-05-01", lessons: { held: 1 } }));
+    groupsApi.listGroups.mockResolvedValue({ groups: [...many, { id: "g-ar", name: "Prep 2 لغة عربية", teacher_name: "أ. أحمد", start_date: "2026-05-01", lessons: { held: 1 } }], counts: {} });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    await userEvent.click(await screen.findByTestId("subs-join-group"));
+    const pick = await screen.findByTestId("subs-group-pick");
+    await waitFor(() => expect(within(pick).getAllByRole("option")).toHaveLength(14));
+    // Arabic-forgiving: "احمد" finds the teacher "أ. أحمد".
+    await userEvent.type(screen.getByTestId("subs-group-search"), "احمد");
+    await waitFor(() => expect(within(pick).getAllByRole("option")).toHaveLength(2));
+    expect(within(pick).getByRole("option", { name: /لغة عربية/ })).toBeTruthy();
+  });
+
+  it("ending a group with paid lessons left says how many and their worth, and turns them into the parent's credit (Lingo 2026-11-15)", async () => {
+    groupsApi.getLeaveQuote.mockResolvedValue({
+      quote: { line_id: "l1", invoice_id: "i1", kind: "HOURS", attended: 5, remaining: 3, unused_minutes: 180, unused_minor: 18000, line_minor: 48000, paid_minor: 48000, refundable_minor: 18000, currency: "EGP" },
+      can_settle: true,
+      can_refund: true,
+      accounts: [{ id: "a1", name: "Cash drawer", currency: "EGP" }],
+    });
+    groupsApi.removeGroupMember.mockResolvedValue({ group: groupDetail });
+    render(withAuth(owner(), <SubscriptionsCard studentId="s1" studentName="Adam" />));
+
+    await userEvent.click(within(await screen.findByTestId("subs-group-g1")).getByTestId("subs-end"));
+    const box = await screen.findByTestId("leave-quote");
+    expect(box.textContent).toContain(money(18000));
+    expect((screen.getByTestId("leave-settle-CREDIT") as HTMLInputElement).checked).toBe(true);
+    await userEvent.click(screen.getByTestId("leave-settle-REFUND"));
+    expect(screen.getByTestId("leave-account")).toHaveValue("a1");
+    await userEvent.click(screen.getByTestId("leave-settle-CREDIT"));
+    await userEvent.click(screen.getByRole("button", { name: arGroups.removeConfirm }));
+    await waitFor(() => expect(groupsApi.removeGroupMember).toHaveBeenCalledWith("g1", "s1", expect.objectContaining({ settlement: "CREDIT", cash_account_id: null })));
   });
 
   it("edits a group membership: the join date opens on the row's own, and saves through the member endpoint", async () => {
@@ -210,6 +301,9 @@ describe("SubscriptionsCard", () => {
 
     const ended = await screen.findByTestId("subscription-ended");
     expect(within(ended).getByTestId("subscription-facts")).toHaveTextContent("travelling · Nour");
+    // Older blocks fold away (Lingo 2026-11-15); shown, they don't sell again.
+    expect(screen.queryByTestId("subscription-older")).toBeNull();
+    await userEvent.click(screen.getByTestId("subs-show-past"));
     // Connect Plus has nothing open: its newest block sells again; English is still running.
     expect(within(screen.getByTestId("subscription-older")).queryByTestId("subscription-renew")).toBeNull();
     expect(within(screen.getByTestId("subscription-ali-old")).queryByTestId("subscription-renew")).toBeNull();

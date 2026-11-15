@@ -21,7 +21,7 @@ import {
   type PackageStudent,
   type TeacherRow,
 } from "@/lib/api";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, usePackagesInLessons } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 
 /** One subject of a student: a teacher and what they teach them. A teacher can teach them two. */
@@ -65,6 +65,7 @@ export function OpenPackageForm({
   const [carryOver, setCarryOver] = useState(false);
   // A centre sells one subscription per subject: tied to the student's teacher for it ("" = any lesson).
   const centre = useCapability("centre");
+  const inLessons = usePackagesInLessons();
   const [subjectId, setSubjectId] = useState("");
   // A subject new to the student: its teacher and its name, linked to them as the block opens.
   const NEW = "__new__";
@@ -186,7 +187,7 @@ export function OpenPackageForm({
       ) ?? null
     : null;
   // How long this subject's lessons really are. The length starts there, and says so if changed.
-  const timetableMinutes = centre
+  const timetableMinutes = inLessons
     ? ((tiedTeacher !== "" ? subjects.find((sub) => sub.teacher_id === tiedTeacher)?.lesson_minutes : student?.lesson_minutes) ?? null)
     : null;
   useEffect(() => {

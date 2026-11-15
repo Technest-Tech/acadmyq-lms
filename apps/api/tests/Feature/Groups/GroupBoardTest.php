@@ -89,6 +89,29 @@ it('lists the day’s lessons across every group, and every sheet still owed', f
     $this->getJson('/api/group-lessons/summary')->assertOk()->assertJson(['owed' => 7, 'today' => 1]);
 });
 
+it('hands the timetable the room to enter: the group\'s own link, else the teacher\'s for an online group, never for a classroom one (Lingo 2026-11-15)', function () {
+    Sanctum::actingAs($this->owner);
+    $this->asAcademy($this->academy);
+    DB::table('teachers')->where('id', $this->teacher)->update(['meeting_url' => 'https://zoom.example/mona']);
+    DB::table('class_groups')->where('id', $this->theirs)->update(['meeting_url' => 'https://meet.example/maths', 'mode' => 'OFFLINE']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+
+    $week = collect($this->getJson('/api/group-lessons?view=week&date=2026-06-15')->assertOk()->json('lessons'));
+    $url = fn (string $groupId) => $week->firstWhere('group_id', $groupId)['group']['meeting_url'];
+    // English (online by default) has no link of its own: Miss Mona's room. Maths has its own.
+    expect($url($this->mine))->toBe('https://zoom.example/mona')
+        ->and($url($this->theirs))->toBe('https://meet.example/maths');
+
+    // A classroom group with no link of its own gets no Enter, whatever its teacher's room.
+    $this->asAcademy($this->academy);
+    DB::table('class_groups')->where('id', $this->mine)->update(['mode' => 'OFFLINE']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $week = collect($this->getJson('/api/group-lessons?view=week&date=2026-06-15')->assertOk()->json('lessons'));
+    expect($week->firstWhere('group_id', $this->mine)['group']['meeting_url'])->toBeNull();
+});
+
 it('shows a teacher only the lessons of their own groups', function () {
     Sanctum::actingAs($this->teacherUser);
 

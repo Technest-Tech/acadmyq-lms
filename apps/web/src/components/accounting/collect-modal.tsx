@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
   RECEIPT_METHODS,
+  applyTwoMonthOffer,
   getPayerAccount,
   recordReceipt,
   sendReceipt,
@@ -17,6 +18,7 @@ import {
   type PayerAccount,
   type ReceiptDetail,
   type ReceiptMethod,
+  type TwoMonthQuote,
 } from "@/lib/accounting-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -69,10 +71,16 @@ export function CollectModal({
   const [reference, setReference] = useState("");
   const [receivedOn, setReceivedOn] = useState(todayLocal());
   const [proof, setProof] = useState<File | null>(null);
+  // The parent paid by transfer but has not sent the screenshot yet (Lingo 2026-11-15).
+  const [proofLater, setProofLater] = useState(false);
   const [note, setNote] = useState("");
   const [keepCredit, setKeepCredit] = useState(false);
-  // The two-month offer, per subject: a monthly group charge → the amount typed for its two months.
+  // The two-month offer, per subject: a monthly group charge → the offer's own discount typed (empty = none).
+  // The two months themselves are priced by the server (`two_month`): this month as charged + one full month.
   const [offers, setOffers] = useState<Record<string, string>>({});
+  // The same offer on a subject already paid this month, taken from the family's credit (no new money).
+  const [creditOffers, setCreditOffers] = useState<Record<string, string>>({});
+  const [applyingOffer, setApplyingOffer] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<ReceiptDetail | null>(null);
@@ -92,15 +100,19 @@ export function CollectModal({
     setReference("");
     setReceivedOn(todayLocal());
     setProof(null);
+    setProofLater(false);
     setNote("");
     setKeepCredit(false);
     setOffers({});
+    setCreditOffers({});
     setAmountTouched(false);
 
     getPayerAccount({ guardian_id: target.guardian_id, student_id: target.student_id, invoice_id: target.invoice_id })
       .then((acc) => {
         if (!alive) return;
         setAccount(acc);
+        // The academy's own methods (Settings): cash first where it is taken, else the first it takes.
+        if (acc.methods && acc.methods.length > 0 && !acc.methods.includes("CASH")) setMethod(acc.methods[0]!);
         // Ticked first: the charges asked for, else (from an invoice) that invoice's own charges.
         const wanted = target.line_ids ?? (target.invoice_id ? acc.lines.filter((l) => l.invoice_id === target.invoice_id).map((l) => l.id) : null);
         const first = (wanted && acc.lines.find((l) => wanted.includes(l.id))) ?? acc.lines[0];
@@ -116,18 +128,40 @@ export function CollectModal({
     };
   }, [open, target, t]);
 
-  // A charge on the two-month offer costs what was typed for both months.
+  // A charge on the two-month offer costs the server's two-month price less the offer's discount.
   const lines = useMemo(
     () =>
       (account?.lines ?? [])
         .filter((l) => l.currency === currency)
         .map((l) => {
-          if (offers[l.id] === undefined) return l;
-          const offer = toMinor(offers[l.id] ?? "");
-          return offer > 0 ? { ...l, amount_minor: offer, remaining_minor: Math.max(0, offer - l.paid_minor) } : l;
+          if (offers[l.id] === undefined || !l.two_month) return l;
+          const total = Math.max(0, l.two_month.amount_minor - toMinor(offers[l.id] ?? ""));
+          return { ...l, amount_minor: total, remaining_minor: Math.max(0, total - l.paid_minor) };
         }),
     [account, currency, offers],
   );
+  const offerLines = (account?.offer_lines ?? []).filter((l) => l.currency === currency);
+
+  async function applyCreditOffer(lineId: string) {
+    if (!target) return;
+    setApplyingOffer(lineId);
+    setError(null);
+    try {
+      await applyTwoMonthOffer(lineId, toMinor(creditOffers[lineId] ?? ""));
+      const acc = await getPayerAccount({ guardian_id: target.guardian_id, student_id: target.student_id, invoice_id: target.invoice_id });
+      setAccount(acc);
+      setCreditOffers((o) => {
+        const next = { ...o };
+        delete next[lineId];
+        return next;
+      });
+      setSelected((s) => s.filter((id) => acc.lines.some((l) => l.id === id)));
+    } catch (err) {
+      setError(apiErrorMessage(err, t("collect.failed")));
+    } finally {
+      setApplyingOffer(null);
+    }
+  }
   const currencies = useMemo(() => {
     const set = new Set<string>([...(account?.lines ?? []).map((l) => l.currency), ...(account?.balance ?? []).map((b) => b.currency)]);
     return [...set];
@@ -190,11 +224,12 @@ export function CollectModal({
         note,
         received_on: receivedOn,
         proof,
+        proof_later: method !== "CASH" && proof === null && proofLater,
         line_ids: selectedLines.map((l) => l.id),
         apply_rest: !keepCredit,
         two_month_offers: Object.entries(offers)
-          .map(([line_id, text]) => ({ line_id, amount_minor: toMinor(text) }))
-          .filter((o) => o.amount_minor > 0 && lines.some((l) => l.id === o.line_id)),
+          .map(([line_id, text]) => ({ line_id, discount_minor: toMinor(text) }))
+          .filter((o) => lines.some((l) => l.id === o.line_id && l.two_month && l.amount_minor > 0)),
       });
       setDone(res.receipt);
       onRecorded?.(res.receipt);
@@ -291,7 +326,7 @@ export function CollectModal({
             <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
               {t("collect.cancel")}
             </Button>
-            <Button type="submit" form="collect-form" disabled={submitting || amount <= 0 || (method !== "CASH" && proof === null)} className="gap-1.5" data-testid="collect-submit">
+            <Button type="submit" form="collect-form" disabled={submitting || amount <= 0 || (method !== "CASH" && proof === null && !proofLater)} className="gap-1.5" data-testid="collect-submit">
               {submitting ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Wallet className="size-4" aria-hidden />}
               {amount > 0 ? t("collect.submitAmount", { amount: fmt(amount) }) : t("collect.submit")}
             </Button>
@@ -394,8 +429,8 @@ export function CollectModal({
                               {l.group_name && <span className="bg-muted rounded px-1.5 py-0.5">{l.group_name}</span>}
                               {l.paid_minor > 0 && <span className="text-amber-700 dark:text-amber-300">{t("collect.partlyPaid", { paid: fmt(l.paid_minor), of: fmt(l.amount_minor) })}</span>}
                             </span>
-                            {/* The two-month offer for this subject: one amount, this month and the next. */}
-                            {l.group_charge === "MONTHLY" && !l.group_months && l.invoice_status === "OPEN" && (
+                            {/* The two-month offer for this subject: this month and the next, priced by the server. */}
+                            {l.two_month && (
                               <span className="mt-1.5 flex flex-wrap items-center gap-1.5" onClick={(e) => e.preventDefault()}>
                                 <button
                                   type="button"
@@ -404,11 +439,10 @@ export function CollectModal({
                                     offers[l.id] !== undefined ? "border-primary bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted",
                                   )}
                                   onClick={() => {
-                                    const base = (account?.lines ?? []).find((x) => x.id === l.id);
                                     setOffers((o) => {
                                       const next = { ...o };
                                       if (next[l.id] !== undefined) delete next[l.id];
-                                      else next[l.id] = toMajorText(2 * (base?.amount_minor ?? l.amount_minor));
+                                      else next[l.id] = "";
                                       return next;
                                     });
                                     if (!selected.includes(l.id)) toggle(l.id);
@@ -418,24 +452,17 @@ export function CollectModal({
                                 >
                                   {t("collect.twoMonthOffer")}
                                 </button>
-                                {offers[l.id] !== undefined && (
-                                  <>
-                                    <input
-                                      type="text"
-                                      inputMode="decimal"
-                                      dir="ltr"
-                                      aria-label={t("collect.twoMonthAmount")}
-                                      className="border-input bg-background h-7 w-28 rounded-lg border px-2 text-xs font-semibold tabular-nums"
-                                      value={offers[l.id]}
-                                      onChange={(e) => {
-                                        const v = e.target.value;
-                                        setOffers((o) => ({ ...o, [l.id]: v }));
-                                        setAmountTouched(false);
-                                      }}
-                                      data-testid={`collect-offer-amount-${l.id}`}
-                                    />
-                                    <span className="text-muted-foreground text-xs">{t("collect.twoMonthHint")}</span>
-                                  </>
+                                {offers[l.id] !== undefined && l.two_month && (
+                                  <OfferFields
+                                    quote={l.two_month}
+                                    discountText={offers[l.id] ?? ""}
+                                    onDiscount={(v) => {
+                                      setOffers((o) => ({ ...o, [l.id]: v }));
+                                      setAmountTouched(false);
+                                    }}
+                                    fmt={fmt}
+                                    testId={`collect-offer-discount-${l.id}`}
+                                  />
                                 )}
                               </span>
                             )}
@@ -449,6 +476,51 @@ export function CollectModal({
               </div>
             )}
           </section>
+
+          {/* A subject already paid this month can still take the offer: the next month joins it and the family's credit pays. */}
+          {offerLines.length > 0 && (
+            <section className="space-y-2 rounded-xl border border-dashed p-3" data-testid="collect-credit-offers">
+              <div>
+                <h3 className="text-sm font-semibold">{t("collect.offerPaidTitle")}</h3>
+                <p className="text-muted-foreground text-xs">{t("collect.offerPaidHint")}</p>
+              </div>
+              {offerLines.map((l) => (
+                <div key={l.id} className="space-y-1.5 rounded-lg p-2">
+                  <p className="text-sm font-medium break-words">{l.description}</p>
+                  <div className="text-muted-foreground flex flex-wrap items-center gap-1.5 text-xs">
+                    {l.student_name && <span>{l.student_name}</span>}
+                    {l.group_name && <span className="bg-muted rounded px-1.5 py-0.5">{l.group_name}</span>}
+                    <span className="text-emerald-700 dark:text-emerald-300">{t("collect.offerPaidNow", { amount: fmt(l.amount_minor) })}</span>
+                  </div>
+                  {creditOffers[l.id] === undefined ? (
+                    <Button type="button" size="xs" variant="outline" onClick={() => setCreditOffers((o) => ({ ...o, [l.id]: "" }))} data-testid={`collect-credit-offer-${l.id}`}>
+                      {t("collect.twoMonthOffer")}
+                    </Button>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2">
+                      <OfferFields
+                        quote={l.two_month}
+                        discountText={creditOffers[l.id] ?? ""}
+                        onDiscount={(v) => setCreditOffers((o) => ({ ...o, [l.id]: v }))}
+                        fmt={fmt}
+                        testId={`collect-credit-offer-discount-${l.id}`}
+                      />
+                      <Button
+                        type="button"
+                        size="xs"
+                        onClick={() => void applyCreditOffer(l.id)}
+                        disabled={applyingOffer !== null}
+                        data-testid={`collect-credit-offer-apply-${l.id}`}
+                      >
+                        {applyingOffer === l.id ? <Loader2 className="size-3 animate-spin" aria-hidden /> : null}
+                        {t("collect.offerApply")}
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </section>
+          )}
 
           {/* Amount + date */}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -488,7 +560,7 @@ export function CollectModal({
           <fieldset>
             <legend className={labelClass}>{t("collect.method")}</legend>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="radiogroup">
-              {RECEIPT_METHODS.map((m) => {
+              {(account.methods && account.methods.length > 0 ? account.methods : RECEIPT_METHODS).map((m) => {
                 const Icon = METHOD_ICON[m];
                 const on = m === method;
                 return (
@@ -523,10 +595,20 @@ export function CollectModal({
               <div>
                 {/* Money that moved through a bank, a wallet or a card leaves a picture — the API insists on it too. */}
                 <label htmlFor="collect-proof" className={labelClass}>
-                  {t("collect.proof")} <span className="text-destructive font-normal">({t("collect.required")})</span>
+                  {t("collect.proof")}{" "}
+                  {!proofLater && <span className="text-destructive font-normal">({t("collect.required")})</span>}
                 </label>
-                <input id="collect-proof" type="file" required accept="image/jpeg,image/png,image/webp" className={cn(inputClass, "py-1.5")} onChange={(e) => setProof(e.target.files?.[0] ?? null)} data-testid="collect-proof" />
-                {proof === null && <p className="text-muted-foreground mt-1 text-xs">{t("collect.proofNeeded")}</p>}
+                <input id="collect-proof" type="file" required={!proofLater} accept="image/jpeg,image/png,image/webp" className={cn(inputClass, "py-1.5")} onChange={(e) => setProof(e.target.files?.[0] ?? null)} data-testid="collect-proof" />
+                {proof === null && !proofLater && <p className="text-muted-foreground mt-1 text-xs">{t("collect.proofNeeded")}</p>}
+                {proof === null && (
+                  <label className="mt-1.5 flex items-start gap-2 text-xs">
+                    <input type="checkbox" className="accent-primary mt-0.5 size-3.5" checked={proofLater} onChange={(e) => setProofLater(e.target.checked)} data-testid="collect-proof-later" />
+                    <span>
+                      {t("collect.proofLater")}
+                      <span className="text-muted-foreground block">{t("collect.proofLaterHint")}</span>
+                    </span>
+                  </label>
+                )}
               </div>
             </div>
           )}
@@ -573,5 +655,53 @@ export function CollectModal({
         </form>
       )}
     </Modal>
+  );
+}
+
+/**
+ * The two-month offer's fields: the two months as the server prices them (this month as charged + one
+ * full month, the family's discount inside), the offer's own discount typed, and what it comes to.
+ */
+function OfferFields({
+  quote,
+  discountText,
+  onDiscount,
+  fmt,
+  testId,
+}: {
+  quote: TwoMonthQuote;
+  discountText: string;
+  onDiscount: (v: string) => void;
+  fmt: (minor: number) => string;
+  testId: string;
+}) {
+  const t = useTranslations("accounting");
+  const discount = toMinor(discountText);
+  const total = Math.max(0, quote.amount_minor - discount);
+  return (
+    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+      <span className="text-muted-foreground">
+        {t("collect.twoMonthBase", { amount: fmt(quote.amount_minor) })}
+        {quote.family_discount_minor > 0 && quote.family_label && (
+          <> · {t("collect.twoMonthFamily", { label: quote.family_label, amount: fmt(quote.family_discount_minor) })}</>
+        )}
+      </span>
+      <label className="flex items-center gap-1">
+        <span className="text-muted-foreground">{t("collect.twoMonthDiscount")}</span>
+        <input
+          type="text"
+          inputMode="decimal"
+          dir="ltr"
+          aria-label={t("collect.twoMonthDiscount")}
+          className="border-input bg-background h-7 w-24 rounded-lg border px-2 text-xs font-semibold tabular-nums"
+          value={discountText}
+          placeholder="0"
+          onChange={(e) => onDiscount(e.target.value)}
+          data-testid={testId}
+        />
+      </label>
+      <span className="font-semibold">{t("collect.twoMonthTotal", { amount: fmt(total) })}</span>
+      <span className="text-muted-foreground basis-full">{t("collect.twoMonthHint")}</span>
+    </span>
   );
 }

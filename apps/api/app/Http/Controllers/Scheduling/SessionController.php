@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpExceptionInterface;
 
 /**
  * Per-session operations that act on EXACTLY ONE occurrence without disturbing the series
@@ -383,7 +384,87 @@ final class SessionController extends Controller
     {
         Gate::authorize('session.delete');
 
-        $session = $this->findOwnedSession($sessionId);
+        $this->deleteLesson($service, $this->findOwnedSession($sessionId));
+
+        return response()->json(['ok' => true]);
+    }
+
+    /** Most lesson ids one bulk delete takes — the web sends a long backlog in chunks of this. */
+    public const BULK_DELETE_MAX = 200;
+
+    /**
+     * POST /api/sessions/bulk-delete — clear a backlog of held-up lessons (الحصص المعلقة) in one go,
+     * each exactly as {@see destroy()} deletes one: cancelled, charging and paying nobody, hidden.
+     *
+     * Only lessons nobody marked: a recorded lesson carries money and history, and is deleted one at
+     * a time, on purpose. A trial's lesson is left to the trials board. Each lesson is its own unit —
+     * one the money guards refuse (a closed invoice, a finalized salary) is skipped and reported,
+     * and the rest still go.
+     */
+    public function bulkDestroy(Request $request, AttendanceService $service): JsonResponse
+    {
+        Gate::authorize('session.delete');
+
+        $data = $request->validate([
+            'session_ids' => ['required', 'array', 'min:1', 'max:'.self::BULK_DELETE_MAX],
+            'session_ids.*' => ['required', 'uuid', 'distinct'],
+        ]);
+
+        $deleted = 0;
+        $skipped = [];
+        foreach ($data['session_ids'] as $id) {
+            $session = DB::table('sessions as se')
+                ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+                ->where('se.id', $id)
+                ->first(['se.*', 'st.status as student_status']);
+
+            $reason = match (true) {
+                $session === null || $session->hidden_at !== null => 'not_found',
+                (string) $session->status !== SessionStatus::Scheduled->value => 'recorded',
+                in_array((string) $session->student_status, ['TRIAL', 'TRIAL_BOOKED'], true) => 'trial',
+                default => null,
+            };
+            if ($reason !== null) {
+                $skipped[] = ['id' => $id, 'reason' => $reason];
+
+                continue;
+            }
+
+            try {
+                // Its own unit: a refusal half-way through one lesson leaves that lesson as it was.
+                DB::transaction(fn () => $this->deleteLesson($service, $this->findOwnedSession($id)));
+                $deleted++;
+            } catch (\Throwable $e) {
+                // A refusal is an answer (a closed invoice, a finalized salary); anything else is a bug.
+                if (! $e instanceof HttpExceptionInterface && ! $e instanceof ValidationException) {
+                    report($e);
+                }
+                $skipped[] = ['id' => $id, 'reason' => 'blocked', 'message' => $e->getMessage()];
+            }
+        }
+
+        return response()->json(['deleted' => $deleted, 'skipped' => $skipped]);
+    }
+
+    /** The block this lesson counts on (or would, once recorded) counts lessons, not minutes. */
+    private function countsInLessons(object $session): bool
+    {
+        if (! LessonPackages::lessonsOn((string) $session->academy_id)) {
+            return false;
+        }
+        $package = DB::table('lesson_package_credits as c')
+            ->join('lesson_packages as p', 'p.id', '=', 'c.package_id')
+            ->where('c.session_id', $session->id)
+            ->first(['p.academy_id', 'p.lesson_minutes'])
+            ?? app(LessonPackages::class)->forLesson($session);
+
+        return $package !== null && LessonPackages::countsLessons($package);
+    }
+
+    /** One lesson off the books — the body of {@see destroy()}, shared with the bulk delete. */
+    private function deleteLesson(AttendanceService $service, object $session): void
+    {
+        $sessionId = (string) $session->id;
         $prevStatus = (string) $session->status;
 
         if ($prevStatus !== SessionStatus::Rescheduled->value) {
@@ -394,8 +475,6 @@ final class SessionController extends Controller
 
         Audit::log('session.deleted', 'session', $sessionId, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role,
             before: ['status' => $prevStatus, 'billed' => (bool) $session->billed, 'paid_to_teacher' => (bool) $session->paid_to_teacher]);
-
-        return response()->json(['ok' => true]);
     }
 
     /**
@@ -470,6 +549,10 @@ final class SessionController extends Controller
                 // The office recorded this outcome: the calling teacher may read it but not change or undo it.
                 'outcome_locked' => OutcomeLock::locks($this->ctx()->role, $this->ctx()->userId, (string) $session->status === 'SCHEDULED',
                     $session->outcome_set_by !== null ? (string) $session->outcome_set_by : null),
+                // On a block counted in lessons: how many this lesson counts (1, or 2 for a double),
+                // and whether its block counts lessons at all — the popup only then offers "counts two".
+                'package_lessons' => LessonPackages::lessonCountOf($session),
+                'counts_in_lessons' => $this->countsInLessons($session),
                 'followed_at' => $firstFollow !== null ? Carbon::parse($firstFollow->followed_at)->utc()->toIso8601String() : null,
                 'followed_by_user_id' => $firstFollow !== null ? (string) $firstFollow->user_id : null,
                 'followed_by_name' => $firstFollow?->full_name,

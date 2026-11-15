@@ -1,10 +1,14 @@
 "use client";
 
-import { Ban, FileImage, GraduationCap, Loader2, Plus, ReceiptText, Search, Settings2, TrendingDown } from "lucide-react";
+import { Ban, FileImage, GraduationCap, Loader2, Pencil, Plus, ReceiptText, Search, Settings2, TrendingDown, Undo2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Panel, Tile, dayLabel, toMajorText, toMinor, todayLocal } from "@/components/accounting/accounting-ui";
+import { Panel, Tile, VoidedPill, dayLabel, toMajorText, toMinor, todayLocal } from "@/components/accounting/accounting-ui";
+import { ExpenseEditFields, draftOf, patchOf } from "@/components/accounting/expense-edit";
 import { ExportButton } from "@/components/accounting/export-button";
+import { PayerPicker } from "@/components/accounting/payer-picker";
+import { RefundCreditModal } from "@/components/accounting/settle-package";
+import { useAuth } from "@/components/auth-provider";
 import { getPayout, type PayoutDetailResponse } from "@/lib/api";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
@@ -17,10 +21,13 @@ import {
   createExpenseCategory,
   fetchExpenseAttachment,
   getExpenses,
+  getPayerAccount,
   getSalariesDue,
+  updateExpense,
   updateExpenseCategory,
   voidExpense,
   type Expense,
+  type ExpenseCategory,
   type ExpensesPage,
   type SalaryDue,
 } from "@/lib/accounting-api";
@@ -51,7 +58,29 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
   const [data, setData] = useState<ExpensesPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [modal, setModal] = useState<"new" | "salary" | "categories" | { void: Expense } | null>(null);
+  const [modal, setModal] = useState<"new" | "salary" | "categories" | "refundPick" | { void: Expense } | { edit: Expense } | null>(null);
+  // "Customer refund" from the expenses page (Lingo 2026-11-15): pick the family, pay back what they hold.
+  const [refund, setRefund] = useState<{ guardianId: string; credit: { currency: string; credit_minor: number } } | null>(null);
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const { can } = useAuth();
+
+  async function pickRefundFamily(studentId: string) {
+    setModal(null);
+    setRefundError(null);
+    try {
+      const acc = await getPayerAccount({ student_id: studentId });
+      const credit = acc.balance.find((b) => b.credit_minor > 0);
+      if (acc.payer.kind !== "GUARDIAN" || !acc.payer.id) {
+        setRefundError(t("expenses.refundNoFamily"));
+      } else if (!credit) {
+        setRefundError(t("expenses.refundNoCredit", { name: acc.payer.name ?? "" }));
+      } else {
+        setRefund({ guardianId: acc.payer.id, credit: { currency: credit.currency, credit_minor: credit.credit_minor } });
+      }
+    } catch (err) {
+      setRefundError(apiErrorMessage(err, t("expenses.loadFailed")));
+    }
+  }
 
   useEffect(() => {
     const id = setTimeout(() => setTerm(q.trim()), 300);
@@ -114,6 +143,12 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
             {t("expenses.paySalary")}
           </Button>
         )}
+        {can("invoice.mark_paid") && (
+          <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setModal("refundPick")} data-testid="expense-refund">
+            <Undo2 className="size-4" aria-hidden />
+            {t("expenses.customerRefund")}
+          </Button>
+        )}
         <Button type="button" variant="secondary" className="gap-1.5" onClick={() => setModal("new")} data-testid="expense-new">
           <Plus className="size-4" aria-hidden />
           {t("expenses.new")}
@@ -133,6 +168,7 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
 
       {error && <AlertBanner variant="error" message={error} />}
       {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
+      {refundError && <AlertBanner variant="error" message={refundError} onDismiss={() => setRefundError(null)} />}
       {noAccounts && <AlertBanner variant="info" message={t("expenses.needAccount")} />}
 
       <div className="bg-card grid grid-cols-1 gap-2 rounded-2xl border p-3 shadow-sm sm:grid-cols-2 lg:grid-cols-6">
@@ -242,12 +278,12 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
             </thead>
             <tbody className="divide-y">
               {data.expenses.map((e) => (
-                <tr key={e.id} className={cn(e.voided && "opacity-60")}>
+                <tr key={e.id} className={cn(e.voided && "text-muted-foreground bg-rose-500/[0.06]")}>
                   <td className="p-3">
                     <span className="font-mono text-xs font-semibold" dir="ltr">
                       {e.number}
                     </span>
-                    {e.voided && <span className="ms-2 rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:text-rose-300">{t("register.void")}</span>}
+                    {e.voided && <span className="ms-2"><VoidedPill label={t("register.void")} /></span>}
                   </td>
                   <td className="p-3 whitespace-nowrap">{dayLabel(e.spent_on, locale)}</td>
                   <td className="p-3">
@@ -263,6 +299,11 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
                       {e.has_attachment && (
                         <Button type="button" size="icon-sm" variant="ghost" onClick={() => void openAttachment(e.id)} aria-label={t("expenses.attachment")}>
                           <FileImage className="size-4" aria-hidden />
+                        </Button>
+                      )}
+                      {data.can_manage && !e.voided && (data.sees_salaries || !e.payout_id) && (
+                        <Button type="button" size="icon-sm" variant="ghost" onClick={() => setModal({ edit: e })} aria-label={t("expenses.edit")} data-testid={`expense-edit-${e.id}`}>
+                          <Pencil className="size-4" aria-hidden />
                         </Button>
                       )}
                       {data.can_manage && !e.voided && (
@@ -284,6 +325,22 @@ export function AccountingExpensesScreen({ hero = true }: { hero?: boolean }) {
       {modal === "categories" && data && <CategoriesModal data={data} onClose={() => setModal(null)} onChanged={() => void load()} />}
       {modal && typeof modal === "object" && "void" in modal && (
         <VoidModal expense={modal.void} onClose={() => setModal(null)} onDone={() => done(t("expenses.voided"))} />
+      )}
+      <PayerPicker open={modal === "refundPick"} onClose={() => setModal(null)} onPick={(id) => void pickRefundFamily(id)} title={t("expenses.customerRefund")} hint={t("expenses.customerRefundHint")} />
+      {data && (
+        <RefundCreditModal
+          guardianId={refund?.guardianId ?? ""}
+          credit={refund?.credit ?? null}
+          accounts={data.accounts}
+          onClose={() => setRefund(null)}
+          onDone={(message) => {
+            setRefund(null);
+            done(message);
+          }}
+        />
+      )}
+      {modal && typeof modal === "object" && "edit" in modal && data && (
+        <EditExpenseModal expense={modal.edit} categories={data.categories} onClose={() => setModal(null)} onDone={() => done(t("expenses.updated"))} />
       )}
     </div>
   );
@@ -700,6 +757,59 @@ function VoidModal({ expense, onClose, onDone }: { expense: Expense; onClose: ()
       <div className="space-y-2">
         <input className={fieldClass} value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t("detail.voidReasonHint")} autoFocus />
         <p className="text-muted-foreground text-xs">{t("expenses.voidWarning")}</p>
+        {error && <AlertBanner variant="error" message={error} />}
+      </div>
+    </Modal>
+  );
+}
+
+/** Correct an expense in place — date, payee, what for, category, amount — instead of voiding it. */
+function EditExpenseModal({ expense, categories, onClose, onDone }: { expense: Expense; categories: ExpenseCategory[]; onClose: () => void; onDone: () => void }) {
+  const t = useTranslations("accounting");
+  const isRefund = expense.category_key === "refunds";
+  const isSalary = expense.payout_id !== null;
+  const [initial] = useState(() => draftOf(expense));
+  const [draft, setDraft] = useState(initial);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const patch = patchOf(initial, draft, { amount: isRefund, category: isRefund || isSalary });
+    if (Object.keys(patch).length === 0) {
+      setError(t("expenses.nothingChanged"));
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await updateExpense(expense.id, patch);
+      onDone();
+    } catch (err) {
+      setError(apiErrorMessage(err, t("treasury.saveFailed")));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={t("expenses.editTitle", { number: expense.number })}
+      size="md"
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            {t("expenses.back")}
+          </Button>
+          <Button type="button" onClick={() => void save()} disabled={busy || (!isRefund && toMinor(draft.amount) <= 0)} data-testid="expense-edit-save">
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            {t("treasury.save")}
+          </Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <ExpenseEditFields draft={draft} onChange={setDraft} currency={expense.currency} categories={categories} lockAmount={isRefund} lockCategory={isRefund || isSalary} />
         {error && <AlertBanner variant="error" message={error} />}
       </div>
     </Modal>

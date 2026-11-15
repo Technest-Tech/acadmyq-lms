@@ -56,7 +56,8 @@ final class PayoutController extends Controller
             ]);
 
         $result = DataTable::paginate($query, $request, [
-            'searchable' => [],
+            // Find a teacher's statements by name (Lingo 2026-11-15: no search on salaries).
+            'searchable' => ['t.full_name'],
             'filters' => [
                 'teacher_id' => fn ($q, $v) => $q->where('p.teacher_id', $v),
                 'period_year' => fn ($q, $v) => $q->where('p.period_year', (int) $v),

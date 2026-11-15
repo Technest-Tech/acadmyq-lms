@@ -21,6 +21,17 @@ export function useCapability(capability: string): boolean {
 }
 
 /**
+ * Do this academy's packages count lessons, not minutes? A centre always does; any other academy once
+ * a Super Admin switched `packages_in_lessons` on for it. Then a block is sold as lessons of a length
+ * and every lesson takes one off it, whatever it ran (the server decides; this only shapes the forms).
+ */
+export function usePackagesInLessons(): boolean {
+  const centre = useCapability("centre");
+  const inLessons = useCapability("packages_in_lessons");
+  return centre || inLessons;
+}
+
+/**
  * Which kind of school the signed-in academy is (`SessionAcademy.profile`): QURAN — the one-to-one
  * academy — or CENTRE — a learning centre that teaches groups. The profile shapes the WORKSPACE
  * (sidebar order, dashboard, wording) and nothing else: a behaviour that differs between the two

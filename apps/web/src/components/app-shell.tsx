@@ -21,19 +21,18 @@ import {
   FileCheck2,
   Globe,
   GraduationCap,
+  HeartPulse,
   History,
   Inbox,
   Coins,
   KeyRound,
   LayoutDashboard,
   Library,
-  LibraryBig,
   LifeBuoy,
   ListChecks,
   LogOut,
   Menu,
   MessageCircle,
-  MonitorPlay,
   Newspaper,
   NotebookPen,
   PanelLeftClose,
@@ -66,6 +65,7 @@ import { useEffect, useLayoutEffect, useState, type ComponentType } from "react"
 import { CollectQuickAction } from "@/components/accounting/collect-quick-action";
 import { useAuth } from "@/components/auth-provider";
 import { ChangePasswordModal } from "@/components/change-password-modal";
+import { HelpButton } from "@/components/help/help-button";
 import { CommandPalette, type CommandItem } from "@/components/command-palette";
 import { LocaleSwitcher } from "@/components/locale-switcher";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -80,6 +80,8 @@ import {
 import { Tooltip, TooltipProvider } from "@/components/ui/tooltip";
 import {
   getBookingSummary,
+  getClientAttention,
+  getSystemHealth,
   getCourseSalesSummary,
   getDaySessionCount,
   getInvoiceFollowUp,
@@ -103,13 +105,13 @@ type NavKey =
   | "dashboard"
   | "notifications"
   | "adminHome"
+  | "adminHealth"
   | "clients"
   | "users"
   | "staffDepartments"
   | "adminAutomation"
-  | "adminVideo"
-  | "adminLms"
   | "demoRequests"
+  | "adminHelp"
   | "adminFinance"
   | "guardians"
   | "students"
@@ -756,24 +758,26 @@ const NAV: ReadonlyArray<{
     group: "platform",
   },
   {
-    key: "adminVideo",
-    icon: MonitorPlay,
-    permission: "platform.manage",
-    href: "/admin/video",
-    group: "platform",
-  },
-  {
-    key: "adminLms",
-    icon: LibraryBig,
-    permission: "platform.manage",
-    href: "/admin/lms",
-    group: "platform",
-  },
-  {
     key: "demoRequests",
     icon: Inbox,
     permission: "platform.manage",
     href: "/admin/demo-requests",
+    group: "platform",
+  },
+  {
+    // The videos behind the in-app help (src/content/help): one slot per page tour and per task.
+    key: "adminHelp",
+    icon: LifeBuoy,
+    permission: "platform.manage",
+    href: "/admin/help-videos",
+    group: "platform",
+  },
+  {
+    // System health: which clients need stepping in for + is the machine running (2026-11-15).
+    key: "adminHealth",
+    icon: HeartPulse,
+    permission: "platform.manage",
+    href: "/admin/health",
     group: "platform",
   },
   {
@@ -849,10 +853,10 @@ const PLATFORM_NAV: readonly NavKey[] = [
   "adminHome", // Overview
   "clients", // THE hub — roster, client pages, wizard
   "adminFinance", // Accounts — every client's agreement, dues, proofs, payments, reminders, prices
-  "adminVideo", // Video Ops (platform-wide health/usage)
-  "adminLms", // Course Platform Ops (LMS clients, usage, per-client controls)
+  "adminHealth", // System health — clients that need stepping in for + cron, queue, jobs, gateway
   "adminAutomation", // WhatsApp Ops (gateway health/activity)
   "demoRequests", // the marketing site's form — prospects, before they are clients
+  "adminHelp", // the in-app help's videos, attached per page and per task
   "users",
   "platformSettings", // + tabs: roles matrix, staff departments (R3)
   "audit",
@@ -1017,6 +1021,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [subsOutsideCount, setSubsOutsideCount] = useState(0);
   const [salesCount, setSalesCount] = useState(0);
   const [bookingCount, setBookingCount] = useState(0);
+  // Platform view: clients with something critically wrong + critical faults in the machine itself.
+  const [healthCount, setHealthCount] = useState(0);
   const [trialCount, setTrialCount] = useState(0);
   const [enrolCount, setEnrolCount] = useState(0);
   const [groupOwedCount, setGroupOwedCount] = useState(0);
@@ -1195,6 +1201,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       stop();
     };
   }, [session, can, capabilities, pathname]);
+
+  // System-health badge (platform view only): how many clients are being hurt right now, plus the
+  // machine's own critical faults — so a dead cron or a dropped number is seen from any page, not
+  // found out from a complaint. Every five minutes: each read fans out over every client.
+  useEffect(() => {
+    if (session === null || session.role !== "SUPER_ADMIN" || session.academyId !== null || !can("platform.manage")) {
+      setHealthCount(0);
+      return;
+    }
+    let alive = true;
+    const refresh = () =>
+      Promise.allSettled([getClientAttention(), getSystemHealth()]).then(([attention, health]) => {
+        if (!alive) return;
+        const clients = attention.status === "fulfilled" ? attention.value.counts.crit : 0;
+        const faults =
+          health.status === "fulfilled" ? health.value.problems.filter((p) => p.severity === "CRIT").length : 0;
+        setHealthCount(clients + faults);
+      });
+    const stop = pollWhileVisible(refresh, 300_000);
+    return () => {
+      alive = false;
+      stop();
+    };
+    // Not re-read on every route change like the cheap badges: the timer is enough.
+  }, [session, can]);
 
   // Bookings badge (docs/lms/13): requests nobody has picked up yet. Derived, like the sales badge —
   // it clears when someone moves the request to "contacted", not when they glance at the inbox.
@@ -1553,6 +1584,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         count: trialCount,
         label: `${trialCount} trials waiting for a decision`,
       };
+    }
+    if (key === "adminHealth" && healthCount > 0) {
+      return { count: healthCount, label: `${healthCount} critical problems` };
     }
     if (key === "lmsBookings" && bookingCount > 0) {
       return {
@@ -2139,6 +2173,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <CollectQuickAction />
               {!modernLook && <CommandPalette items={commandItems} />}
 
+              {/* The help for the page on screen: short steps and a one-minute video. */}
+              <HelpButton modern={modernLook} />
+
               {can("notification.read") && (
                 <Tooltip content={t("nav.notifications")} side="bottom">
                   <Link
@@ -2249,7 +2286,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     {t("auth.changePassword")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    onClick={() => router.push("/docs/teacher-guide")}
+                    onClick={() => router.push("/help")}
                     closeOnClick
                   >
                     <LifeBuoy aria-hidden />

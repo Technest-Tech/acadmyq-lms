@@ -180,6 +180,8 @@ export function AttendanceReport({
   const [durationOpen, setDurationOpen] = useState(false);
   // Taking the recorded outcome back — confirmed in its own dialog, because it moves money.
   const [revertOpen, setRevertOpen] = useState(false);
+  // A double lesson on a block counted in lessons: it takes two off the family's block, not one.
+  const [doubleLesson, setDoubleLesson] = useState(false);
 
   function flash(variant: "success" | "error", message: string) {
     setFeedback({ variant, message });
@@ -193,6 +195,7 @@ export function AttendanceReport({
       setReportText((detail.report?.values?.report_text as string) ?? "");
       setFieldValues((detail.report?.values as ReportValues | undefined) ?? {});
       setSelectedStatus(null);
+      setDoubleLesson((detail.session.package_lessons ?? 1) > 1);
       // Start in read-only view when a report already exists; otherwise open the editor.
       setEditing(!detail.report?.filled_at);
     } catch (error) {
@@ -262,6 +265,14 @@ export function AttendanceReport({
   // ATTENDED and FREE are both "attended" outcomes
   const isAttended =
     effectiveStatus === "ATTENDED" || effectiveStatus === "FREE";
+  // "Counts as two lessons": only while recording an attended lesson on a block counted in lessons,
+  // by someone who manages packages. A lesson already counted is undone first, then recorded again.
+  const offerDouble =
+    !readOnly &&
+    !!session.counts_in_lessons &&
+    can("package.manage") &&
+    session.status === "SCHEDULED" &&
+    effectiveStatus === "ATTENDED";
 
   /** Select a status card. Owner-cancels open the billing popup; everything else is local state. */
   function selectOutcome(status: LocalOutcome) {
@@ -400,6 +411,7 @@ export function AttendanceReport({
         await markAttendance(sessionId, {
           status: backendStatus,
           override_timing: true,
+          ...(offerDouble ? { package_lessons: doubleLesson ? 2 : 1 } : {}),
         });
       }
 
@@ -744,6 +756,32 @@ export function AttendanceReport({
             );
           })}
         </div>
+
+        {/* A block counted in lessons takes one per lesson, whatever it ran; a real double lesson
+            is the office's call, made as the lesson is recorded. */}
+        {offerDouble && (
+          <label
+            className="mt-3 flex cursor-pointer items-start gap-2.5 rounded-xl border border-dashed px-3.5 py-3 text-sm"
+            data-testid="double-lesson"
+          >
+            <input
+              type="checkbox"
+              checked={doubleLesson}
+              onChange={(e) => setDoubleLesson(e.target.checked)}
+              className="accent-primary mt-0.5 size-4"
+              data-testid="double-lesson-toggle"
+            />
+            <span>
+              <span className="font-medium">{t("doubleLesson.label")}</span>
+              <span className="text-muted-foreground block text-xs">{t("doubleLesson.hint")}</span>
+            </span>
+          </label>
+        )}
+        {session.counts_in_lessons && session.status !== "SCHEDULED" && (session.package_lessons ?? 1) > 1 && (
+          <p className="text-muted-foreground mt-2 text-xs" data-testid="double-lesson-recorded">
+            {t("doubleLesson.recorded")}
+          </p>
+        )}
 
         {!canMark && !readOnly && (
           <p className="text-muted-foreground mt-2 text-xs">

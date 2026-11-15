@@ -171,9 +171,11 @@ export function ChangePasswordModal({
                 )}
               </button>
             </div>
-            {tooShort && (
-              <span className="text-destructive text-[11px]">{t("passwordTooShort")}</span>
-            )}
+            {/* Said up front, not only once typed short: the button stays off below 8 (Lingo 2026-11-15
+                "change password won't activate"). */}
+            <span className={cn("text-[11px]", tooShort ? "text-destructive" : "text-muted-foreground")} data-testid="password-rule">
+              {t("passwordTooShort")}
+            </span>
           </label>
           <label className="block space-y-1.5">
             <span className="text-muted-foreground text-xs font-medium">

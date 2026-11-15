@@ -47,12 +47,37 @@ export interface OpenLine {
   remaining_minor: number;
   currency: string;
   invoice_status: string;
+  /** The two-month offer as the server prices it; null/absent = this charge can't take it. */
+  two_month?: TwoMonthQuote | null;
+}
+
+/** This charge as raised + one full month at the member's price, each under the family's discount. */
+export interface TwoMonthQuote {
+  list_minor: number;
+  family_discount_minor: number;
+  family_label: string | null;
+  /** What the two months cost before the offer's own discount. */
+  amount_minor: number;
+}
+
+/** A subject already paid this month that can still take the two-month offer from the family's credit. */
+export interface OfferLine {
+  id: string;
+  description: string;
+  student_name: string | null;
+  group_name: string | null;
+  amount_minor: number;
+  currency: string;
+  two_month: TwoMonthQuote;
 }
 
 export interface PayerAccount {
   payer: Payer;
   accounting: boolean;
+  /** The methods this academy takes at the desk (absent on an older server = all). */
+  methods?: ReceiptMethod[];
   lines: OpenLine[];
+  offer_lines?: OfferLine[];
   balance: PayerBalance[];
   recent_receipts: {
     id: string;
@@ -74,6 +99,8 @@ export interface ReceiptRow {
   payer_kind: PayerKind;
   /** Money nobody has claimed yet — assign it to its family (assignReceipt). */
   payer_unknown?: boolean;
+  /** A transfer recorded before the parent sent its screenshot. */
+  proof_pending?: boolean;
   guardian_id: string | null;
   student_id: string | null;
   amount_minor: number;
@@ -102,6 +129,8 @@ export interface ReceiptAllocation {
 export interface ReceiptDetail extends ReceiptRow {
   note: string | null;
   has_proof: boolean;
+  /** The collecting hand may attach the late screenshot. */
+  can_attach_proof?: boolean;
   payer: Payer;
   public_url: string;
   unallocated_minor: number;
@@ -140,7 +169,7 @@ export interface ReceiptFilters {
   guardian_id?: string;
   student_id?: string;
   q?: string;
-  status?: "active" | "void" | "all" | "unknown";
+  status?: "active" | "void" | "all" | "unknown" | "awaiting_proof";
   page?: number;
   per_page?: number;
 }
@@ -162,8 +191,10 @@ export interface RecordReceiptInput {
   apply_rest?: boolean;
   /** Money in before anyone said whose: kept as "unknown", paying nothing, until assigned. */
   unknown_payer?: boolean;
-  /** The two-month offer per subject: this monthly group charge covers this month and the next for `amount_minor`. */
-  two_month_offers?: { line_id: string; amount_minor: number }[];
+  /** The two-month offer per subject: this monthly group charge covers this month and the next, the quote less `discount_minor`. */
+  two_month_offers?: { line_id: string; discount_minor: number }[];
+  /** Non-cash, screenshot not sent yet: recorded now, listed until it is attached. */
+  proof_later?: boolean;
 }
 
 function query(params: Record<string, string | number | undefined | null>): string {
@@ -198,11 +229,17 @@ export function recordReceipt(input: RecordReceiptInput): Promise<{ receipt: Rec
   for (const id of input.line_ids ?? []) body.append("line_ids[]", id);
   if (input.apply_rest === false) body.set("apply_rest", "0");
   if (input.unknown_payer) body.set("unknown_payer", "1");
+  if (input.proof_later && !input.proof) body.set("proof_later", "1");
   (input.two_month_offers ?? []).forEach((o, i) => {
     body.set(`two_month_offers[${i}][line_id]`, o.line_id);
-    body.set(`two_month_offers[${i}][amount_minor]`, String(o.amount_minor));
+    body.set(`two_month_offers[${i}][discount_minor]`, String(o.discount_minor));
   });
   return apiFetch(`/api/receipts`, { method: "POST", body });
+}
+
+/** The two-month offer on a subject already paid this month — no new money; the family's credit pays what it can. */
+export function applyTwoMonthOffer(lineId: string, discountMinor: number): Promise<{ line_id: string; amount_minor: number; balance: PayerBalance[] }> {
+  return apiFetch(`/api/two-month-offers`, { method: "POST", body: JSON.stringify({ line_id: lineId, discount_minor: discountMinor }) });
 }
 
 /** The family of an "unknown" receipt is known: it becomes theirs and pays their charges, oldest first. */
@@ -227,6 +264,22 @@ export function amendReceipt(id: string, input: AmendReceiptInput): Promise<{ re
   body.set("note", input.note.trim());
   if (input.proof) body.set("proof", input.proof);
   return apiFetch(`/api/receipts/${id}/amend`, { method: "POST", body });
+}
+
+/** The transfer screenshot a parent sent after the payment was recorded. */
+export function attachReceiptProof(id: string, proof: File): Promise<{ receipt: ReceiptDetail }> {
+  const body = new FormData();
+  body.set("proof", proof);
+  return apiFetch(`/api/receipts/${id}/proof`, { method: "POST", body });
+}
+
+/** The payment methods this academy takes at the desk. */
+export function getReceiptMethods(): Promise<{ methods: ReceiptMethod[]; all: ReceiptMethod[]; can_manage: boolean }> {
+  return apiFetch(`/api/accounting/receipt-methods`);
+}
+
+export function updateReceiptMethods(methods: ReceiptMethod[]): Promise<{ methods: ReceiptMethod[] }> {
+  return apiFetch(`/api/accounting/receipt-methods`, { method: "PUT", body: JSON.stringify({ methods }) });
 }
 
 export function voidReceipt(id: string, reason: string): Promise<{ receipt: ReceiptDetail }> {
@@ -349,6 +402,21 @@ export interface AccountingOverview {
   credit: { currency: string; credit_minor: number }[];
   top_debtors: ArrearsPayer[];
   recent_receipts: { id: string; number: string; received_on: string; payer_name: string | null; amount_minor: number; currency: string; method: ReceiptMethod; voided: boolean }[];
+  /** Today's payment reminders: families whose promised date is today or passed, still owing. */
+  follow_ups?: FollowUpDue[];
+  /** Transfers recorded before the parent sent the screenshot. */
+  awaiting_proof?: { id: string; number: string; received_on: string; payer_name: string | null; guardian_id: string | null; amount_minor: number; currency: string; method: ReceiptMethod }[];
+}
+
+export interface FollowUpDue {
+  guardian_id: string;
+  name: string;
+  phone: string | null;
+  follow_up_on: string;
+  /** 0 = promised for today. */
+  days_late: number;
+  note: string;
+  due: { currency: string; due_minor: number; credit_minor: number }[];
 }
 
 export interface GroupMoney {
@@ -713,6 +781,30 @@ export function addFamilyDiscount(
   return apiFetch(`/api/accounting/family/${guardianId}/discounts`, { method: "POST", body: JSON.stringify(input) });
 }
 
+/**
+ * A family's balance from before the system: DUE = an old amount they owe (a charge on their account),
+ * CREDIT = money they already had (pays their charges, never counted as money in or in the treasury).
+ */
+export function addOpeningBalance(guardianId: string, input: { kind: "DUE" | "CREDIT"; amount_minor: number; currency?: string; note?: string | null }): Promise<{ kind: string; invoice_id?: string; receipt_id?: string; number?: string }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/opening-balance`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/** Correct a family discount in place; the family's open charges are priced again at once. */
+export function updateFamilyDiscount(
+  guardianId: string,
+  discountId: string,
+  input: {
+    kind: DiscountKind;
+    value: number;
+    label: string;
+    scope: DiscountScope;
+    student_id: string | null;
+    targets: Pick<DiscountTarget, "class_group_id" | "student_id" | "teacher_id">[];
+  },
+): Promise<{ moved: { lines: number; amount_minor: number } }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
 /** A discount given earlier also comes off the charges already on open bills; paid ones turn into credit. */
 export function applyFamilyDiscountToExisting(guardianId: string, discountId: string): Promise<{ applied: DiscountApplied }> {
   return apiFetch(`/api/accounting/family/${guardianId}/discounts/${discountId}/apply-existing`, { method: "POST" });
@@ -970,6 +1062,20 @@ export function createExpense(input: { category_id?: string | null; payout_id?: 
 
 export function updateExpenseAmount(id: string, amountMinor: number): Promise<{ ok: boolean }> {
   return apiFetch(`/api/expenses/${id}`, { method: "PATCH", body: JSON.stringify({ amount_minor: amountMinor }) });
+}
+
+/** The fields of an expense that can be corrected in place (only those sent change). */
+export interface ExpensePatch {
+  spent_on?: string;
+  payee?: string | null;
+  description?: string | null;
+  amount_minor?: number;
+  category_id?: string;
+  class_group_id?: string | null;
+}
+
+export function updateExpense(id: string, patch: ExpensePatch): Promise<{ ok: boolean; changed: string[] }> {
+  return apiFetch(`/api/expenses/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 }
 
 export function voidExpense(id: string, reason: string): Promise<{ ok: boolean }> {

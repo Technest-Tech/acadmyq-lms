@@ -7,7 +7,7 @@ import { LessonCountFields, lessonCountOf } from "@/components/packages/lesson-c
 import { LessonPriceFields, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { Combobox } from "@/components/ui/combobox";
 import type { PackageBillTiming } from "@/lib/api";
-import { useCapability } from "@/lib/capabilities";
+import { useCapability, usePackagesInLessons } from "@/lib/capabilities";
 import { CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
@@ -64,6 +64,8 @@ export function usePackageTerms({
   const locale = useLocale();
   // A centre quotes a lesson, not a block: "40 minutes for 90" × the lessons bought = the total.
   const perLesson = useCapability("centre");
+  // Counted in lessons (a centre, or `packages_in_lessons`): the block remembers its lesson length.
+  const inLessons = usePackagesInLessons();
   const [unitMinutes, setUnitMinutes] = useState(60);
   const [unitPrice, setUnitPriceRaw] = useState("");
   const [unitPriceWasEdited, setUnitPriceWasEdited] = useState(false);
@@ -159,12 +161,13 @@ export function usePackageTerms({
       starts_on: startsOn,
       expires_on: expiresOn === "" ? null : expiresOn,
       auto_renew: autoRenew,
-      ...(perLesson ? { lesson_minutes: unitMinutes } : {}),
+      ...(inLessons ? { lesson_minutes: unitMinutes } : {}),
     };
   }
 
   return {
     perLesson,
+    inLessons,
     unitMinutes,
     setUnitMinutes,
     unitPrice,

@@ -10,6 +10,7 @@ use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
+use App\Services\LessonPackages;
 use App\Services\Payroll;
 use App\Support\Audit;
 use App\Support\OfficeNote;
@@ -77,6 +78,8 @@ final class AttendanceController extends Controller
             // How much of the lesson the teacher is paid when pay_teacher is true: a quarter, a
             // half or the whole lesson (the default). Ignored when the teacher is not paid.
             'teacher_pay_percent' => ['sometimes', 'nullable', 'integer', Rule::in([25, 50, 100])],
+            // A double lesson on a block counted in lessons: it takes two off the block, not one.
+            'package_lessons' => ['sometimes', 'nullable', 'integer', Rule::in([1, 2])],
         ]);
 
         // An outcome the office recorded is final for the teacher: picking another card here would
@@ -117,13 +120,42 @@ final class AttendanceController extends Controller
         $billOverride = $overridable ? ($mayBill && (bool) ($data['charge_student'] ?? false)) : null;
         $teacherOverride = $overridable ? ($mayBill && (bool) ($data['pay_teacher'] ?? false)) : null;
 
-        $result = $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride, isset($data['teacher_pay_percent']) ? (int) $data['teacher_pay_percent'] * 100 : null);
+        // One unit: a refusal from the books must not leave the lesson marked double.
+        $result = DB::transaction(function () use ($service, $session, $next, $data, $billOverride, $teacherOverride): array {
+            if (array_key_exists('package_lessons', $data)) {
+                $this->setPackageLessons($session, (int) ($data['package_lessons'] ?? 1));
+            }
+
+            return $service->record($session, $next, $data['reason'] ?? null, $this->ctx()->userId, $this->ctx()->role, $billOverride, $teacherOverride, isset($data['teacher_pay_percent']) ? (int) $data['teacher_pay_percent'] * 100 : null);
+        });
 
         return response()->json([
             'status' => $result['status'],
             'billed' => $result['billed'],
             'classification' => SessionClassifier::classify($next, $billOverride, $teacherOverride),
         ]);
+    }
+
+    /**
+     * How many lessons this one counts on a block counted in lessons (1, or 2 for a double lesson),
+     * set as it is recorded. It changes what the family's block counts, so it is the package
+     * manager's call, never a teacher's. A lesson that has already counted keeps its count: undo the
+     * attendance first, then record it again — the books are never re-cut under a recorded lesson.
+     */
+    private function setPackageLessons(object $session, int $count): void
+    {
+        if ($count === LessonPackages::lessonCountOf($session)) {
+            return;
+        }
+        if (! Gate::allows('package.manage')) {
+            throw ValidationException::withMessages(['package_lessons' => ['Only someone who manages packages can count a lesson as two. / احتساب الحصة حصتين لمن يدير الباقات فقط.']]);
+        }
+        if (DB::table('lesson_package_credits')->where('session_id', $session->id)->exists()) {
+            throw ValidationException::withMessages(['package_lessons' => ['This lesson has already counted on its package. Undo its attendance, then record it again as a double lesson. / هذه الحصة احتُسبت على باقتها بالفعل. تراجع عن تسجيلها ثم سجّلها من جديد كحصة مزدوجة.']]);
+        }
+
+        DB::table('sessions')->where('id', $session->id)->update(['package_lessons' => $count > 1 ? $count : null, 'updated_at' => now()]);
+        $session->package_lessons = $count > 1 ? $count : null;
     }
 
     /**

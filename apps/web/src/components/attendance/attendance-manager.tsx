@@ -770,6 +770,15 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
           canFollow={canFollow}
           onError={setError}
           onSeeAll={mine ? () => chooseScope("all") : undefined}
+          // The same rule as a row's delete on the period table (Quran academies, session.delete).
+          onBulkDeleted={
+            canDelete
+              ? () => {
+                  overdue.reload();
+                  void load();
+                }
+              : undefined
+          }
         />
       ) : (
         <>

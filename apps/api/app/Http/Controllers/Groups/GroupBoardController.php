@@ -91,6 +91,7 @@ final class GroupBoardController extends Controller
                         ? ['id' => (string) $l->group_room_id, 'name' => (string) $l->group_room_name]
                         : null,
                     'specialization_name' => $l->specialization_name,
+                    'meeting_url' => $l->join_url,
                 ],
                 // The weekly time this lesson came from (null = an extra lesson): what "move it every
                 // week" rewrites.
@@ -522,8 +523,12 @@ final class GroupBoardController extends Controller
             ->leftJoin('specializations as sp', 'sp.id', '=', 'g.specialization_id')
             ->leftJoin('class_group_slots as s', 's.id', '=', 'l.slot_id')
             ->leftJoin('academy_rooms as rm', 'rm.id', '=', 'g.room_id')
+            ->leftJoin('teachers as gte', 'gte.id', '=', 'g.teacher_id')
             ->select([
                 'l.*', 'te.full_name as teacher_name',
+                // The room to enter (Lingo 2026-11-15): the group's own link; for a group taught
+                // online, else whoever takes this lesson (a substitute's room), else the group's teacher.
+                DB::raw("coalesce(g.meeting_url, case when g.mode <> 'OFFLINE' then coalesce(te.meeting_url, gte.meeting_url) end) as join_url"),
                 'g.name as group_name', 'g.level as group_level', 'g.timezone as group_timezone',
                 'g.mode as group_mode', 'g.location as group_location', 'sp.name as specialization_name',
                 'g.room_id as group_room_id', 'rm.name as group_room_name',

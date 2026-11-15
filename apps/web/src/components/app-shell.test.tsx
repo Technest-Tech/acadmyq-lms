@@ -144,6 +144,19 @@ describe("AppShell role-aware navigation (AC-2.12 / TC-2.23)", () => {
     // Billing, the finance book and pricing are one Accounts entry now — none of the old three.
     expect(keys).not.toContain("plans");
     expect(keys).not.toContain("billing");
+    // The retired ops pages are gone: a client's course platform is a tab on its own page, and
+    // video is archived.
+    expect(keys).not.toContain("adminLms");
+    expect(keys).not.toContain("adminVideo");
+  });
+
+  it("puts System health right after Accounts for a platform admin who may manage the platform", async () => {
+    renderShell("SUPER_ADMIN", { permissions: ["academy.read", "platform.manage"] });
+    await ready();
+
+    const keys = navKeys();
+    expect(keys).toContain("adminFinance");
+    expect(keys.indexOf("adminHealth")).toBe(keys.indexOf("adminFinance") + 1);
     // Tenant-only items never leak onto the platform view.
     expect(keys).not.toContain("students");
     expect(keys).not.toContain("invoices");
@@ -203,12 +216,11 @@ describe("AppShell header (TC-2.26)", () => {
     expect(keys).toEqual(expect.arrayContaining(["dashboard", "students", "invoices", "settings"]));
     for (const platformKey of [
       "adminHome",
+      "adminHealth",
       "clients",
       "users",
       "staffDepartments",
       "adminAutomation",
-      "adminVideo",
-      "adminLms",
       "demoRequests",
       "adminFinance",
       "platformSettings",

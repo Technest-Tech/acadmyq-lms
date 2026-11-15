@@ -2,25 +2,57 @@
 
 import { apiBase } from "@/lib/api-base";
 import { formatMoney } from "@/lib/money";
+import { walletProvider } from "@/lib/wallet-provider";
 import {
+  Banknote,
   Check,
   ChevronDown,
   Copy,
   CreditCard,
+  ExternalLink,
   Info,
   Landmark,
   Lock,
   ShieldCheck,
+  Smartphone,
   Wallet,
+  Zap,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const API_BASE = apiBase();
 
+export type PublicMethodKey =
+  | "WALLET"
+  | "INSTAPAY"
+  | "BANK_TRANSFER"
+  | "PAYPAL"
+  | "OTHER"
+  | "XPAY";
+
+/**
+ * One of the academy's live payment methods, as the API hands it to a payer. Configs are the
+ * academy's own text (Settings → Payment methods); every link in them is http(s), enforced by the API.
+ */
 export interface PublicPaymentMethod {
-  method: "BANK_TRANSFER" | "PAYPAL" | "XPAY";
-  config: Record<string, string>;
+  method: PublicMethodKey;
+  config: PublicConfig;
+}
+
+export type PublicConfig = Record<string, unknown>;
+
+/** A config value as text — "" when absent, so an empty field never renders a row. */
+function str(c: PublicConfig, key: string): string {
+  const v = c[key];
+  return typeof v === "string" ? v.trim() : "";
+}
+
+function list(c: PublicConfig, key: string): string[] {
+  const v = c[key];
+  return Array.isArray(v)
+    ? v.filter((x): x is string => typeof x === "string" && x.trim() !== "")
+    : [];
 }
 
 interface PaymentOptionsProps {
@@ -292,7 +324,7 @@ function PaypalCheckout({
   invoiceToken,
   currency,
 }: {
-  config: Record<string, string>;
+  config: PublicConfig;
   invoiceToken: string;
   currency: string;
 }) {
@@ -305,7 +337,7 @@ function PaypalCheckout({
   >("idle");
   const [payError, setPayError] = useState<string | null>(null);
 
-  const clientId = config.client_id;
+  const clientId = str(config, "client_id");
 
   useEffect(() => {
     if (!clientId || typeof window === "undefined") {
@@ -382,26 +414,6 @@ function PaypalCheckout({
       })
       .render("#paypal-buttons");
   }, [sdkState, invoiceToken]);
-
-  if (!clientId) {
-    return config.email ? (
-      <div className="divide-y divide-slate-100 rounded-xl bg-white ring-1 ring-slate-200">
-        <CopyRow
-          labelEn="Send to PayPal"
-          labelAr="أرسل إلى حساب باي بال"
-          value={config.email}
-          mono
-        />
-      </div>
-    ) : (
-      <p className="text-sm text-slate-500">
-        <T
-          en="Contact the academy for PayPal details."
-          ar="تواصل مع الأكاديمية للحصول على تفاصيل باي بال."
-        />
-      </p>
-    );
-  }
 
   if (payState === "success") return <SuccessPanel />;
 
@@ -632,57 +644,193 @@ export function FamilyXpayCheckout({
   );
 }
 
-// ── Bank transfer ────────────────────────────────────────────────────────────
+// ── Manual methods (the payer sends, the academy confirms) ───────────────────
 
-/** The academy's transfer details for an amount — also the family page's way to pay several bills at once. */
-export function BankTransfer({
-  config: c,
+function DetailsCard({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="divide-y divide-slate-100 overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
+      {children}
+    </div>
+  );
+}
+
+function AmountRow({
   amountMinor,
   currency,
-  reference,
+  labelEn = "Amount to send",
+  labelAr = "المبلغ المطلوب",
 }: {
-  config: Record<string, string>;
+  amountMinor: number;
+  currency: string;
+  labelEn?: string;
+  labelAr?: string;
+}) {
+  return (
+    <CopyRow
+      labelEn={labelEn}
+      labelAr={labelAr}
+      value={(amountMinor / 100).toFixed(2)}
+      display={<Money minor={amountMinor} currency={currency} />}
+    />
+  );
+}
+
+/** The academy's own instruction for this method, in its own words. */
+function AcademyNote({ text }: { text: string }) {
+  if (!text) return null;
+  return (
+    <p
+      dir="auto"
+      className="flex items-start gap-2 whitespace-pre-line rounded-xl bg-amber-50 px-3.5 py-2.5 text-sm leading-relaxed text-amber-900 ring-1 ring-amber-100"
+    >
+      <Info className="mt-0.5 size-4 shrink-0 text-amber-600" aria-hidden />
+      <span className="min-w-0 break-words">{text}</span>
+    </p>
+  );
+}
+
+function ProofHint() {
+  return (
+    <p className="flex items-start gap-2 text-xs leading-relaxed text-slate-500">
+      <Info className="mt-px size-3.5 shrink-0 text-slate-400" aria-hidden />
+      <T
+        en="After paying, send a screenshot of the transfer to the academy with the reference, so they can confirm your payment."
+        ar="بعد الدفع، أرسل صورة التحويل إلى الأكاديمية مع المرجع لتأكيد الدفع."
+      />
+    </p>
+  );
+}
+
+/** A link the academy gave (InstaPay, paypal.me) — opened in a new tab. */
+function OpenLinkButton({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 text-sm font-semibold text-white shadow-sm shadow-emerald-900/20 transition-colors hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600"
+    >
+      {children}
+      <ExternalLink className="size-4" aria-hidden />
+    </a>
+  );
+}
+
+interface ManualBodyProps {
+  config: PublicConfig;
   amountMinor: number;
   currency: string;
   reference: string;
-}) {
+}
+
+function WalletTransfer({ config: c, amountMinor, currency, reference }: ManualBodyProps) {
+  const holder = str(c, "holder");
   return (
     <div className="space-y-3">
-      <div className="divide-y divide-slate-100 overflow-hidden rounded-xl bg-white ring-1 ring-slate-200">
-        <CopyRow
+      <DetailsCard>
+        <AmountRow amountMinor={amountMinor} currency={currency} />
+        {list(c, "numbers").map((n) => {
+          const p = walletProvider(n);
+          return <CopyRow key={n} labelEn={p.en} labelAr={p.ar} value={n} mono />;
+        })}
+        {holder && (
+          <CopyRow labelEn="Wallet holder" labelAr="اسم صاحب المحفظة" value={holder} />
+        )}
+        <CopyRow labelEn="Reference" labelAr="المرجع" value={reference} mono />
+      </DetailsCard>
+      <AcademyNote text={str(c, "note")} />
+      <ProofHint />
+    </div>
+  );
+}
+
+function InstapayTransfer({ config: c, amountMinor, currency, reference }: ManualBodyProps) {
+  const link = str(c, "link");
+  const address = str(c, "address");
+  const holder = str(c, "holder");
+  return (
+    <div className="space-y-3">
+      {link && (
+        <OpenLinkButton href={link}>
+          <T en="Pay with InstaPay" ar="ادفع عبر إنستاباي" />
+        </OpenLinkButton>
+      )}
+      <DetailsCard>
+        <AmountRow amountMinor={amountMinor} currency={currency} />
+        {address && (
+          <CopyRow labelEn="InstaPay address" labelAr="عنوان إنستاباي" value={address} mono />
+        )}
+        {holder && <CopyRow labelEn="Name" labelAr="الاسم" value={holder} />}
+        <CopyRow labelEn="Reference" labelAr="المرجع" value={reference} mono />
+      </DetailsCard>
+      <AcademyNote text={str(c, "note")} />
+      <ProofHint />
+    </div>
+  );
+}
+
+/** PayPal without the API checkout: the academy's email and/or paypal.me link. */
+function PaypalManual({ config: c, amountMinor, currency, reference }: ManualBodyProps) {
+  const email = str(c, "email");
+  const me = str(c, "paypal_me");
+  if (!email && !me) {
+    return (
+      <p className="text-sm text-slate-500">
+        <T
+          en="Contact the academy for PayPal details."
+          ar="تواصل مع الأكاديمية للحصول على تفاصيل باي بال."
+        />
+      </p>
+    );
+  }
+  return (
+    <div className="space-y-3">
+      {me && (
+        <OpenLinkButton href={me}>
+          <T en="Open PayPal" ar="افتح باي بال" />
+        </OpenLinkButton>
+      )}
+      <DetailsCard>
+        <AmountRow amountMinor={amountMinor} currency={currency} />
+        {email && (
+          <CopyRow labelEn="Send to PayPal" labelAr="أرسل إلى حساب باي بال" value={email} mono />
+        )}
+        <CopyRow labelEn="Reference" labelAr="المرجع" value={reference} mono />
+      </DetailsCard>
+      <AcademyNote text={str(c, "note")} />
+      <ProofHint />
+    </div>
+  );
+}
+
+/** The academy's transfer details for an amount — also the family page's way to pay several bills at once. */
+export function BankTransfer({ config: c, amountMinor, currency, reference }: ManualBodyProps) {
+  const bank = str(c, "bank_name");
+  const holder = str(c, "account_holder");
+  const account = str(c, "account_number");
+  const iban = str(c, "iban");
+  const swift = str(c, "swift");
+  return (
+    <div className="space-y-3">
+      <DetailsCard>
+        <AmountRow
+          amountMinor={amountMinor}
+          currency={currency}
           labelEn="Amount to transfer"
           labelAr="المبلغ المطلوب تحويله"
-          value={(amountMinor / 100).toFixed(2)}
-          display={<Money minor={amountMinor} currency={currency} />}
         />
-        {c.bank_name && (
-          <CopyRow labelEn="Bank" labelAr="البنك" value={c.bank_name} />
+        {bank && <CopyRow labelEn="Bank" labelAr="البنك" value={bank} />}
+        {holder && (
+          <CopyRow labelEn="Account holder" labelAr="اسم صاحب الحساب" value={holder} />
         )}
-        {c.account_holder && (
-          <CopyRow
-            labelEn="Account holder"
-            labelAr="اسم صاحب الحساب"
-            value={c.account_holder}
-          />
+        {account && (
+          <CopyRow labelEn="Account number" labelAr="رقم الحساب" value={account} mono />
         )}
-        {c.account_number && (
-          <CopyRow
-            labelEn="Account number"
-            labelAr="رقم الحساب"
-            value={c.account_number}
-            mono
-          />
-        )}
-        {c.iban && (
-          <CopyRow labelEn="IBAN" labelAr="الآيبان" value={c.iban} mono />
-        )}
-        <CopyRow
-          labelEn="Transfer reference"
-          labelAr="مرجع التحويل"
-          value={reference}
-          mono
-        />
-      </div>
+        {iban && <CopyRow labelEn="IBAN" labelAr="الآيبان" value={iban} mono />}
+        {swift && <CopyRow labelEn="SWIFT / BIC" labelAr="رمز السويفت" value={swift} mono />}
+        <CopyRow labelEn="Transfer reference" labelAr="مرجع التحويل" value={reference} mono />
+      </DetailsCard>
+      <AcademyNote text={str(c, "note")} />
       <p className="flex items-start gap-2 text-xs leading-relaxed text-slate-500">
         <Info className="mt-px size-3.5 shrink-0 text-slate-400" aria-hidden />
         <T
@@ -694,10 +842,78 @@ export function BankTransfer({
   );
 }
 
+/** Anything else the academy takes (Western Union, Wise, …), in its own words. */
+function OtherMethod({ config: c, amountMinor, currency, reference }: ManualBodyProps) {
+  const details = str(c, "details");
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(details);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard blocked */
+    }
+  }
+  return (
+    <div className="space-y-3">
+      {details && (
+        <div className="relative rounded-xl bg-white px-4 py-3 ring-1 ring-slate-200">
+          <p
+            dir="auto"
+            className="whitespace-pre-line break-words pe-16 text-sm leading-relaxed text-slate-800"
+          >
+            {details}
+          </p>
+          <button
+            type="button"
+            onClick={() => void copy()}
+            className="absolute end-3 top-3 inline-flex h-7 items-center gap-1 rounded-lg px-2 text-xs font-semibold text-slate-600 ring-1 ring-slate-200 hover:bg-slate-50"
+          >
+            {copied ? <Check className="size-3.5" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
+            {copied ? <T en="Copied" ar="تم النسخ" /> : <T en="Copy" ar="نسخ" />}
+          </button>
+        </div>
+      )}
+      <DetailsCard>
+        <AmountRow amountMinor={amountMinor} currency={currency} />
+        <CopyRow labelEn="Reference" labelAr="المرجع" value={reference} mono />
+      </DetailsCard>
+      <ProofHint />
+    </div>
+  );
+}
+
+/** The body of a manual method — shared by the single bill and the family page. */
+function ManualBody({ pm, ...rest }: { pm: PublicPaymentMethod } & Omit<ManualBodyProps, "config">) {
+  const props = { config: pm.config, ...rest };
+  switch (pm.method) {
+    case "WALLET":
+      return <WalletTransfer {...props} />;
+    case "INSTAPAY":
+      return <InstapayTransfer {...props} />;
+    case "PAYPAL":
+      return <PaypalManual {...props} />;
+    case "BANK_TRANSFER":
+      return <BankTransfer {...props} />;
+    case "OTHER":
+      return <OtherMethod {...props} />;
+    default:
+      return (
+        <p className="text-sm text-slate-500">
+          <T
+            en="Contact the academy to complete the payment."
+            ar="تواصل مع الأكاديمية لإتمام عملية الدفع."
+          />
+        </p>
+      );
+  }
+}
+
 // ── Method metadata ──────────────────────────────────────────────────────────
 
 const METHOD_META: Record<
-  PublicPaymentMethod["method"],
+  PublicMethodKey,
   {
     icon: typeof Landmark;
     en: string;
@@ -713,6 +929,20 @@ const METHOD_META: Record<
     hintEn: "Instant confirmation",
     hintAr: "تأكيد فوري",
   },
+  INSTAPAY: {
+    icon: Zap,
+    en: "InstaPay",
+    ar: "إنستاباي",
+    hintEn: "Instant transfer from any bank app",
+    hintAr: "تحويل لحظي من أي تطبيق بنكي",
+  },
+  WALLET: {
+    icon: Smartphone,
+    en: "Mobile wallet",
+    ar: "تحويل كاش (محفظة)",
+    hintEn: "Vodafone Cash and other wallets",
+    hintAr: "فودافون كاش وباقي المحافظ",
+  },
   PAYPAL: {
     icon: Wallet,
     en: "PayPal",
@@ -727,14 +957,31 @@ const METHOD_META: Record<
     hintEn: "Confirmed by the academy",
     hintAr: "تؤكّده الأكاديمية",
   },
+  OTHER: {
+    icon: Banknote,
+    en: "Other way to pay",
+    ar: "طريقة دفع أخرى",
+    hintEn: "Confirmed by the academy",
+    hintAr: "تؤكّده الأكاديمية",
+  },
 };
 
-/** Instant methods first — the card is what most payers want, the transfer is the fallback. */
-const METHOD_ORDER: PublicPaymentMethod["method"][] = [
+/** Instant methods first — the card is what most payers want, the transfers follow. */
+const METHOD_ORDER: PublicMethodKey[] = [
   "XPAY",
+  "INSTAPAY",
+  "WALLET",
   "PAYPAL",
   "BANK_TRANSFER",
+  "OTHER",
 ];
+
+/** Known methods only (an API ahead of this page must not crash it), in display order. */
+function ordered(methods: PublicPaymentMethod[]): PublicPaymentMethod[] {
+  return methods
+    .filter((m) => METHOD_ORDER.includes(m.method))
+    .sort((a, b) => METHOD_ORDER.indexOf(a.method) - METHOD_ORDER.indexOf(b.method));
+}
 
 function CardMarks({ className }: { className: string }) {
   return (
@@ -746,7 +993,7 @@ function CardMarks({ className }: { className: string }) {
   );
 }
 
-function MethodMarks({ method }: { method: PublicPaymentMethod["method"] }) {
+function MethodMarks({ method }: { method: PublicMethodKey }) {
   // On a phone the card marks sit under the label instead (see the tile), where there is room.
   if (method === "XPAY") return <CardMarks className="hidden sm:flex" />;
   if (method === "PAYPAL") return <PaypalMark />;
@@ -768,17 +1015,8 @@ function MethodBody({
   reference: string;
   onPaid: () => void;
 }) {
-  if (pm.method === "BANK_TRANSFER") {
-    return (
-      <BankTransfer
-        config={pm.config}
-        amountMinor={amountMinor}
-        currency={currency}
-        reference={reference}
-      />
-    );
-  }
-  if (pm.method === "PAYPAL") {
+  // PayPal with API keys takes the money itself; without them it is a manual send like the rest.
+  if (pm.method === "PAYPAL" && str(pm.config, "client_id")) {
     return (
       <PaypalCheckout
         config={pm.config}
@@ -798,60 +1036,31 @@ function MethodBody({
     );
   }
   return (
-    <p className="text-sm text-slate-500">
-      <T
-        en="Contact the academy to complete the payment."
-        ar="تواصل مع الأكاديمية لإتمام عملية الدفع."
-      />
-    </p>
+    <ManualBody
+      pm={pm}
+      amountMinor={amountMinor}
+      currency={currency}
+      reference={reference}
+    />
   );
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
-
-export function PaymentOptions({
-  currency,
-  methods: unordered,
-  invoiceToken,
-  amountMinor,
-  reference,
-}: PaymentOptionsProps) {
-  const router = useRouter();
-  // Stable, because XpayCheckout's confirm effect depends on it — a fresh closure per render
-  // would re-run the confirmation after every refresh.
-  const onPaid = useCallback(() => router.refresh(), [router]);
-  const methods = [...unordered].sort(
-    (a, b) => METHOD_ORDER.indexOf(a.method) - METHOD_ORDER.indexOf(b.method),
+/**
+ * The list of methods: every one folded so the card stays short on a phone, and the payer opens
+ * the one they want. A single method opens by itself — there is nothing to choose.
+ */
+function MethodAccordion({
+  methods,
+  initialOpen,
+  renderBody,
+}: {
+  methods: PublicPaymentMethod[];
+  initialOpen: PublicMethodKey | null;
+  renderBody: (pm: PublicPaymentMethod) => React.ReactNode;
+}) {
+  const [openKey, setOpenKey] = useState<PublicMethodKey | null>(
+    initialOpen ?? (methods.length === 1 ? (methods[0]?.method ?? null) : null),
   );
-
-  // Every method starts folded so the card stays short on a phone; the payer opens the one they
-  // want. The exception is a return from XPay, which opens the panel about to confirm the payment.
-  const [openKey, setOpenKey] = useState<string | null>(() => {
-    if (
-      typeof window !== "undefined" &&
-      methods.some((m) => m.method === "XPAY")
-    ) {
-      const params = new URLSearchParams(window.location.search);
-      if (params.has("xpay") || params.has("xpay_cancelled")) return "XPAY";
-    }
-    return null;
-  });
-
-  if (methods.length === 0) {
-    return (
-      <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
-        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 ring-1 ring-slate-200">
-          <Landmark className="size-4" aria-hidden />
-        </span>
-        <p className="text-sm leading-relaxed text-slate-600">
-          <T
-            en="Payment is arranged directly with the academy. Please contact them to complete it."
-            ar="يتم الدفع مباشرة مع الأكاديمية. يُرجى التواصل معها لإتمام الدفع."
-          />
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-2">
@@ -859,9 +1068,12 @@ export function PaymentOptions({
         const meta = METHOD_META[pm.method];
         const Icon = meta.icon;
         const isOpen = openKey === pm.method;
+        // OTHER is named by the academy ("Western Union", "Wise", …).
+        const customTitle = pm.method === "OTHER" ? str(pm.config, "title") : "";
         return (
           <div
             key={pm.method}
+            data-testid={`pay-method-${pm.method}`}
             className={`overflow-hidden rounded-2xl bg-white transition-shadow ${
               isOpen
                 ? "shadow-sm ring-2 ring-emerald-600"
@@ -885,7 +1097,11 @@ export function PaymentOptions({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-semibold text-slate-900">
-                  <T en={meta.en} ar={meta.ar} />
+                  {customTitle ? (
+                    <bdi>{customTitle}</bdi>
+                  ) : (
+                    <T en={meta.en} ar={meta.ar} />
+                  )}
                 </span>
                 <span className="block text-xs text-slate-500">
                   <T en={meta.hintEn} ar={meta.hintAr} />
@@ -902,19 +1118,105 @@ export function PaymentOptions({
             </button>
             {isOpen && (
               <div className="border-t border-slate-100 bg-slate-50/60 px-4 py-4">
-                <MethodBody
-                  pm={pm}
-                  currency={currency}
-                  invoiceToken={invoiceToken}
-                  amountMinor={amountMinor}
-                  reference={reference}
-                  onPaid={onPaid}
-                />
+                {renderBody(pm)}
               </div>
             )}
           </div>
         );
       })}
     </div>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────────────────────
+
+export function PaymentOptions({
+  currency,
+  methods: unordered,
+  invoiceToken,
+  amountMinor,
+  reference,
+}: PaymentOptionsProps) {
+  const router = useRouter();
+  // Stable, because XpayCheckout's confirm effect depends on it — a fresh closure per render
+  // would re-run the confirmation after every refresh.
+  const onPaid = useCallback(() => router.refresh(), [router]);
+  const methods = ordered(unordered);
+
+  // A return from XPay opens the panel about to confirm the payment.
+  const initialOpen: PublicMethodKey | null =
+    typeof window !== "undefined" &&
+    methods.some((m) => m.method === "XPAY") &&
+    (() => {
+      const params = new URLSearchParams(window.location.search);
+      return params.has("xpay") || params.has("xpay_cancelled");
+    })()
+      ? "XPAY"
+      : null;
+
+  if (methods.length === 0) {
+    return (
+      <div className="flex items-start gap-3 rounded-xl bg-slate-50 p-4 ring-1 ring-slate-200">
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-white text-slate-500 ring-1 ring-slate-200">
+          <Landmark className="size-4" aria-hidden />
+        </span>
+        <p className="text-sm leading-relaxed text-slate-600">
+          <T
+            en="Payment is arranged directly with the academy. Please contact them to complete it."
+            ar="يتم الدفع مباشرة مع الأكاديمية. يُرجى التواصل معها لإتمام الدفع."
+          />
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <MethodAccordion
+      methods={methods}
+      initialOpen={initialOpen}
+      renderBody={(pm) => (
+        <MethodBody
+          pm={pm}
+          currency={currency}
+          invoiceToken={invoiceToken}
+          amountMinor={amountMinor}
+          reference={reference}
+          onPaid={onPaid}
+        />
+      )}
+    />
+  );
+}
+
+/**
+ * The family page's manual methods — wallet, InstaPay, PayPal email, bank, the academy's own text —
+ * for the WHOLE amount at once. The API sends only these, with their public details only.
+ */
+export function ManualPaymentOptions({
+  methods,
+  amountMinor,
+  currency,
+  reference,
+}: {
+  methods: PublicPaymentMethod[];
+  amountMinor: number;
+  currency: string;
+  reference: string;
+}) {
+  const manual = ordered(methods).filter((m) => m.method !== "XPAY");
+  if (manual.length === 0) return null;
+  return (
+    <MethodAccordion
+      methods={manual}
+      initialOpen={null}
+      renderBody={(pm) => (
+        <ManualBody
+          pm={pm}
+          amountMinor={amountMinor}
+          currency={currency}
+          reference={reference}
+        />
+      )}
+    />
   );
 }

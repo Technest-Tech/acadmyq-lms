@@ -1,6 +1,6 @@
 "use client";
 
-import { Layers, Loader2, Pencil, Plus, Receipt, Square, Trash2 } from "lucide-react";
+import { Layers, Loader2, Pencil, Plus, Receipt, RotateCcw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -9,6 +9,7 @@ import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-con
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
+import { filterGroups, GroupSearchBox } from "@/components/groups/group-search";
 import { JoinDateForm, leftReasonText, MemberPriceForm, MoveMemberForm, RemoveMemberForm } from "@/components/groups/group-members-panel";
 import { CloseSubscriptionModal } from "@/components/subscriptions/close-subscription-modal";
 import { EditSubscriptionForm } from "@/components/subscriptions/edit-subscription-form";
@@ -22,7 +23,7 @@ import { Modal } from "@/components/ui/modal";
 import { ProfileCard } from "@/components/ui/profile-card";
 import { getStudentRenewalPolicy, setStudentRenewalPolicy, type StudentRenewalPolicy } from "@/lib/accounting-api";
 import { useCapability } from "@/lib/capabilities";
-import { addGroupMembers, getGroup, listBoardMembers, listGroups, undoGroupMember, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
+import { addGroupMembers, bookGroupTrial, getGroup, getTrialPrice, listBoardLessons, listBoardMembers, listGroups, undoGroupMember, type BoardLesson, type BoardMember, type GroupDetail, type GroupRow } from "@/lib/groups-api";
 import { listSubscriptions, subscriptionScope, type SubscriptionRow } from "@/lib/subscriptions-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -40,19 +41,30 @@ import { cn } from "@/lib/utils";
  * membership gets a leave date and a reason (PAUSED / STOPPED), a private subscription is closed
  * (with the settlement of what was paid and not taken) or, if untouched, cancelled.
  */
-export function SubscriptionsCard({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged?: () => void }) {
+export function SubscriptionsCard({
+  studentId,
+  studentName,
+  onChanged,
+  title,
+}: {
+  studentId: string;
+  studentName: string;
+  onChanged?: () => void;
+  /** The card's heading — the parent's page names each child ("Adam's subscriptions"). */
+  title?: string;
+}) {
   const centre = useCapability("centre");
   if (!centre) return null;
-  return <Subscriptions studentId={studentId} studentName={studentName} onChanged={onChanged} />;
+  return <Subscriptions studentId={studentId} studentName={studentName} onChanged={onChanged} title={title} />;
 }
 
 type Action =
-  | { kind: "join" }
+  | { kind: "join"; groupId?: string }
   | { kind: "sell"; prefill?: SubscriptionRow }
   | { kind: "groupEdit" | "groupEnd" | "groupDelete"; member: BoardMember }
   | { kind: "subEdit" | "subEnd" | "subCancel" | "subDetail"; row: SubscriptionRow };
 
-function Subscriptions({ studentId, studentName, onChanged }: { studentId: string; studentName: string; onChanged?: () => void }) {
+function Subscriptions({ studentId, studentName, onChanged, title }: { studentId: string; studentName: string; onChanged?: () => void; title?: string }) {
   const t = useTranslations("students");
   const ts = useTranslations("subscriptions");
   const tg = useTranslations("groups");
@@ -70,6 +82,8 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [modal, setModal] = useState<Action | null>(null);
+  // What has ended (left groups, cancelled or finished blocks) folds away until asked for.
+  const [showPast, setShowPast] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -111,6 +125,20 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
     seenScopes.add(scope);
     renewableIds.add(s.id);
   }
+  // Back into a group they left (paused for not paying, say): one press, from the last time they left it.
+  const rejoinable = new Set<string>();
+  const activeGroups = new Set(active.map((m) => m.group_id));
+  const lastLeft = new Map<string, BoardMember>();
+  for (const m of former) {
+    const seen = lastLeft.get(m.group_id);
+    if (!seen || (m.left_on ?? m.joined_on) > (seen.left_on ?? seen.joined_on)) lastLeft.set(m.group_id, m);
+  }
+  for (const [groupId, m] of lastLeft) if (!activeGroups.has(groupId)) rejoinable.add(m.id);
+  // Always shown: what runs now, and the last finished block of a subject (it carries Renew).
+  const pastMembers = former.filter((m) => !rejoinable.has(m.id));
+  const shownMembers = showPast ? [...active, ...former] : [...active, ...former.filter((m) => rejoinable.has(m.id))];
+  const shownSubs = showPast ? [...openSubs, ...closedSubs] : [...openSubs, ...closedSubs.filter((s) => renewableIds.has(s.id))];
+  const pastCount = pastMembers.length + closedSubs.filter((s) => !renewableIds.has(s.id)).length;
   const loaded = members !== null && subs !== null;
   const nothing = loaded && members.length === 0 && subs.length === 0;
 
@@ -132,7 +160,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
   return (
     <ProfileCard
       icon={Receipt}
-      title={t("subscriptions.title")}
+      title={title ?? t("subscriptions.title")}
       description={t("subscriptions.description")}
       tone="violet"
       testId="student-subscriptions"
@@ -177,7 +205,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
             <section>
               <h4 className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">{t("subscriptions.groups")}</h4>
               <ul className="divide-y rounded-xl border" data-testid="subs-groups">
-                {[...active, ...former].map((m) => (
+                {shownMembers.map((m) => (
                   <li key={m.id} className={cn("flex items-start justify-between gap-3 p-3 text-sm", m.status !== "ACTIVE" && "opacity-60")} data-testid={`subs-group-${m.group_id}`}>
                     <div className="min-w-0">
                       <Link href={`/groups/${m.group_id}?tab=accounts`} className="font-medium hover:underline" title={t("subscriptions.openGroup")}>
@@ -197,6 +225,12 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
                       {m.charge && m.charge.outstanding_minor > 0 && (
                         <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">{t("subscriptions.outstanding", { amount: money(m.charge.outstanding_minor, m.charge.currency) })}</span>
                       )}
+                      {m.status !== "ACTIVE" && manageGroups && rejoinable.has(m.id) && (
+                        <Button type="button" size="xs" variant="outline" className="gap-1" onClick={() => setModal({ kind: "join", groupId: m.group_id })} data-testid={`subs-rejoin-${m.group_id}`}>
+                          <RotateCcw className="size-3.5" aria-hidden />
+                          {t("subscriptions.rejoin")}
+                        </Button>
+                      )}
                       {m.status === "ACTIVE" && manageGroups && (
                         <RowActions
                           onEdit={() => setModal({ kind: "groupEdit", member: m })}
@@ -214,7 +248,7 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
             <section>
               <h4 className="text-muted-foreground mb-2 text-xs font-semibold uppercase tracking-wide">{t("subscriptions.private")}</h4>
               <ul className="space-y-2" data-testid="subs-packages">
-                {[...openSubs, ...closedSubs].map((row) => (
+                {shownSubs.map((row) => (
                   <SubscriptionRowCard
                     key={row.id}
                     row={row}
@@ -230,9 +264,21 @@ function Subscriptions({ studentId, studentName, onChanged }: { studentId: strin
           )}
         </div>
       )}
+      {loaded && pastCount > 0 && (
+        <button type="button" className="text-muted-foreground mt-3 text-xs hover:underline" onClick={() => setShowPast((v) => !v)} data-testid="subs-show-past">
+          {showPast ? t("subscriptions.hidePast") : t("subscriptions.showPast", { count: pastCount })}
+        </button>
+      )}
 
       {modal?.kind === "join" && (
-        <JoinGroupModal studentId={studentId} studentName={studentName} exclude={new Set(active.map((m) => m.group_id))} onClose={() => setModal(null)} onDone={() => done(t("subscriptions.joined"))} />
+        <JoinGroupModal
+          studentId={studentId}
+          studentName={studentName}
+          exclude={new Set(active.map((m) => m.group_id))}
+          presetGroupId={modal.groupId}
+          onClose={() => setModal(null)}
+          onDone={() => done(t(modal.groupId ? "subscriptions.rejoined" : "subscriptions.joined"))}
+        />
       )}
       <Modal open={modal?.kind === "sell"} onClose={() => setModal(null)} title={t("subscriptions.newPrivateTitle", { name: studentName })} description={ts("sell.description")} size="lg">
         {modal?.kind === "sell" && <SellSubscriptionForm initialStudentId={studentId} prefill={modal.prefill} onSaved={(msg) => done(msg)} onCancel={() => setModal(null)} />}
@@ -397,14 +443,76 @@ function MembershipModal({
   );
 }
 
-function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { studentId: string; studentName: string; exclude: Set<string>; onClose: () => void; onDone: () => void }) {
+function JoinGroupModal({
+  studentId,
+  studentName,
+  exclude,
+  presetGroupId,
+  onClose,
+  onDone,
+}: {
+  studentId: string;
+  studentName: string;
+  exclude: Set<string>;
+  /** Back into this group (from the row of the last time they left it), from today. */
+  presetGroupId?: string;
+  onClose: () => void;
+  onDone: () => void;
+}) {
   const t = useTranslations("students");
   const tg = useTranslations("groups");
   const [groups, setGroups] = useState<GroupRow[] | null>(null);
-  const [groupId, setGroupId] = useState("");
+  const [groupId, setGroupId] = useState(presetGroupId ?? "");
+  const [groupQuery, setGroupQuery] = useState("");
   const [joinedOn, setJoinedOn] = useState(todayLocal());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One trial lesson instead of joining (Lingo 2026-11-15): the lesson, and its price on the group.
+  const [trial, setTrial] = useState(false);
+  const [lessons, setLessons] = useState<BoardLesson[] | null>(null);
+  const [lessonId, setLessonId] = useState("");
+  const [price, setPrice] = useState<{ amount_minor: number | null; currency: string | null } | null>(null);
+  const [priceText, setPriceText] = useState("");
+  const { can: canDo } = useAuth();
+  const locale = useLocale();
+
+  // The group's lessons in the next two weeks still to come.
+  useEffect(() => {
+    if (!trial || !groupId) return;
+    let alive = true;
+    setLessons(null);
+    setLessonId("");
+    const today = todayLocal();
+    const next = new Date(`${today}T00:00:00`);
+    next.setDate(next.getDate() + 7);
+    const nextWeek = `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}-${String(next.getDate()).padStart(2, "0")}`;
+    void Promise.all([listBoardLessons({ view: "week", date: today, group_id: groupId }), listBoardLessons({ view: "week", date: nextWeek, group_id: groupId })])
+      .then(([a, b]) => {
+        if (!alive) return;
+        const upcoming = [...a.lessons, ...b.lessons].filter((l) => l.status === "SCHEDULED" && l.occurrence_local_date >= today);
+        setLessons(upcoming);
+        if (upcoming[0]) setLessonId(upcoming[0].id);
+      })
+      .catch(() => alive && setLessons([]));
+    return () => {
+      alive = false;
+    };
+  }, [trial, groupId]);
+
+  useEffect(() => {
+    if (!trial || !groupId || !lessonId) return;
+    let alive = true;
+    void getTrialPrice(groupId, lessonId)
+      .then((p) => {
+        if (!alive) return;
+        setPrice(p);
+        setPriceText(p.amount_minor !== null ? String(p.amount_minor / 100) : "");
+      })
+      .catch(() => alive && setPrice(null));
+    return () => {
+      alive = false;
+    };
+  }, [trial, groupId, lessonId]);
 
   useEffect(() => {
     void listGroups({ state: "ACTIVE" })
@@ -419,7 +527,14 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
     setBusy(true);
     setError(null);
     try {
-      await addGroupMembers(groupId, { student_ids: [studentId], joined_on: joinedOn });
+      if (trial) {
+        if (!lessonId) return;
+        const typed = Math.round(Number.parseFloat(priceText.replace(",", ".")) * 100);
+        const changed = canDo("student.set_price") && Number.isFinite(typed) && typed !== price?.amount_minor;
+        await bookGroupTrial(groupId, { student_id: studentId, lesson_id: lessonId, ...(changed ? { amount_minor: typed } : {}) });
+      } else {
+        await addGroupMembers(groupId, { student_ids: [studentId], joined_on: joinedOn });
+      }
       onDone();
     } catch (err) {
       setError(apiErrorMessage(err, t("subscriptions.joinFailed")));
@@ -440,14 +555,15 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             {tg("form.cancel")}
           </Button>
-          <Button type="submit" form="join-group-form" disabled={busy || !groupId} data-testid="subs-join-confirm">
+          <Button type="submit" form="join-group-form" disabled={busy || !groupId || (trial && !lessonId)} data-testid="subs-join-confirm">
             {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
-            {t("subscriptions.join")}
+            {trial ? t("subscriptions.bookTrial") : t("subscriptions.join")}
           </Button>
         </>
       }
     >
       <form id="join-group-form" onSubmit={(e) => void submit(e)} className="space-y-3">
+        <GroupSearchBox count={groups?.length ?? 0} value={groupQuery} onChange={setGroupQuery} testId="subs-group-search" />
         <label className="block text-sm font-medium">
           {t("subscriptions.pickGroup")}
           <select
@@ -463,7 +579,7 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
             data-testid="subs-group-pick"
           >
             <option value="">{groups === null ? "…" : groups.length === 0 ? t("subscriptions.noGroups") : "—"}</option>
-            {(groups ?? []).map((g) => (
+            {filterGroups(groups ?? [], groupQuery).map((g) => (
               <option key={g.id} value={g.id}>
                 {g.name}
                 {g.teacher_name ? ` · ${g.teacher_name}` : ""}
@@ -471,10 +587,47 @@ function JoinGroupModal({ studentId, studentName, exclude, onClose, onDone }: { 
             ))}
           </select>
         </label>
-        <label className="block text-sm font-medium">
-          {t("subscriptions.joinedOn")}
-          <input type="date" className={cn(fieldClass, "mt-1.5")} value={joinedOn} onChange={(e) => setJoinedOn(e.target.value)} />
+        <label className="flex items-start gap-2 text-sm">
+          <input type="checkbox" className="accent-primary mt-1" checked={trial} onChange={(e) => setTrial(e.target.checked)} data-testid="subs-trial" />
+          <span>
+            {t("subscriptions.trialLesson")}
+            <span className="text-muted-foreground block text-xs">{t("subscriptions.trialLessonHint")}</span>
+          </span>
         </label>
+        {trial ? (
+          <div className="space-y-2 rounded-xl border p-3">
+            <label className="block text-sm font-medium">
+              {t("subscriptions.trialPickLesson")}
+              <select className={cn(fieldClass, "mt-1.5")} value={lessonId} onChange={(e) => setLessonId(e.target.value)} disabled={!groupId || lessons === null} data-testid="subs-trial-lesson">
+                {lessons !== null && lessons.length === 0 && <option value="">{t("subscriptions.trialNoLessons")}</option>}
+                {(lessons ?? []).map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {dayLabel(l.occurrence_local_date, locale)} · {new Date(l.scheduled_at_utc).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {price && price.amount_minor !== null && (
+              <label className="block text-sm font-medium">
+                {t("subscriptions.trialPrice", { currency: price.currency ?? "" })}
+                <input
+                  className={cn(fieldClass, "mt-1.5")}
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={priceText}
+                  onChange={(e) => setPriceText(e.target.value)}
+                  disabled={!canDo("student.set_price")}
+                  data-testid="subs-trial-price"
+                />
+              </label>
+            )}
+          </div>
+        ) : (
+          <label className="block text-sm font-medium">
+            {t("subscriptions.joinedOn")}
+            <input type="date" className={cn(fieldClass, "mt-1.5")} value={joinedOn} onChange={(e) => setJoinedOn(e.target.value)} />
+          </label>
+        )}
         {error && <AlertBanner variant="error" message={error} />}
       </form>
     </Modal>

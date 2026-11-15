@@ -160,4 +160,19 @@ describe("PayrollScreen (salary period)", () => {
     expect(screen.queryByText(/الأرباح|Profit/)).not.toBeInTheDocument();
     expect(screen.queryByText(/المتأخرات المستحقة/)).not.toBeInTheDocument();
   });
+  it("narrows the salaries by teacher name, Arabic-forgiving (Lingo 2026-11-15)", async () => {
+    getPayrollRange.mockResolvedValue({
+      ...RANGE,
+      teachers: [
+        RANGE.teachers[0]!,
+        { ...RANGE.teachers[0]!, teacher_id: "t2", teacher_name: "أحمد سامي", net_minor: 10000 },
+      ],
+    });
+    renderScreen();
+    const table = await screen.findByTestId("salary-by-teacher");
+    await waitFor(() => expect(within(table).getAllByRole("button")).toHaveLength(2));
+    await userEvent.type(screen.getByTestId("salary-search"), "احمد");
+    await waitFor(() => expect(within(table).getAllByRole("button")).toHaveLength(1));
+    expect(within(table).getByText("أحمد سامي")).toBeInTheDocument();
+  });
 });

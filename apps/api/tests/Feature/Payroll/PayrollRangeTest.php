@@ -231,6 +231,17 @@ it('lists the monthly statements a window touches, on both sides of the boundary
         ->and((int) $juneOnly['rows'][0]['period_month'])->toBe(6);
 });
 
+it('finds a teacher\'s statements by name, Arabic-forgiving (Lingo 2026-11-15)', function () {
+    ($this->lessonOn)('2026-06-28 10:00:00+00');
+    $this->asAcademy($this->academy);
+    DB::table('teachers')->where('id', $this->teacher)->update(['full_name' => 'أحمد سامي']);
+    Sanctum::actingAs($this->owner);
+
+    // "احمد" (no hamza) finds "أحمد"; another name finds nothing.
+    expect($this->getJson('/api/payouts?search='.urlencode('احمد'))->assertOk()->json('total'))->toBe(1)
+        ->and($this->getJson('/api/payouts?search='.urlencode('منى'))->assertOk()->json('total'))->toBe(0);
+});
+
 // ─── The lessons behind a teacher's figure ──────────────────────────────────
 
 it('lists exactly the lessons the window counted for that teacher', function () {

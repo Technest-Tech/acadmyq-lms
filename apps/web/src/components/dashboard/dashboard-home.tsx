@@ -3,6 +3,7 @@
 import { AcademyDashboard } from "@/components/dashboard/academy-dashboard";
 import { CentreDashboard } from "@/components/dashboard/centre-dashboard";
 import { ModernDashboard } from "@/components/dashboard/modern-dashboard";
+import { GettingStarted } from "@/components/help/getting-started";
 import { useModernLook, useProfile } from "@/lib/capabilities";
 
 /**
@@ -15,6 +16,11 @@ import { useModernLook, useProfile } from "@/lib/capabilities";
 export function DashboardHome() {
   const profile = useProfile();
   const modern = useModernLook();
-  if (profile === "CENTRE") return <CentreDashboard />;
-  return modern ? <ModernDashboard /> : <AcademyDashboard />;
+  // A new academy's first steps sit above whichever dashboard it gets, and leave once done.
+  return (
+    <>
+      <GettingStarted />
+      {profile === "CENTRE" ? <CentreDashboard /> : modern ? <ModernDashboard /> : <AcademyDashboard />}
+    </>
+  );
 }

@@ -55,6 +55,8 @@ final class AccountingController extends Controller
         $receipts = DB::table('receipts as r')
             ->leftJoin('users as u', 'u.id', '=', 'r.received_by')
             ->whereNull('r.voided_at')
+            // A family's opening credit is not money in.
+            ->where('r.source', '<>', Ledger::SOURCE_OPENING)
             ->whereBetween('r.received_on', [$from, $to])
             ->get(['r.id', 'r.amount_minor', 'r.currency', 'r.method', 'r.received_on', 'r.received_by', 'r.source', 'u.full_name as collector']);
 
@@ -167,7 +169,72 @@ final class AccountingController extends Controller
             'credit' => $credit,
             'top_debtors' => $top,
             'recent_receipts' => $recent,
+            'follow_ups' => $this->followUpsDue($academyId, $today),
+            // Transfers recorded before the parent sent the screenshot (Lingo 2026-11-15).
+            'awaiting_proof' => DB::table('receipts as r')
+                ->leftJoin('guardians as g', 'g.id', '=', 'r.guardian_id')
+                ->leftJoin('students as s', 's.id', '=', 'r.student_id')
+                ->whereNull('r.voided_at')->where('r.proof_pending', true)
+                ->orderBy('r.received_on')->orderBy('r.created_at')->limit(50)
+                ->get(['r.id', 'r.number', 'r.received_on', 'r.amount_minor', 'r.currency', 'r.method', 'r.guardian_id', DB::raw('coalesce(g.full_name, s.full_name, r.payer_name) as payer_name')])
+                ->map(fn ($r) => [
+                    'id' => (string) $r->id,
+                    'number' => (string) $r->number,
+                    'received_on' => Carbon::parse($r->received_on)->format('Y-m-d'),
+                    'payer_name' => $r->payer_name,
+                    'guardian_id' => $r->guardian_id !== null ? (string) $r->guardian_id : null,
+                    'amount_minor' => (int) $r->amount_minor,
+                    'currency' => (string) $r->currency,
+                    'method' => (string) $r->method,
+                ])->all(),
         ]);
+    }
+
+    /**
+     * Today's payment reminders (Lingo 2026-11-15): every family whose latest follow-up note carries a
+     * promise date that is today — or passed in the last 30 days without anyone writing again — and
+     * who still owes. Writing any newer note on the family (paid, called, a new date) clears or
+     * moves it; a family that has paid drops out on its own. Missed ones used to vanish: the family
+     * card only ever showed a promise still to come.
+     *
+     * @return list<array<string, mixed>>
+     */
+    private function followUpsDue(string $academyId, string $today): array
+    {
+        $latest = DB::table('payer_notes')
+            ->selectRaw('distinct on (guardian_id) guardian_id, body, follow_up_on, created_at')
+            ->orderBy('guardian_id')->orderByDesc('created_at');
+        $rows = DB::query()->fromSub($latest, 'n')
+            ->join('guardians as g', 'g.id', '=', 'n.guardian_id')
+            ->whereNull('g.deleted_at')
+            ->whereNotNull('n.follow_up_on')
+            ->whereBetween('n.follow_up_on', [Carbon::parse($today)->subDays(30)->format('Y-m-d'), $today])
+            ->orderBy('n.follow_up_on')->orderBy('g.full_name')
+            ->limit(100)
+            ->get(['n.guardian_id', 'n.body', 'n.follow_up_on', 'g.full_name', 'g.whatsapp_phone']);
+
+        $out = [];
+        foreach ($rows as $r) {
+            $due = array_values(array_filter(
+                $this->ledger->balance($academyId, ['guardian_id' => (string) $r->guardian_id]),
+                fn ($b) => $b['due_minor'] > 0,
+            ));
+            if ($due === []) {
+                continue;
+            }
+            $on = Carbon::parse($r->follow_up_on)->format('Y-m-d');
+            $out[] = [
+                'guardian_id' => (string) $r->guardian_id,
+                'name' => (string) $r->full_name,
+                'phone' => $r->whatsapp_phone,
+                'follow_up_on' => $on,
+                'days_late' => (int) Carbon::parse($on)->diffInDays(Carbon::parse($today)),
+                'note' => (string) $r->body,
+                'due' => array_map(fn ($b) => ['currency' => $b['currency'], 'due_minor' => $b['due_minor'], 'credit_minor' => $b['credit_minor']], $due),
+            ];
+        }
+
+        return $out;
     }
 
     // ── Groups: collection and profit ───────────────────────────────────────
@@ -777,6 +844,7 @@ final class AccountingController extends Controller
         $receipts = DB::table('receipts as r')
             ->leftJoin('users as u', 'u.id', '=', 'r.received_by')
             ->whereNull('r.voided_at')
+            ->where('r.source', '<>', Ledger::SOURCE_OPENING)
             ->whereBetween('r.received_on', [$from, $to])
             ->when(isset($data['collector_id']), fn ($q) => $q->where('r.received_by', $data['collector_id']))
             ->get(['r.amount_minor', 'r.currency', 'r.method', 'r.received_on', 'r.received_by', 'r.source', 'u.full_name as collector']);

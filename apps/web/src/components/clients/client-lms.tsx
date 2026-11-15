@@ -1,11 +1,8 @@
 "use client";
 
 import {
-  ArrowLeft,
   Award,
   BookOpen,
-  ExternalLink,
-  Globe,
   GraduationCap,
   HardDrive,
   Layers,
@@ -17,9 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
-import { AdminPageHeader } from "@/components/admin/page-header";
 import { StatTile } from "@/components/admin/stat-tile";
 import { Th, TR_HEAD } from "@/components/admin/table";
 import { useAuth } from "@/components/auth-provider";
@@ -31,15 +26,14 @@ import {
   setLmsCourseStatus,
   setLmsLearnerStatus,
   setLmsLimits,
-  setLmsSubdomain,
   type LmsAcademyDetail,
   type LmsCourseStatus,
   type LmsLimits,
 } from "@/lib/api";
 import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { capPct, capTone, daysUntil, fmtBytes } from "../lms-format";
-import { CourseStatusBadge, LmsStatusBadge } from "../lms-status";
+import { capPct, capTone, fmtBytes } from "./lms-format";
+import { CourseStatusBadge } from "./lms-status";
 
 /** The three caps a Super Admin can override per client, in the order the form shows them. */
 const LIMIT_KEYS = ["maxCourses", "maxLearners", "maxStorageGb"] as const;
@@ -51,7 +45,16 @@ function reportError(toast: ToastApi, e: unknown, fallback: string) {
   toast.error(message);
 }
 
-export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
+/**
+ * The client page's "Course platform" tab — shown only for a client that holds the LMS module. What
+ * the course site holds (courses, learners, storage against its caps) and the controls that belong
+ * to the course platform alone: capacity caps, course takedown, learner blocking.
+ *
+ * The module's own lifecycle (trial, price, pause) is the Subscription tab's, and the site's
+ * address is the Settings tab's — one writer per fact, so neither is repeated here.
+ */
+export function ClientLmsTab({ clientId }: { clientId: string }) {
+  const academyId = clientId;
   const t = useTranslations("adminLms");
   const locale = useLocale();
   const { can } = useAuth();
@@ -76,63 +79,23 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
   }, [can, load]);
 
   if (!can("platform.manage")) {
-    return <p className="text-muted-foreground p-6 text-sm">{t("noPermission")}</p>;
+    return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
   }
 
   const fmtDate = (s: string | null) => (s ? new Date(s).toLocaleDateString(locale, { dateStyle: "medium" }) : "—");
-  const trialDays = detail ? daysUntil(detail.academy.trial_end) : null;
 
   return (
-    <div className="w-full space-y-5">
-      {detail === null && (
-        <Link
-          href="/admin/lms"
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 text-sm"
-        >
-          <ArrowLeft className="size-4 rtl:rotate-180" aria-hidden />
-          {t("detail.back")}
-        </Link>
-      )}
-
+    <div className="w-full space-y-5" role="tabpanel" data-testid="client-lms-tab">
       {notFound ? (
         <AlertBanner variant="error" message={t("detail.notFound")} />
       ) : detail === null ? (
-        <div className="bg-muted h-40 animate-pulse rounded-2xl" aria-hidden />
+        error ? (
+          <AlertBanner variant="error" message={t("loadError")} />
+        ) : (
+          <div className="bg-muted h-40 animate-pulse rounded-2xl" aria-hidden />
+        )
       ) : (
         <>
-          <AdminPageHeader
-            backHref="/admin/lms"
-            backLabel={t("detail.back")}
-            title={detail.academy.name}
-            titleExtra={
-              <>
-                <LmsStatusBadge status={detail.academy.lms_status} />
-                {detail.academy.lms_status === "TRIAL" && trialDays !== null && (
-                  <span className="text-muted-foreground text-xs">
-                    {t("detail.trialDaysLeft", { days: trialDays })}
-                  </span>
-                )}
-              </>
-            }
-            subtitle={
-              <>
-                {detail.academy.subdomain ?? t("clients.noSubdomain")} ·{" "}
-                {t("detail.createdAt", { date: fmtDate(detail.academy.created_at) })}
-              </>
-            }
-            actions={
-              /* Subscription lifecycle (start / trial / pause / end) is the client page's job — R4,
-                 one writer per fact. This page owns the course platform itself. */
-              <Link
-                href={`/admin/clients/${academyId}`}
-                className="text-primary text-sm font-semibold whitespace-nowrap hover:underline"
-                data-testid="open-client"
-              >
-                {t("detail.openClient")}
-              </Link>
-            }
-          />
-
           {error && <AlertBanner variant="error" message={t("loadError")} />}
 
           {/* Headline statistics */}
@@ -192,15 +155,12 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
           </div>
 
           {/* Controls */}
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <SiteCard detail={detail} academyId={academyId} onSaved={setDetail} />
-            <LimitsCard
-              key={JSON.stringify(detail.academy.lms_overrides)}
-              detail={detail}
-              academyId={academyId}
-              onSaved={setDetail}
-            />
-          </div>
+          <LimitsCard
+            key={JSON.stringify(detail.academy.lms_overrides)}
+            detail={detail}
+            academyId={academyId}
+            onSaved={setDetail}
+          />
 
           <CoursesCard detail={detail} academyId={academyId} onChanged={load} />
           <LearnersCard detail={detail} academyId={academyId} onChanged={load} />
@@ -229,90 +189,6 @@ export function AdminLmsAcademyScreen({ academyId }: { academyId: string }) {
         </>
       )}
     </div>
-  );
-}
-
-/** The public course-site handle — Super-Admin-write, owner-read (docs/lms). */
-function SiteCard({
-  detail,
-  academyId,
-  onSaved,
-}: {
-  detail: LmsAcademyDetail;
-  academyId: string;
-  onSaved: (d: LmsAcademyDetail) => void;
-}) {
-  const t = useTranslations("adminLms");
-  const toast = useToast();
-  const [value, setValue] = useState(detail.academy.subdomain ?? "");
-  const [saving, setSaving] = useState(false);
-  const dirty = value.trim() !== (detail.academy.subdomain ?? "");
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const next = value.trim();
-      onSaved(await setLmsSubdomain(academyId, next === "" ? null : next));
-      toast.success(t("detail.site.saved"));
-    } catch (e) {
-      reportError(toast, e, t("detail.site.failed"));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <section className="bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]">
-      <div className="mb-3 flex items-center gap-2">
-        <Globe className="text-muted-foreground size-4" aria-hidden />
-        <h2 className="text-sm font-semibold">{t("detail.site.title")}</h2>
-      </div>
-      <p className="text-muted-foreground mb-3 text-xs">{t("detail.site.hint")}</p>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <input
-          value={value}
-          onChange={(e) => setValue(e.target.value.toLowerCase())}
-          placeholder={t("detail.site.placeholder")}
-          className="bg-background min-w-0 flex-1 rounded-lg border px-3 py-2 font-mono text-sm"
-          aria-label={t("detail.site.title")}
-          data-testid="lms-subdomain-input"
-        />
-        {detail.site.root_domain && (
-          <span className="text-muted-foreground shrink-0 font-mono text-xs">.{detail.site.root_domain}</span>
-        )}
-        <button
-          type="button"
-          onClick={() => void save()}
-          disabled={!dirty || saving}
-          className="bg-primary text-primary-foreground inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold disabled:opacity-50"
-          data-testid="lms-subdomain-save"
-        >
-          {saving && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
-          {t("detail.save")}
-        </button>
-      </div>
-
-      {detail.site.url && (
-        <a
-          href={detail.site.url}
-          target="_blank"
-          rel="noreferrer"
-          className="text-primary mt-3 inline-flex items-center gap-1 text-xs font-medium hover:underline"
-        >
-          <ExternalLink className="size-3.5" aria-hidden />
-          {detail.site.url}
-        </a>
-      )}
-
-      {/* A path-shaped URL means subdomain routing is OFF — say so, rather than letting a
-          /learn/<handle> link read as a live subdomain (which is what makes it look broken). */}
-      {!detail.site.configured && detail.academy.subdomain !== null && (
-        <p className="mt-2 rounded-lg bg-amber-50 dark:bg-amber-950/20 px-2.5 py-1.5 text-[11px] text-amber-700 ring-1 ring-amber-600/20">
-          {t("detail.site.notConfigured")}
-        </p>
-      )}
-    </section>
   );
 }
 

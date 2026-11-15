@@ -1,17 +1,18 @@
 "use client";
 
-import { AlarmClock, ArrowLeft, BarChart3, Calculator, CalendarCheck, CreditCard, Hourglass, PiggyBank, Receipt, UserCheck, Vault, Wallet } from "lucide-react";
+import { AlarmClock, ArrowLeft, BarChart3, BellRing, Calculator, ImageOff, CalendarCheck, CreditCard, Hourglass, PiggyBank, Receipt, UserCheck, Vault, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { StatementModal, type StatementTarget } from "@/components/accounting/accounting-statement";
-import { AgingBar, MethodBadge, MethodBar, RateBar, Tile, dayLabel, pct, todayLocal } from "@/components/accounting/accounting-ui";
+import { AgingBar, MethodBadge, MethodBar, RateBar, Tile, dayLabel, pct, todayLocal, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fieldClass } from "@/components/groups/group-format";
 import { AlertBanner } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { PageHero } from "@/components/ui/page-hero";
 import { getAccountingOverview, getTreasury, type AccountingOverview, type TreasuryState } from "@/lib/accounting-api";
 import { formatMoney } from "@/lib/money";
@@ -67,6 +68,88 @@ export function AccountingOverviewScreen() {
       </div>
 
       {error && <AlertBanner variant="error" message={error} />}
+
+      {/* Today's payment reminders — the dates promised on families' notes, first thing on the page. */}
+      {data?.follow_ups && data.follow_ups.length > 0 && (
+        <section className="rounded-2xl border border-amber-500/40 bg-amber-500/5 p-4 shadow-sm" data-testid="overview-follow-ups">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-amber-500/15 text-amber-700 ring-1 ring-amber-500/30 dark:text-amber-300">
+              <BellRing className="size-3.5" aria-hidden />
+            </span>
+            {t("overview.followUpsTitle", { count: data.follow_ups.length })}
+          </h3>
+          <ul className="divide-border divide-y">
+            {data.follow_ups.map((f) => (
+              <li key={f.guardian_id} className="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:justify-between" data-testid={`follow-up-${f.guardian_id}`}>
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-2 text-sm font-semibold">
+                    <Link href={`/guardians/${f.guardian_id}`} className="hover:underline">
+                      {f.name}
+                    </Link>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[11px] font-semibold",
+                        f.days_late === 0 ? "bg-amber-500/15 text-amber-800 dark:text-amber-200" : "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+                      )}
+                    >
+                      {f.days_late === 0 ? t("overview.followUpToday") : t("overview.followUpLate", { days: f.days_late })}
+                    </span>
+                  </p>
+                  {f.note && <p className="text-muted-foreground text-xs break-words">{f.note}</p>}
+                </div>
+                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                  {f.due.map((d) => (
+                    <span key={d.currency} className="text-sm font-bold tabular-nums text-rose-700 dark:text-rose-300">
+                      {money(d.due_minor, d.currency)}
+                    </span>
+                  ))}
+                  <Button type="button" size="xs" onClick={() => setCollect({ guardian_id: f.guardian_id })} data-testid={`follow-up-collect-${f.guardian_id}`}>
+                    {t("overview.followUpCollect")}
+                  </Button>
+                  {f.phone && (
+                    <a href={waLink(f.phone, "")} target="_blank" rel="noopener noreferrer" className={cn(buttonVariants({ variant: "outline", size: "xs" }))}>
+                      {t("overview.followUpWhatsApp")}
+                    </a>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {/* Transfers recorded before the parent sent the screenshot — open one to attach it. */}
+      {data?.awaiting_proof && data.awaiting_proof.length > 0 && (
+        <section className="rounded-2xl border border-sky-500/40 bg-sky-500/5 p-4 shadow-sm" data-testid="overview-awaiting-proof">
+          <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold">
+            <span className="flex size-7 items-center justify-center rounded-lg bg-sky-500/15 text-sky-700 ring-1 ring-sky-500/30 dark:text-sky-300">
+              <ImageOff className="size-3.5" aria-hidden />
+            </span>
+            {t("proof.listTitle", { count: data.awaiting_proof.length })}
+          </h3>
+          <ul className="divide-border divide-y">
+            {data.awaiting_proof.map((r) => (
+              <li key={r.id}>
+                <button type="button" onClick={() => setReceiptId(r.id)} className="hover:bg-muted/40 flex w-full items-center justify-between gap-3 rounded-lg px-1 py-2 text-start" data-testid={`awaiting-proof-${r.id}`}>
+                  <span className="min-w-0">
+                    <span className="block truncate font-medium">{r.payer_name ?? "—"}</span>
+                    <span className="text-muted-foreground text-xs">
+                      <span className="font-mono" dir="ltr">
+                        {r.number}
+                      </span>{" "}
+                      · {dayLabel(r.received_on, locale)}
+                    </span>
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    <MethodBadge method={r.method} />
+                    <span className="font-semibold tabular-nums">{money(r.amount_minor, r.currency)}</span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {treasury && treasury.accounts.some((a) => a.is_active) && (
         <section className="bg-card rounded-2xl border p-4 shadow-sm" data-testid="overview-treasury">
@@ -258,7 +341,8 @@ export function AccountingOverviewScreen() {
               </Link>
             </div>
             <ul className="divide-y">
-              {data.recent_receipts.map((r) => (
+              {/* A voided receipt is not money: the latest list shows only live ones (all of them stay in the register). */}
+              {data.recent_receipts.filter((r) => !r.voided).map((r) => (
                 <li key={r.id}>
                   <button type="button" onClick={() => setReceiptId(r.id)} className={cn("hover:bg-muted/40 flex w-full items-center justify-between gap-3 rounded-lg px-1 py-2 text-start", r.voided && "opacity-50")}>
                     <span className="min-w-0">

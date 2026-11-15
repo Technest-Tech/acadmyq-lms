@@ -9,17 +9,20 @@ import { apiErrorMessage } from "@/components/groups/group-form";
 import { fromMinor, toMinor } from "@/components/groups/group-form";
 import { fieldClass, hoursText, percent, todayIn } from "@/components/groups/group-format";
 import { PersonAvatar, SectionCard, SoftBadge, rateTone } from "@/components/groups/group-look";
+import { filterGroups, GroupSearchBox } from "@/components/groups/group-search";
 import { StudentPicker } from "@/components/groups/student-picker";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
   addGroupMembers,
+  getLeaveQuote,
   listGroups,
   moveGroupMember,
   removeGroupMember,
   updateGroupMember,
   type GroupDetail,
+  type LeaveSettlement,
   type GroupMember,
   type GroupRow,
 } from "@/lib/groups-api";
@@ -464,15 +467,41 @@ export function RemoveMemberForm({
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Lessons paid and not taken (Lingo 2026-11-15): what they are worth, and what becomes of them.
+  const [leave, setLeave] = useState<Awaited<ReturnType<typeof getLeaveQuote>> | null>(null);
+  const [settlement, setSettlement] = useState<LeaveSettlement>("KEEP");
+  const [accountId, setAccountId] = useState("");
+  const locale = useLocale();
+
+  useEffect(() => {
+    if (!leftOn) return;
+    let alive = true;
+    getLeaveQuote(group.id, member.student_id, leftOn)
+      .then((res) => {
+        if (!alive) return;
+        setLeave(res);
+        setSettlement(res.quote && res.quote.unused_minor > 0 && res.can_settle ? "CREDIT" : "KEEP");
+        setAccountId(res.accounts[0]?.id ?? "");
+      })
+      .catch(() => alive && setLeave(null));
+    return () => {
+      alive = false;
+    };
+  }, [group.id, member.student_id, leftOn]);
+
+  const quote = leave?.quote ?? null;
+  const fmtMoney = (minor: number) => formatMoney({ amount: minor, currency: quote?.currency ?? "EGP" }, locale);
 
   async function submit() {
     setBusy(true);
     setError(null);
     const note = reason.trim();
     try {
+      const settles = quote !== null && quote.unused_minor > 0 && leave?.can_settle;
       const res = await removeGroupMember(group.id, member.student_id, {
         left_on: leftOn,
         reason: kind === "OTHER" ? note || null : note ? `${kind}: ${note}` : kind,
+        ...(settles ? { settlement, cash_account_id: settlement === "REFUND" ? accountId || null : null } : {}),
       });
       onSaved(res.group);
     } catch (err) {
@@ -500,6 +529,41 @@ export function RemoveMemberForm({
         </select>
       </label>
       {kind === "PAUSED" && <p className="text-muted-foreground text-xs">{t("members.pausedHint")}</p>}
+      {quote && quote.unused_minor > 0 && (
+        <div className="space-y-2 rounded-xl border border-amber-500/40 bg-amber-500/5 p-3" data-testid="leave-quote">
+          <p className="text-sm font-semibold">
+            {t("members.leaveQuote", { attended: quote.attended, remaining: quote.remaining, amount: fmtMoney(quote.unused_minor) })}
+          </p>
+          <p className="text-muted-foreground text-xs">
+            {quote.refundable_minor > 0
+              ? t("members.leaveQuotePaid", { amount: fmtMoney(quote.refundable_minor) })
+              : t("members.leaveQuoteUnpaid")}
+          </p>
+          {leave?.can_settle && (
+            <div className="space-y-1.5" role="radiogroup">
+              {(["CREDIT", "REFUND", "KEEP"] as const)
+                .filter((m) => m !== "REFUND" || (quote.refundable_minor > 0 && leave.can_refund && leave.accounts.length > 0))
+                .map((m) => (
+                  <label key={m} className="flex items-start gap-2 text-sm">
+                    <input type="radio" name="leave-settlement" className="accent-primary mt-1" checked={settlement === m} onChange={() => setSettlement(m)} data-testid={`leave-settle-${m}`} />
+                    <span>
+                      {t(`members.leaveSettle.${m}`, { amount: fmtMoney(m === "REFUND" ? quote.refundable_minor : quote.unused_minor) })}
+                    </span>
+                  </label>
+                ))}
+              {settlement === "REFUND" && (
+                <select className={fieldClass} value={accountId} onChange={(e) => setAccountId(e.target.value)} data-testid="leave-account">
+                  {leave.accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+        </div>
+      )}
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("members.leaveNote")}</span>
         <input className={fieldClass} value={reason} maxLength={280} onChange={(e) => setReason(e.target.value)} placeholder={t("members.reasonPlaceholder")} data-testid="leave-note" />
@@ -583,6 +647,7 @@ export function MoveMemberForm({
   const t = useTranslations("groups");
   const [targets, setTargets] = useState<GroupRow[] | null>(null);
   const [toId, setToId] = useState("");
+  const [groupQuery, setGroupQuery] = useState("");
   const [on, setOn] = useState(() => todayIn(group.timezone));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -612,11 +677,12 @@ export function MoveMemberForm({
   return (
     <div className="space-y-4">
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+      <GroupSearchBox count={targets?.length ?? 0} value={groupQuery} onChange={setGroupQuery} testId="move-target-search" />
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("members.moveTo")}</span>
         <select className={fieldClass} value={toId} onChange={(e) => setToId(e.target.value)} data-testid="move-target">
           <option value="">{targets === null ? t("loading") : t("members.pickGroup")}</option>
-          {(targets ?? []).map((g) => (
+          {filterGroups(targets ?? [], groupQuery).map((g) => (
             <option key={g.id} value={g.id}>
               {g.name}
               {g.capacity !== null ? ` (${g.member_count}/${g.capacity})` : ""}

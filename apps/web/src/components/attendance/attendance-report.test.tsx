@@ -890,3 +890,57 @@ describe("AttendanceReport — a learning centre without the lesson report", () 
     expect(await screen.findByTestId("open-history")).toBeInTheDocument();
   });
 });
+
+describe("AttendanceReport — a double lesson on a block counted in lessons", () => {
+  const managerSession = () =>
+    makeSession("ACADEMY_OWNER", {
+      permissions: ["session.read", "session.mark_attendance", "session.write_report", "package.manage"],
+    });
+  const onLessonsBlock = () =>
+    detail({ session: { ...detail().session, counts_in_lessons: true, package_lessons: 1 } });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.markAttendance).mockResolvedValue({
+      status: "ATTENDED",
+      billed: true,
+      classification: { billableToStudent: true, countsForTeacher: true },
+    });
+    vi.mocked(api.putSessionReport).mockResolvedValue({ ok: true, values: {} });
+    vi.mocked(api.getStudentReports).mockResolvedValue({ reports: [], total: 0, page: 1, pageSize: 25 });
+  });
+
+  it("records the lesson as two when the office ticks it", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(onLessonsBlock());
+    const user = userEvent.setup();
+    renderPanel(managerSession());
+
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    await user.click(screen.getByTestId("double-lesson-toggle"));
+    await user.click(screen.getByTestId("save-report"));
+
+    await waitFor(() =>
+      expect(api.markAttendance).toHaveBeenCalledWith("se1", {
+        status: "ATTENDED",
+        override_timing: true,
+        package_lessons: 2,
+      }),
+    );
+  });
+
+  it("offers it only on a block counted in lessons, to someone who manages packages, for an attended lesson", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(onLessonsBlock());
+    const user = userEvent.setup();
+    renderPanel(ownerSession());
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    expect(screen.queryByTestId("double-lesson")).not.toBeInTheDocument();
+  });
+
+  it("is not offered when the block counts minutes", async () => {
+    vi.mocked(api.getSession).mockResolvedValue(detail());
+    const user = userEvent.setup();
+    renderPanel(managerSession());
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    expect(screen.queryByTestId("double-lesson")).not.toBeInTheDocument();
+  });
+});

@@ -21,6 +21,7 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { KhatamLattice } from "@/components/ornaments";
 import { StaffForm } from "@/components/staff/staff-form";
+import { StaffHandoverCard } from "@/components/staff/staff-handover-card";
 import { StaffLoginSection } from "@/components/staff/staff-login-section";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -361,6 +362,11 @@ export function StaffDetail({ id }: { id: string }) {
           isSelf={member.user_id !== null && member.user_id === session?.user.id}
           onChanged={load}
         />
+      )}
+
+      {/* ── Supervision handover: their students, teachers and parents to someone else ── */}
+      {can("staff.update") && member.user_id && (
+        <StaffHandoverCard userId={member.user_id} name={member.full_name} />
       )}
 
       {/* ── Danger zone ───────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 "use client";
 
-import { BookOpen, CalendarOff, ClipboardList, DatabaseBackup, ScrollText, Settings, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { BookOpen, CalendarOff, ClipboardList, DatabaseBackup, ScrollText, Settings, SlidersHorizontal, Wallet, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
 import { useAuth } from "@/components/auth-provider";
@@ -12,13 +12,14 @@ import { DataExportCard } from "@/components/settings/data-export-card";
 import { GroupDefaultsManager } from "@/components/settings/group-defaults-manager";
 import { LessonReportManager } from "@/components/settings/lesson-report-manager";
 import { LevelsManager, LevelsSwitch } from "@/components/settings/levels-manager";
+import { PaymentMethodsManager } from "@/components/settings/payment-methods-manager";
 import { ReportCardManager } from "@/components/settings/report-card-manager";
 import { RoomsManager } from "@/components/settings/rooms-manager";
 import { SpecializationsManager } from "@/components/settings/specializations-manager";
 import { useCapability } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 
-type TabKey = "courses" | "lessonReport" | "reportCard" | "holidays" | "controls" | "account";
+type TabKey = "courses" | "lessonReport" | "reportCard" | "payments" | "holidays" | "controls" | "account";
 
 /**
  * Each tab names the capability it needs: the course list and the report card are day-to-day
@@ -31,6 +32,9 @@ const TABS: ReadonlyArray<{ key: TabKey; icon: LucideIcon; permission: string }>
   { key: "courses", icon: BookOpen, permission: "specialization.manage" },
   { key: "lessonReport", icon: ClipboardList, permission: "report_field.manage" },
   { key: "reportCard", icon: ScrollText, permission: "report_field.manage" },
+  // How payers can send money (wallet, InstaPay, PayPal, bank, …) — shown on the bill and family
+  // pay pages. A Quran academy's tab (2026-11-15); a centre collects at the desk.
+  { key: "payments", icon: Wallet, permission: "payment_settings.manage" },
   // A centre's closed days (docs/centre-profile, Phase 2 §3) — its own settings, centre only.
   { key: "holidays", icon: CalendarOff, permission: "settings.manage" },
   { key: "controls", icon: SlidersHorizontal, permission: "settings.manage" },
@@ -58,6 +62,7 @@ export function SettingsManager() {
       (tab.key !== "reportCard" || hasReportCard) &&
       (tab.key !== "lessonReport" || hasLessonReport) &&
       (tab.key !== "holidays" || isCentre) &&
+      (tab.key !== "payments" || !isCentre) &&
       (tab.key !== "account" || isAdmin),
   );
   const active: TabKey = tabs.some((tab) => tab.key === chosen) ? chosen : (tabs[0]?.key ?? "courses");
@@ -127,6 +132,7 @@ export function SettingsManager() {
         )}
         {active === "lessonReport" && <LessonReportManager />}
         {active === "reportCard" && <ReportCardManager />}
+        {active === "payments" && <PaymentMethodsManager />}
         {active === "holidays" && <HolidaysManager />}
         {active === "controls" && <ControlsManager />}
         {active === "account" && (

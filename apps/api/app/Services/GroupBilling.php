@@ -82,29 +82,25 @@ final class GroupBilling
     }
 
     /**
-     * The two-month offer, taken at the desk (lingo, 2026-11-09): the family pays one amount for
-     * this subject's month and the next. The member's unpaid monthly charge becomes one charge
-     * covering both, at the amount agreed — so next month is not charged again (calendar: the next
-     * month is skipped, {@see coveredByTwoMonths}; hours: the charge buys twice the hours). Only an
-     * open charge whose next month is not raised yet; any one subject, the others untouched.
-     *
-     * @return object the line as it now stands
+     * Why this charge cannot take the two-month offer, or null when it can: a monthly group charge,
+     * not already covering two months, not let go, on an open bill, with the subject's next month
+     * (or next hours cycle) not raised yet. The collect screen asks this before showing the offer,
+     * so the desk is never handed one the server then refuses (the next month of an old unpaid
+     * month is usually raised already).
      */
-    public function applyTwoMonthOffer(string $lineId, int $amountMinor, ?string $actorUserId, ?string $actorRole): object
+    public function twoMonthRefusal(object $line): ?string
     {
-        $line = DB::table('invoice_line_items')->where('id', $lineId)->lockForUpdate()->first();
-        $refuse = fn (string $msg) => throw \Illuminate\Validation\ValidationException::withMessages(['two_month_offers' => [$msg]]);
-        if ($line === null || $line->class_group_id === null || $line->group_charge !== self::MONTHLY) {
-            $refuse('The two-month offer is for a monthly group charge. / عرض الشهرين لرسوم مجموعة شهرية فقط.');
+        if ($line->class_group_id === null || $line->group_charge !== self::MONTHLY) {
+            return 'The two-month offer is for a monthly group charge. / عرض الشهرين لرسوم مجموعة شهرية فقط.';
         }
         if ((int) ($line->group_months ?? 1) === 2) {
-            $refuse('This charge already covers two months. / هذا البند يغطي شهرين بالفعل.');
+            return 'This charge already covers two months. / هذا البند يغطي شهرين بالفعل.';
         }
-        if ($amountMinor < 1) {
-            $refuse('Enter the amount for the two months. / أدخل مبلغ الشهرين.');
+        if (($line->cancelled_at ?? null) !== null) {
+            return 'This charge was let go. / هذا البند أُلغي.';
         }
         if (DB::table('invoices')->where('id', $line->invoice_id)->value('status') !== 'OPEN') {
-            $refuse('That bill is closed. / هذه الفاتورة مقفلة.');
+            return 'That bill is closed. / هذه الفاتورة مقفلة.';
         }
         $next = DB::table('invoice_line_items as li')->join('invoices as i', 'i.id', '=', 'li.invoice_id')
             ->where('li.class_group_id', $line->class_group_id)->where('li.student_id', $line->student_id)
@@ -114,26 +110,104 @@ final class GroupBilling
                 fn ($q) => $q->whereNull('li.group_cycle')->where('li.group_period', Carbon::parse($line->group_period)->addMonth()->startOfMonth()->format('Y-m-d')))
             ->exists();
         if ($next) {
-            $refuse('Next month is already charged for this subject. / الشهر التالي مُسجَّل بالفعل لهذه المادة.');
+            return 'Next month is already charged for this subject. / الشهر التالي مُسجَّل بالفعل لهذه المادة.';
         }
 
-        $label = ' + '.($line->group_cycle !== null ? 'next month' : Carbon::parse($line->group_period)->addMonth()->locale('en')->translatedFormat('F Y')).' (2-month offer / عرض شهرين)';
+        return null;
+    }
+
+    /**
+     * What the two months come to before any offer discount: this charge as raised (a first month
+     * pro-rated stays pro-rated) plus one FULL month at the member's price — never twice a
+     * pro-rated month — each under the family's discounts. Null when the charge can't take it.
+     *
+     * @return array{list_minor:int, family_discount_minor:int, family_label:?string, amount_minor:int}|null
+     */
+    public function twoMonthQuote(object $line): ?array
+    {
+        if ($this->twoMonthRefusal($line) !== null) {
+            return null;
+        }
+        $group = DB::table('class_groups')->where('id', $line->class_group_id)->first();
+        if ($group === null) {
+            return null;
+        }
+        $member = DB::table('class_group_members')->where('group_id', $group->id)->where('student_id', $line->student_id)
+            ->orderByDesc('joined_on')->first();
+        $monthPrice = $member !== null ? self::chargeTerms($group, $member)[1] : (int) $group->price_minor;
+
+        $thisList = (int) ($line->list_amount_minor ?? $line->amount_minor);
+        $thisDiscount = max(0, $thisList - (int) $line->amount_minor);
+        $nextOn = Carbon::parse($line->group_period ?? $line->session_date)->addMonth()->format('Y-m-d');
+        $next = app(PayerDiscounts::class)->apply((string) $line->academy_id, (string) $line->student_id, PayerDiscounts::SCOPE_GROUP, (string) $group->id, $monthPrice, $nextOn);
+
+        $labels = collect([$line->discount_label ?? null, $next['discount_label']])
+            ->filter()->flatMap(fn ($l) => explode(' + ', (string) $l))->map(fn ($l) => trim($l))->filter()->unique()->implode(' + ');
+        $list = $thisList + $monthPrice;
+        $family = $thisDiscount + (int) $next['discount_minor'];
+
+        return ['list_minor' => $list, 'family_discount_minor' => $family, 'family_label' => $labels !== '' ? $labels : null, 'amount_minor' => max(0, $list - $family)];
+    }
+
+    /**
+     * The two-month offer, taken at the desk (lingo, 2026-11-09): the family pays one amount for
+     * this subject's month and the next. The member's monthly charge becomes one charge covering
+     * both — so next month is not charged again (calendar: the next month is skipped,
+     * {@see coveredByTwoMonths}; hours: the charge buys twice the hours). Only an open charge whose
+     * next month is not raised yet; any one subject, the others untouched.
+     *
+     * The desk gives either the offer's discount (taken off {@see twoMonthQuote}) or, as before, the
+     * total for both months. The bill keeps what was taken off and why — the family's discount and
+     * the offer — and the agreed amount is final: a family discount added or ended later never
+     * reprices it (PayerDiscounts leaves two-month charges alone), so nothing is taken off twice.
+     *
+     * @return object the line as it now stands
+     */
+    public function applyTwoMonthOffer(string $lineId, ?int $amountMinor, ?string $actorUserId, ?string $actorRole, ?int $offerDiscountMinor = null): object
+    {
+        $line = DB::table('invoice_line_items')->where('id', $lineId)->lockForUpdate()->first();
+        $refuse = fn (string $msg) => throw \Illuminate\Validation\ValidationException::withMessages(['two_month_offers' => [$msg]]);
+        if ($line === null) {
+            $refuse('The two-month offer is for a monthly group charge. / عرض الشهرين لرسوم مجموعة شهرية فقط.');
+        }
+        if (($why = $this->twoMonthRefusal($line)) !== null) {
+            $refuse($why);
+        }
+        $quote = $this->twoMonthQuote($line);
+        if ($offerDiscountMinor !== null) {
+            if ($offerDiscountMinor < 0 || $quote === null) {
+                $refuse('Enter the offer discount. / أدخل خصم العرض.');
+            }
+            $amountMinor = $quote['amount_minor'] - $offerDiscountMinor;
+        }
+        if ($amountMinor === null || $amountMinor < 1) {
+            $refuse('Enter the amount for the two months. / أدخل مبلغ الشهرين.');
+        }
+
+        $list = max((int) ($quote['list_minor'] ?? 0), $amountMinor);
+        $offerTaken = $amountMinor < (int) ($quote['amount_minor'] ?? 0);
+        $label = collect([$quote['family_label'] ?? null, $offerTaken ? 'عرض شهرين' : null])->filter()->implode(' + ');
+
+        $suffix = ' + '.($line->group_cycle !== null ? 'next month' : Carbon::parse($line->group_period)->addMonth()->locale('en')->translatedFormat('F Y')).' (2-month offer / عرض شهرين)';
         $delta = $amountMinor - (int) $line->amount_minor;
         DB::table('invoice_line_items')->where('id', $line->id)->update([
-            'amount_minor' => $amountMinor, 'list_amount_minor' => $amountMinor, 'discount_minor' => 0, 'discount_label' => null,
+            'amount_minor' => $amountMinor,
+            'list_amount_minor' => $list,
+            'discount_minor' => $list - $amountMinor,
+            'discount_label' => $list > $amountMinor && $label !== '' ? mb_substr($label, 0, 255) : null,
             'group_months' => 2,
             'group_minutes' => $line->group_minutes !== null ? 2 * (int) $line->group_minutes : null,
-            'description' => mb_substr((string) $line->description.$label, 0, 500),
+            'description' => mb_substr((string) $line->description.$suffix, 0, 500),
         ]);
         DB::table('invoices')->where('id', $line->invoice_id)->update([
             'subtotal_minor' => DB::raw("subtotal_minor + ({$delta})"),
-            'total_minor' => DB::raw("subtotal_minor + ({$delta})"),
+            'total_minor' => DB::raw("total_minor + ({$delta})"),
             'updated_at' => now(),
         ]);
         app(Ledger::class)->afterLinesChanged((string) $line->invoice_id);
         Audit::log('class_group.two_month_offer', 'invoice', (string) $line->invoice_id, (string) $line->academy_id, $actorUserId, $actorRole,
             before: ['line_id' => (string) $line->id, 'amount_minor' => (int) $line->amount_minor],
-            after: ['line_id' => (string) $line->id, 'amount_minor' => $amountMinor, 'group_months' => 2, 'group_id' => (string) $line->class_group_id, 'student_id' => (string) $line->student_id]);
+            after: ['line_id' => (string) $line->id, 'amount_minor' => $amountMinor, 'list_minor' => $list, 'offer_discount_minor' => $offerDiscountMinor, 'group_months' => 2, 'group_id' => (string) $line->class_group_id, 'student_id' => (string) $line->student_id]);
 
         return DB::table('invoice_line_items')->where('id', $line->id)->first();
     }
@@ -378,6 +452,94 @@ final class GroupBilling
         }
 
         return $added;
+    }
+
+    /**
+     * What leaving a monthly group on `$leftOn` leaves unused of what the member was charged (Lingo
+     * 2026-11-15: "attended 5, 3 left worth 180 — credit or refund?"). Read BEFORE the membership is
+     * ended. An hours group: the minutes bought and not used, on the charge in use (absences count —
+     * the class happened). A calendar month: the month's lessons from that day on, as a share of the
+     * lessons the charge covers (a pro-rated join already priced the start). Net of any discount —
+     * the line's own amount. Null when nothing monthly was charged.
+     *
+     * @return array{line_id:string, invoice_id:string, kind:string, attended:int, remaining:int, unused_minutes:int, unused_minor:int, line_minor:int, paid_minor:int, refundable_minor:int, currency:string}|null
+     */
+    public function leaveQuote(object $group, string $studentId, string $leftOn): ?array
+    {
+        if ($group->billing_mode !== self::MONTHLY || ! self::priced($group)) {
+            return null;
+        }
+        $memberships = DB::table('class_group_members')->where('group_id', $group->id)->where('student_id', $studentId)->get();
+        if ($memberships->isEmpty()) {
+            return null;
+        }
+        $lines = DB::table('invoice_line_items as li')->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->where('li.class_group_id', $group->id)->where('li.student_id', $studentId)
+            ->where('li.group_charge', self::MONTHLY)->where('i.status', '<>', 'VOID')->whereNull('li.cancelled_at')
+            ->orderBy('li.group_period')->orderBy('li.group_cycle')->orderBy('li.created_at')
+            ->get(['li.*']);
+        if ($lines->isEmpty()) {
+            return null;
+        }
+
+        $unusedMinutes = 0;
+        if (self::byHours($group)) {
+            // As if they left that day: the open membership ends there.
+            $asLeft = $memberships->map(function ($m) use ($leftOn) {
+                $c = clone $m;
+                if ($c->left_on === null || Carbon::parse($c->left_on)->format('Y-m-d') > $leftOn) {
+                    $c->left_on = $leftOn;
+                }
+
+                return $c;
+            });
+            $state = $this->hourState($asLeft, $this->countedLessons($group), $this->boughtHourMonths((string) $group->id, [$studentId])[$studentId] ?? null, $this->ruleFrom($group));
+            $line = $lines->last();
+            $lineMinutes = max(1, (int) ($line->group_minutes ?? 0));
+            $unusedMinutes = min($lineMinutes, max(0, $state['bought_minutes'] - $state['used_minutes']));
+            $unused = (int) round((int) $line->amount_minor * $unusedMinutes / $lineMinutes);
+            $lessonMinutes = (int) ($state['held']->last()->minutes ?? 0)
+                ?: (int) (DB::table('class_group_slots')->where('group_id', $group->id)->value('duration_minutes') ?? 60);
+            $attended = $state['held']->count();
+            $remaining = (int) round($unusedMinutes / max(1, $lessonMinutes));
+            $kind = 'HOURS';
+        } else {
+            $month = Carbon::parse($leftOn)->startOfMonth();
+            $line = $lines->first(fn ($l) => Carbon::parse($l->group_period)->format('Y-m-d') === $month->format('Y-m-d'))
+                ?? $lines->first(fn ($l) => (int) ($l->group_months ?? 1) === 2 && Carbon::parse($l->group_period)->format('Y-m-d') === $month->copy()->subMonth()->format('Y-m-d'));
+            if ($line === null) {
+                return null;
+            }
+            $coverStart = Carbon::parse($line->group_period)->startOfMonth();
+            $coverEnd = $coverStart->copy()->addMonths((int) ($line->group_months ?? 1) === 2 ? 2 : 1)->subDay();
+            $joined = (string) $memberships->map(fn ($m) => Carbon::parse($m->joined_on)->format('Y-m-d'))->filter(fn ($d) => $d <= $leftOn)->max();
+            $from = max($coverStart->format('Y-m-d'), $joined !== '' ? $joined : $coverStart->format('Y-m-d'));
+            $dates = DB::table('class_group_lessons')->where('group_id', $group->id)->where('status', '<>', 'CANCELLED')
+                ->whereBetween('occurrence_local_date', [$from, $coverEnd->format('Y-m-d')])
+                ->pluck('occurrence_local_date')->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'));
+            $billed = max(1, $dates->count());
+            $remaining = $dates->filter(fn ($d) => $d >= $leftOn)->count();
+            $attended = $dates->count() - $remaining;
+            $unused = (int) round((int) $line->amount_minor * $remaining / $billed);
+            $kind = 'MONTH';
+        }
+
+        $paid = (int) DB::table('receipt_allocations')->where('invoice_line_id', $line->id)->sum('amount_minor');
+
+        return [
+            'line_id' => (string) $line->id,
+            'invoice_id' => (string) $line->invoice_id,
+            'kind' => $kind,
+            'attended' => $attended,
+            'remaining' => $remaining,
+            'unused_minutes' => $unusedMinutes,
+            'unused_minor' => $unused,
+            'line_minor' => (int) $line->amount_minor,
+            'paid_minor' => $paid,
+            // What was paid beyond what they used: the part that can become credit or cash.
+            'refundable_minor' => max(0, $paid - ((int) $line->amount_minor - $unused)),
+            'currency' => (string) $line->currency,
+        ];
     }
 
     /**
@@ -876,6 +1038,8 @@ final class GroupBilling
             ->join('students as st', 'st.id', '=', 'm.student_id')
             ->leftJoin('guardians as gu', 'gu.id', '=', 'st.guardian_id')
             ->where('m.group_id', $group->id)
+            // A trial lesson is charged on its own (GroupTrial), never as a month or hours.
+            ->where('m.is_trial', false)
             ->whereNull('st.deleted_at')
             // A suspended family is not billed while it lasts; what was raised before stays.
             ->whereNull('gu.suspended_at')

@@ -158,3 +158,145 @@ it('names the supervisor who added the student on every held-up lesson', functio
         // A student nobody on the team added answers to nobody.
         ->and($rows[$importedLesson]['added_by_user_id'])->toBeNull();
 });
+
+// ── Handing a supervisor's people to another ─────────────────────────────────
+
+it('hands a supervisor\'s students, teachers and parents to another supervisor', function () {
+    Sanctum::actingAs($this->supA);
+    $this->postJson('/api/students', ['full_name' => 'Pupil of A', 'guardian_id' => $this->guardian])->assertCreated();
+    $teacher = (string) $this->postJson('/api/teachers', ['full_name' => 'Teacher of A', 'session_rate_minor' => 0])->assertCreated()->json('teacherId');
+    $this->postJson('/api/guardians', ['full_name' => 'Parent of A', 'whatsapp_phone' => '+201001234500', 'currency' => 'EGP'])->assertCreated();
+    Sanctum::actingAs($this->supB);
+    $this->postJson('/api/students', ['full_name' => 'Pupil of B', 'guardian_id' => $this->guardian])->assertCreated();
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/team/actors/{$this->supA->id}/handover")->assertOk()
+        ->assertJson(['counts' => ['student' => 1, 'teacher' => 1, 'guardian' => 1]]);
+
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", [
+        'to_user_id' => (string) $this->supB->id, 'types' => ['student', 'teacher', 'guardian'],
+    ])->assertOk()->assertJson(['moved' => ['student' => 1, 'teacher' => 1, 'guardian' => 1]]);
+
+    // Every list now names B, and B's filter finds them; A answers for nothing any more.
+    $students = collect($this->getJson('/api/students?pageSize=50')->assertOk()->json('rows'))->keyBy('full_name');
+    expect($students['Pupil of A']['added_by_name'])->toBe('Supervisor B');
+    expect($this->getJson("/api/students?filter[added_by]={$this->supB->id}")->json('total'))->toBe(2)
+        ->and($this->getJson("/api/students?filter[added_by]={$this->supA->id}")->json('total'))->toBe(0);
+    $teachers = collect($this->getJson('/api/teachers?pageSize=50')->assertOk()->json('rows'))->keyBy('full_name');
+    expect($teachers['Teacher of A']['added_by_name'])->toBe('Supervisor B');
+    $parents = collect($this->getJson('/api/guardians?pageSize=50')->assertOk()->json('rows'))->keyBy('full_name');
+    expect($parents['Parent of A']['added_by_name'])->toBe('Supervisor B');
+    $this->getJson("/api/team/actors/{$this->supA->id}/handover")->assertOk()
+        ->assertJson(['counts' => ['student' => 0, 'teacher' => 0, 'guardian' => 0]]);
+
+    $this->asAcademy($this->academy);
+    // History is kept: the audit log still says A added them; the handover is one entry of its own.
+    expect(Illuminate\Support\Facades\DB::table('audit_log')->where('action', 'teacher.create')->where('entity_id', $teacher)->value('actor_user_id'))->toBe((string) $this->supA->id)
+        ->and(Illuminate\Support\Facades\DB::table('audit_log')->where('action', 'supervisor.handover')->where('entity_id', (string) $this->supA->id)->exists())->toBeTrue();
+});
+
+it('moves the handed-over students\' lessons into the new supervisor\'s "My lessons"', function () {
+    Sanctum::actingAs($this->supA);
+    $pupil = (string) $this->postJson('/api/students', ['full_name' => 'Pupil of A', 'guardian_id' => $this->guardian])->assertCreated()->json('studentId');
+    $teacher = $this->createTeacher($this->academy);
+    $lesson = $this->createSession($this->academy, $pupil, $teacher, ['scheduled_at_utc' => '2026-06-11 06:00:00+00', 'status' => 'SCHEDULED']);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->supB->id, 'types' => ['student']])->assertOk();
+
+    $ids = fn (string $url) => collect($this->getJson($url)->assertOk()->json('sessions'))->pluck('id')->all();
+    Sanctum::actingAs($this->supB);
+    expect($ids('/api/sessions/day?from=2026-06-11T00:00:00Z&to=2026-06-12T00:00:00Z&mine=1'))->toBe([$lesson])
+        ->and($ids('/api/sessions/overdue?mine=1'))->toBe([$lesson]);
+    expect(collect($this->getJson('/api/sessions/overdue')->json('sessions'))->firstWhere('id', $lesson)['added_by_name'])->toBe('Supervisor B');
+    Sanctum::actingAs($this->supA);
+    expect($ids('/api/sessions/overdue?mine=1'))->toBe([]);
+});
+
+it('moves only the kinds picked, and only live records', function () {
+    Sanctum::actingAs($this->supA);
+    $kept = (string) $this->postJson('/api/students', ['full_name' => 'Stays with A', 'guardian_id' => $this->guardian])->assertCreated()->json('studentId');
+    $gone = (string) $this->postJson('/api/students', ['full_name' => 'Removed pupil', 'guardian_id' => $this->guardian])->assertCreated()->json('studentId');
+    $this->postJson('/api/teachers', ['full_name' => 'Teacher of A', 'session_rate_minor' => 0])->assertCreated();
+    $this->asAcademy($this->academy);
+    Illuminate\Support\Facades\DB::table('students')->where('id', $gone)->update(['deleted_at' => now()]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->supB->id, 'types' => ['teacher']])
+        ->assertOk()->assertJson(['moved' => ['student' => 0, 'teacher' => 1, 'guardian' => 0]]);
+
+    $students = collect($this->getJson('/api/students?pageSize=50')->json('rows'))->keyBy('full_name');
+    expect($students['Stays with A']['added_by_name'])->toBe('Supervisor A');
+    $this->asAcademy($this->academy);
+    expect(Illuminate\Support\Facades\DB::table('supervisor_assignments')->where('entity_id', $gone)->exists())->toBeFalse()
+        ->and(Illuminate\Support\Facades\DB::table('supervisor_assignments')->where('entity_id', $kept)->exists())->toBeFalse();
+});
+
+it('hands over only to an active member of the team, and only for someone who runs the team', function () {
+    Sanctum::actingAs($this->supA);
+    $this->postJson('/api/teachers', ['full_name' => 'Teacher of A', 'session_rate_minor' => 0])->assertCreated();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->teacherUser->id, 'types' => ['teacher']])
+        ->assertUnprocessable()->assertJsonValidationErrors(['to_user_id']);
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->supA->id, 'types' => ['teacher']])
+        ->assertUnprocessable()->assertJsonValidationErrors(['to_user_id']);
+    $this->asAcademy($this->academy);
+    Illuminate\Support\Facades\DB::table('users')->where('id', $this->supB->id)->update(['is_active' => false]);
+    $this->clearTenantContext();
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->supB->id, 'types' => ['teacher']])
+        ->assertUnprocessable()->assertJsonValidationErrors(['to_user_id']);
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->owner->id, 'types' => ['nonsense']])
+        ->assertUnprocessable()->assertJsonValidationErrors(['types.0']);
+
+    // A supervisor does not run the team.
+    Sanctum::actingAs($this->supA);
+    $this->getJson("/api/team/actors/{$this->supA->id}/handover")->assertForbidden();
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->owner->id, 'types' => ['teacher']])->assertForbidden();
+});
+
+it('lists every supervisor who still has people, the gone ones first, and hands over from them', function () {
+    Sanctum::actingAs($this->supA);
+    $this->postJson('/api/students', ['full_name' => 'Pupil of A', 'guardian_id' => $this->guardian])->assertCreated();
+    $this->postJson('/api/teachers', ['full_name' => 'Teacher of A', 'session_rate_minor' => 0])->assertCreated();
+    Sanctum::actingAs($this->supB);
+    $this->postJson('/api/students', ['full_name' => 'Pupil of B', 'guardian_id' => $this->guardian])->assertCreated();
+    // A has left: her role was taken away, so she is no longer on the team at all.
+    $this->asAcademy($this->academy);
+    Illuminate\Support\Facades\DB::table('user_roles')->where('user_id', $this->supA->id)->delete();
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $owners = collect($this->getJson('/api/team/handover')->assertOk()->json('owners'));
+    $a = $owners->firstWhere('user_id', (string) $this->supA->id);
+    expect($owners->first()['user_id'])->toBe((string) $this->supA->id)
+        ->and($a['state'])->toBe('gone')
+        ->and($a['name'])->toBe('Supervisor A')
+        ->and($a['counts'])->toBe(['student' => 1, 'teacher' => 1, 'guardian' => 0])
+        ->and($owners->firstWhere('user_id', (string) $this->supB->id)['state'])->toBe('active');
+
+    $this->postJson("/api/team/actors/{$this->supA->id}/handover", ['to_user_id' => (string) $this->supB->id, 'types' => ['student', 'teacher']])
+        ->assertOk()->assertJson(['moved' => ['student' => 1, 'teacher' => 1, 'guardian' => 0]]);
+
+    expect(collect($this->getJson('/api/team/handover')->json('owners'))->firstWhere('user_id', (string) $this->supA->id))->toBeNull();
+    $students = collect($this->getJson('/api/students?pageSize=50')->json('rows'))->keyBy('full_name');
+    expect($students['Pupil of A']['added_by_name'])->toBe('Supervisor B');
+});
+
+it('gives a supervisor to the records nobody on the team added', function () {
+    // A fixture or an import: no creator in the audit log.
+    $imported = $this->createStudent($this->academy, $this->guardian, ['full_name' => 'Imported pupil']);
+
+    Sanctum::actingAs($this->owner);
+    $nobody = collect($this->getJson('/api/team/handover')->assertOk()->json('owners'))->firstWhere('state', 'nobody');
+    expect($nobody['user_id'])->toBeNull()->and($nobody['counts']['student'])->toBeGreaterThanOrEqual(1);
+
+    $this->postJson('/api/team/actors/none/handover', ['to_user_id' => (string) $this->supB->id, 'types' => ['student']])->assertOk();
+
+    $students = collect($this->getJson('/api/students?pageSize=50')->json('rows'))->keyBy('id');
+    expect($students[$imported]['added_by_name'])->toBe('Supervisor B');
+    // Only someone who runs the team sees the list.
+    Sanctum::actingAs($this->supA);
+    $this->getJson('/api/team/handover')->assertForbidden();
+});

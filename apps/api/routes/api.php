@@ -15,6 +15,7 @@ use App\Http\Controllers\Admin\AcademySubscriptionController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\ClientDomainController;
 use App\Http\Controllers\Admin\ClientPaymentController;
+use App\Http\Controllers\Admin\ClientToolController;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\DemoRequestController as AdminDemoRequestController;
 use App\Http\Controllers\Admin\Finance\ClientController as FinanceClientController;
@@ -23,10 +24,12 @@ use App\Http\Controllers\Admin\Finance\DuesController as FinanceDuesController;
 use App\Http\Controllers\Admin\Finance\OverviewController as FinanceOverviewController;
 use App\Http\Controllers\Admin\Finance\PaymentController as FinancePaymentController;
 use App\Http\Controllers\Admin\Finance\SubmissionController as FinanceSubmissionController;
+use App\Http\Controllers\Admin\HelpVideoController;
 use App\Http\Controllers\Admin\LmsOversightController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\SystemHealthController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VideoOversightController;
 use App\Http\Controllers\Admin\WhatsAppGroupController;
@@ -51,6 +54,7 @@ use App\Http\Controllers\Groups\GroupAbsenceAlertController;
 use App\Http\Controllers\Groups\GroupBoardController;
 use App\Http\Controllers\Groups\GroupWaitlistController;
 use App\Http\Controllers\Groups\SubstituteController;
+use App\Http\Controllers\HelpController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\Accounting\AccountingController;
 use App\Http\Controllers\Accounting\DiscountPresetController;
@@ -651,12 +655,33 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/admin/lms/academies/{id}/courses/{courseId}/status', [LmsOversightController::class, 'setCourseStatus']);
     Route::post('/admin/lms/academies/{id}/learners/{learnerId}/status', [LmsOversightController::class, 'setLearnerStatus']);
 
+    // Maintenance (Super Admin, platform.manage): the repair commands for ONE client, from its own
+    // page — list what a tool would do, then apply it. See App\Support\ClientTools for what is offered.
+    Route::get('/admin/clients/{id}/tools', [ClientToolController::class, 'index'])->whereUuid('id');
+    Route::post('/admin/clients/{id}/tools/{tool}', [ClientToolController::class, 'run'])->whereUuid('id');
+
+    // System health (Super Admin, platform.manage): is the machine running (cron, queue, scheduled
+    // jobs, WhatsApp gateway), which clients need stepping in for, and retry / dismiss a dead job.
+    Route::get('/admin/system/health', [SystemHealthController::class, 'health']);
+    Route::get('/admin/system/attention', [SystemHealthController::class, 'attention']);
+    Route::post('/admin/system/failed-jobs/{uuid}/retry', [SystemHealthController::class, 'retry'])->whereUuid('uuid');
+    Route::delete('/admin/system/failed-jobs/{uuid}', [SystemHealthController::class, 'forget'])->whereUuid('uuid');
+
     // Platform settings + feature flags (Super Admin, platform.manage). A disabled flag is a
     // kill-switch consulted by Entitlement::resolve — it removes a capability platform-wide.
     Route::get('/admin/feature-flags', [SettingsController::class, 'flags']);
     Route::patch('/admin/feature-flags/{key}', [SettingsController::class, 'updateFlag']);
     Route::get('/admin/settings', [SettingsController::class, 'settings']);
     Route::patch('/admin/settings', [SettingsController::class, 'updateSettings']);
+
+    // In-app help (apps/web/src/content/help). The text ships with the web app; the server holds the
+    // videos (`help_videos`, platform-level) and tells a new academy's dashboard how far its first
+    // steps got. Reading is for every signed-in user; attaching a video is platform.manage.
+    Route::get('/help/videos', [HelpController::class, 'videos']);
+    Route::get('/help/onboarding', [HelpController::class, 'onboarding']);
+    Route::post('/admin/help-videos/upload-url', [HelpVideoController::class, 'createUpload']);
+    Route::put('/admin/help-videos/{slot}', [HelpVideoController::class, 'update']);
+    Route::delete('/admin/help-videos/{slot}', [HelpVideoController::class, 'destroy']);
 
     // Marketing demo requests (Super Admin, platform.manage) — the inbox behind the public form on
     // acadmyq.com. Platform-scoped: these prospects belong to no academy, which is exactly why they
@@ -726,6 +751,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // (Gate::authorize) and tenant-scoped by RLS; lists are server-driven via App\Support\DataTable.
     // The team logins behind every list's "Done by" column and filter (owners, supervisors, staff).
     Route::get('/team/actors', [TeamActorController::class, 'index']);
+    Route::get('/team/handover', [TeamActorController::class, 'handoverOwners']);
+    Route::get('/team/actors/{userId}/handover', [TeamActorController::class, 'handoverCounts']);
+    Route::post('/team/actors/{userId}/handover', [TeamActorController::class, 'handover']);
 
     Route::get('/guardians', [GuardianController::class, 'index']);
     Route::post('/guardians', [GuardianController::class, 'store']);
@@ -920,6 +948,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/sessions/{id}/reschedule', [SessionController::class, 'reschedule']);
     Route::post('/sessions/{id}/cancel', [SessionController::class, 'cancel']);
     // Take a lesson off the books (session.delete): money reversed, the row kept hidden.
+    Route::post('/sessions/bulk-delete', [SessionController::class, 'bulkDestroy']);
     Route::delete('/sessions/{id}', [SessionController::class, 'destroy']);
 
     Route::get('/calendar', [CalendarController::class, 'index']);
@@ -1002,6 +1031,9 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/groups/{id}/restore', [ClassGroupController::class, 'restore'])->whereUuid(['id']);
         Route::post('/groups/{id}/members', [ClassGroupController::class, 'addMembers'])->whereUuid(['id']);
         Route::delete('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'removeMember'])->whereUuid(['id', 'studentId']);
+        Route::get('/groups/{id}/members/{studentId}/leave-quote', [ClassGroupController::class, 'leaveQuote'])->whereUuid(['id', 'studentId']);
+        Route::get('/groups/{id}/trial-price', [ClassGroupController::class, 'trialPrice'])->whereUuid('id');
+        Route::post('/groups/{id}/trial', [ClassGroupController::class, 'bookTrial'])->whereUuid('id');
         Route::patch('/groups/{id}/members/{studentId}', [ClassGroupController::class, 'updateMember'])->whereUuid(['id', 'studentId']);
         Route::post('/groups/{id}/members/{studentId}/move', [ClassGroupController::class, 'moveMember'])->whereUuid(['id', 'studentId']);
         Route::post('/groups/{id}/members/{studentId}/undo', [ClassGroupController::class, 'undoMember'])->whereUuid(['id', 'studentId']);
@@ -1367,7 +1399,11 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/receipts/{id}/void', [ReceiptController::class, 'void'])->whereUuid('id');
             Route::post('/receipts/{id}/send', [ReceiptController::class, 'send'])->whereUuid('id');
             Route::get('/receipts/{id}/proof', [ReceiptController::class, 'proof'])->whereUuid('id');
+            Route::post('/receipts/{id}/proof', [ReceiptController::class, 'attachProof'])->whereUuid('id');
+            Route::get('/accounting/receipt-methods', [ReceiptController::class, 'methods']);
+            Route::put('/accounting/receipt-methods', [ReceiptController::class, 'updateMethods']);
             Route::get('/payer-account', [ReceiptController::class, 'account']);
+            Route::post('/two-month-offers', [ReceiptController::class, 'twoMonthOffer']);
             Route::get('/groups/{id}/accounts', [GroupAccountsController::class, 'show'])->whereUuid('id')->middleware('entitled:groups');
             // The Accounting section's pages.
             Route::get('/accounting/overview', [AccountingController::class, 'overview']);
@@ -1387,6 +1423,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/accounting/family/{guardianId}/discounts', [FamilyAccountController::class, 'addDiscount'])->whereUuid('guardianId');
             Route::post('/accounting/family/{guardianId}/discounts/{discountId}/end', [FamilyAccountController::class, 'endDiscount'])->whereUuid(['guardianId', 'discountId']);
             Route::delete('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'cancelDiscount'])->whereUuid(['guardianId', 'discountId']);
+            Route::patch('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'updateDiscount'])->whereUuid(['guardianId', 'discountId']);
+            Route::post('/accounting/family/{guardianId}/opening-balance', [FamilyAccountController::class, 'openingBalance'])->whereUuid('guardianId');
             Route::post('/accounting/family/{guardianId}/discounts/{discountId}/apply-existing', [FamilyAccountController::class, 'applyDiscountToExisting'])->whereUuid(['guardianId', 'discountId']);
             Route::post('/accounting/family/{guardianId}/charges/{lineId}/cancel', [FamilyAccountController::class, 'cancelCharge'])->whereUuid(['guardianId', 'lineId']);
             Route::post('/accounting/family/{guardianId}/refund', [SettlementController::class, 'refund'])->whereUuid('guardianId');

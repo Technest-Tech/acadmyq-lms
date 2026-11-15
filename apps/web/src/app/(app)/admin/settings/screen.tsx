@@ -1,11 +1,6 @@
 "use client";
 
-import {
-  Briefcase,
-  Mail,
-  ShieldCheck,
-  ToggleLeft,
-} from "lucide-react";
+import { Briefcase, ShieldCheck, ToggleLeft } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { RoleMatrix } from "../roles/screen";
@@ -13,34 +8,18 @@ import { StaffDepartmentsPanel } from "../staff-departments/screen";
 import { AdminPageHeader } from "@/components/admin/page-header";
 import { useAuth } from "@/components/auth-provider";
 import { AlertBanner } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
 import {
   ApiError,
   getFeatureFlags,
-  getPlatformSettings,
   updateFeatureFlag,
-  updatePlatformSettings,
   type FeatureFlag,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-// The known platform-setting fields surfaced as a form (values are stored as freeform JSON).
-const SETTING_FIELDS = [
-  "support_email",
-  "smtp_host",
-  "smtp_port",
-  "smtp_username",
-  "smtp_from_name",
-] as const;
-
-const inputClass =
-  "border-input bg-background w-full rounded-lg border px-3 py-2.5 text-sm transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20 focus:outline-none";
-
-const cardClass =
-  "bg-card rounded-xl p-5 shadow-sm ring-1 ring-foreground/[0.06]";
-
-// Where clients pay (InstaPay / Vodafone Cash) moved to Accounts → Settings on 2026-11-08.
-const TABS = ["flags", "general", "roles", "departments"] as const;
+// Where clients pay (InstaPay / Vodafone Cash) moved to Accounts → Settings on 2026-11-08. The
+// "General" tab (support email + SMTP fields) went on 2026-11-15: it saved values nothing read —
+// mail is configured in the server's environment. An old ?tab=general lands on the flags.
+const TABS = ["flags", "roles", "departments"] as const;
 type SettingsTab = (typeof TABS)[number];
 
 function isSettingsTab(v: string | null): v is SettingsTab {
@@ -102,7 +81,6 @@ export function PlatformSettingsScreen() {
     window.history.replaceState(null, "", url);
   }, []);
   const [flags, setFlags] = useState<FeatureFlag[] | null>(null);
-  const [settings, setSettings] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -111,16 +89,6 @@ export function PlatformSettingsScreen() {
     setError(null);
     getFeatureFlags()
       .then((r) => setFlags(r.flags))
-      .catch(() => setError(t("loadError")));
-    getPlatformSettings()
-      .then((r) => {
-        const next: Record<string, string> = {};
-        for (const k of SETTING_FIELDS) {
-          const v = r.settings[k];
-          next[k] = v === undefined || v === null ? "" : String(v);
-        }
-        setSettings(next);
-      })
       .catch(() => setError(t("loadError")));
   }, [t]);
 
@@ -152,24 +120,8 @@ export function PlatformSettingsScreen() {
     }
   }
 
-  async function persist(payload: Record<string, unknown>, e?: React.FormEvent) {
-    e?.preventDefault();
-    setError(null);
-    setNotice(null);
-    setBusy(true);
-    try {
-      await updatePlatformSettings(payload);
-      setNotice(t("saved"));
-    } catch (err) {
-      setError(err instanceof ApiError ? err.message : String(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
   const TAB_ICON = {
     flags: ToggleLeft,
-    general: Mail,
     roles: ShieldCheck,
     departments: Briefcase,
   };
@@ -263,44 +215,6 @@ export function PlatformSettingsScreen() {
             </div>
           )}
         </section>
-      )}
-
-      {/* General settings */}
-      {tab === "general" && (
-        <form
-          className="max-w-2xl"
-          onSubmit={(e) => void persist(settings, e)}
-        >
-          <div className={cardClass}>
-            <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold">
-              <Mail className="text-muted-foreground size-4" aria-hidden />
-              {t("generalHeading")}
-            </h2>
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {SETTING_FIELDS.map((key) => (
-                <label key={key} className="block space-y-1.5">
-                  <span className="text-sm font-medium">
-                    {t(`field.${key}`)}
-                  </span>
-                  <input
-                    aria-label={t(`field.${key}`)}
-                    className={inputClass}
-                    dir="ltr"
-                    value={settings[key] ?? ""}
-                    onChange={(e) =>
-                      setSettings((s) => ({ ...s, [key]: e.target.value }))
-                    }
-                  />
-                </label>
-              ))}
-            </div>
-            <div className="mt-5 flex justify-end">
-              <Button type="submit" size="sm" disabled={busy} data-testid="save-settings">
-                {busy ? t("saving") : t("save")}
-              </Button>
-            </div>
-          </div>
-        </form>
       )}
 
       {/* Role permissions matrix (moved from /admin/roles — R3). Content-only: this page

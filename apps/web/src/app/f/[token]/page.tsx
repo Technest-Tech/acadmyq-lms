@@ -4,7 +4,7 @@ import { getLocale } from "next-intl/server";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
 import { cache } from "react";
-import { BankTransfer, FamilyXpayCheckout } from "@/app/i/[token]/payment-options";
+import { FamilyXpayCheckout, ManualPaymentOptions, type PublicPaymentMethod } from "@/app/i/[token]/payment-options";
 import { hours, isLang, type Lang, lessons, money, PARENT_LANG_COOKIE } from "@/app/p/[token]/copy";
 import { apiBase } from "@/lib/api-base";
 
@@ -39,6 +39,9 @@ interface FamilyPayload {
   }>;
   totals: Array<{ currency: string; amount_minor: number }>;
   bank_transfer: Record<string, string> | null;
+  /** The live manual methods (wallet, InstaPay, PayPal email, bank, other), public details only. */
+  methods?: PublicPaymentMethod[];
+  /** Some bill can be paid by card on its own page (PayPal's automatic checkout). */
   card: boolean;
   /** XPay is on: one card payment for the whole total, split across the bills when it settles. */
   xpay?: boolean;
@@ -52,6 +55,7 @@ const COPY: Record<Lang, Record<string, string>> = {
     packageNo: "الباقة رقم",
     payOne: "ادفع هذه وحدها",
     payAllTitle: "ادفع المبلغ كله بتحويل واحد",
+    payAllBody: "اختر الطريقة المناسبة لك، وحوّل المبلغ كله مرة واحدة.",
     cardAllTitle: "ادفع المبلغ كله بالبطاقة",
     cardAllBody: "دفعة واحدة بالبطاقة تسدّد كل الفواتير أعلاه.",
     cardTitle: "الدفع بالبطاقة",
@@ -68,6 +72,7 @@ const COPY: Record<Lang, Record<string, string>> = {
     packageNo: "Package #",
     payOne: "Pay this one only",
     payAllTitle: "Pay it all in one transfer",
+    payAllBody: "Pick the way that suits you and send the whole amount at once.",
     cardAllTitle: "Pay it all by card",
     cardAllBody: "One card payment settles every bill above.",
     cardTitle: "Pay by card",
@@ -144,6 +149,9 @@ export default async function FamilyPayPage({ params, searchParams }: PageProps)
   const lang: Lang = isLang(asked) ? asked : isLang(remembered) ? remembered : isLang(staffLocale) ? staffLocale : "ar";
   const t = COPY[lang];
   const nothingDue = data.items.length === 0;
+  // An API from before the manual methods sent only the bank transfer — read it as one.
+  const manual: PublicPaymentMethod[] =
+    data.methods ?? (data.bank_transfer ? [{ method: "BANK_TRANSFER", config: data.bank_transfer }] : []);
 
   return (
     <main dir={lang === "ar" ? "rtl" : "ltr"} lang={lang} className="min-h-dvh bg-slate-50 px-4 py-6 text-slate-900 sm:py-10">
@@ -261,20 +269,27 @@ export default async function FamilyPayPage({ params, searchParams }: PageProps)
             ))}
           </section>
         )}
-        {!nothingDue && data.bank_transfer && (
-          <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-            <h2 className="flex items-center gap-2 text-sm font-bold">
-              <Wallet className="size-4 text-emerald-600" aria-hidden />
-              {t.payAllTitle}
-            </h2>
+        {!nothingDue && manual.length > 0 && (
+          <section className="space-y-3 rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200" data-testid="family-manual-pay">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-bold">
+                <Wallet className="size-4 text-emerald-600" aria-hidden />
+                {t.payAllTitle}
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-500">{t.payAllBody}</p>
+            </div>
             {data.totals.map((o) => (
-              <BankTransfer
-                key={o.currency}
-                config={data.bank_transfer!}
-                amountMinor={o.amount_minor}
-                currency={o.currency}
-                reference={data.guardian_name}
-              />
+              <div key={o.currency} className="space-y-1.5">
+                {data.totals.length > 1 && (
+                  <p className="text-xs font-semibold text-slate-500">{money(o.amount_minor, o.currency, lang)}</p>
+                )}
+                <ManualPaymentOptions
+                  methods={manual}
+                  amountMinor={o.amount_minor}
+                  currency={o.currency}
+                  reference={data.guardian_name}
+                />
+              </div>
             ))}
           </section>
         )}
@@ -288,7 +303,7 @@ export default async function FamilyPayPage({ params, searchParams }: PageProps)
             </div>
           </section>
         )}
-        {!nothingDue && !data.bank_transfer && !data.card && (
+        {!nothingDue && manual.length === 0 && !data.card && !data.xpay && (
           <p className="text-center text-sm text-slate-500">{t.noMethod}</p>
         )}
       </div>

@@ -4,7 +4,7 @@ import { ChevronLeft, ChevronRight, Plus, Receipt, Search, Wallet, HelpCircle } 
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
-import { MethodBadge, MethodBar, Tile, dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
+import { MethodBadge, MethodBar, Tile, VoidedPill, dayLabel, todayLocal } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { ExportButton } from "@/components/accounting/export-button";
 import { PayerPicker } from "@/components/accounting/payer-picker";
@@ -157,6 +157,7 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
             <option value="void">{t("register.statusVoid")}</option>
             <option value="all">{t("register.statusAll")}</option>
             <option value="unknown">{t("unknown.status")}</option>
+            <option value="awaiting_proof">{t("register.statusAwaitingProof")}</option>
           </select>
         </label>
         <label className="text-muted-foreground text-xs">
@@ -210,12 +211,12 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
               </thead>
               <tbody className="divide-y">
                 {data.receipts.map((r) => (
-                  <tr key={r.id} onClick={() => setReceiptId(r.id)} className={cn("hover:bg-muted/40 cursor-pointer", r.voided && "opacity-60")} data-testid={`register-row-${r.id}`}>
+                  <tr key={r.id} onClick={() => setReceiptId(r.id)} className={cn("hover:bg-muted/40 cursor-pointer", r.voided && "text-muted-foreground bg-rose-500/[0.06]")} data-testid={`register-row-${r.id}`}>
                     <td className="p-3">
                       <span className="font-mono text-xs font-semibold" dir="ltr">
                         {r.number}
                       </span>
-                      {r.voided && <span className="ms-2 rounded-full bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:text-rose-300">{t("register.void")}</span>}
+                      {r.voided && <span className="ms-2"><VoidedPill label={t("register.void")} /></span>}
                     </td>
                     <td className="p-3 whitespace-nowrap">{dayLabel(r.received_on, locale)}</td>
                     <td className="p-3">
@@ -254,7 +255,7 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
           <ul className="space-y-2 md:hidden">
             {data.receipts.map((r) => (
               <li key={r.id}>
-                <button type="button" onClick={() => setReceiptId(r.id)} className={cn("w-full space-y-2 bg-card rounded-xl border p-3 shadow-sm text-start", r.voided && "opacity-60")}>
+                <button type="button" onClick={() => setReceiptId(r.id)} className={cn("w-full space-y-2 bg-card rounded-xl border p-3 shadow-sm text-start", r.voided && "text-muted-foreground border-rose-500/30 bg-rose-500/[0.06]")}>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
                       <p className="font-medium break-words">{r.payer_name ?? "—"}</p>
@@ -266,7 +267,7 @@ export function ReceiptsRegister({ hero = true }: { hero?: boolean }) {
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <MethodBadge method={r.method} />
-                    {r.voided && <span className="rounded-full bg-rose-500/10 px-2 py-0.5 text-xs font-semibold text-rose-700 dark:text-rose-300">{t("register.void")}</span>}
+                    {r.voided && <VoidedPill label={t("register.void")} />}
                     {r.groups.length > 0 && <span className="text-muted-foreground text-xs">{r.groups.join(" · ")}</span>}
                   </div>
                 </button>

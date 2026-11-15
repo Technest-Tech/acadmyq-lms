@@ -402,3 +402,18 @@ export function AccountingTabs<K extends string>({
     </div>
   );
 }
+
+/**
+ * "Cancelled", unmistakable (Lingo 2026-11-15: "a cancelled operation looks the same, it confuses
+ * us"): a solid red pill, used wherever a voided receipt, expense or refund is still listed.
+ */
+export function VoidedPill({ label }: { label: string }) {
+  return (
+    <span className="inline-flex shrink-0 items-center rounded-full bg-rose-600 px-2 py-0.5 text-[11px] font-bold text-white no-underline dark:bg-rose-500" data-testid="voided-pill">
+      {label}
+    </span>
+  );
+}
+
+/** The row of something voided: tinted red and struck through, so it never reads as money. */
+export const VOIDED_ROW = "bg-rose-500/[0.06] text-muted-foreground line-through decoration-rose-500/70";

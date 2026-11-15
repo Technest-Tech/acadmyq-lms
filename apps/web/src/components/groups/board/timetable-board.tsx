@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AdminNoteButton } from "@/components/attendance/admin-note-button";
+import { GroupEnterLink } from "@/components/groups/group-enter-link";
 import { useAuth } from "@/components/auth-provider";
 import { AttendanceSheet } from "@/components/groups/attendance-sheet";
 import { apiErrorMessage } from "@/components/groups/group-form";
@@ -717,6 +718,7 @@ function TimetableRowView({
       </td>
       <td className="px-3 py-2">
         <div className="flex items-center justify-end gap-1">
+          {l.status === "SCHEDULED" && l.group.meeting_url && <GroupEnterLink url={l.group.meeting_url} testId={`timetable-enter-${l.id}`} />}
           {canManage && l.status === "SCHEDULED" && (
             <Button type="button" size="sm" variant="outline" className="gap-1.5" onClick={onMove} data-testid={`timetable-reschedule-${l.id}`}>
               <CalendarClock className="size-3.5" aria-hidden />

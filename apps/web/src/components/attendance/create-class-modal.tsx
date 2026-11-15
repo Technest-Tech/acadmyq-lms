@@ -137,8 +137,9 @@ export function CreateClassModal({
       return;
     }
     setStudents(null);
-    void listStudents({
-      pageSize: 200,
+    // The whole roster, not one page: the API clamps a page to 100, so an academy past a hundred
+    // students lost everyone after the hundredth name (Lingo: "the list stops at س").
+    void fetchRoster(listStudents, {
       filter: isTeacher || centre ? {} : { teacher_id: teacherId },
     })
       .then((r) => setStudents(r.rows))

@@ -9,11 +9,15 @@ use App\Payroll\PayoutHook;
 use App\Services\Invoicing;
 use App\Services\Payroll;
 use App\Support\CustomDomain;
+use App\Support\JobRuns;
 use App\Support\Lms\FfmpegHlsTranscoder;
 use App\Support\Lms\HlsTranscoder;
 use App\Support\LmsSite;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\Events\JobProcessed;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 
@@ -49,6 +53,11 @@ class AppServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->bootCustomDomainOrigin();
+
+        // When each background job last FINISHED and last failed, stamped by whoever ran it (the
+        // queue worker). "The scheduler queued it" is not "it ran": System health reads these.
+        Queue::after(fn (JobProcessed $event) => JobRuns::ok($event->job->resolveName()));
+        Queue::failing(fn (JobFailed $event) => JobRuns::failed($event->job->resolveName(), $event->exception->getMessage()));
 
         // The marketing site's demo form. Six an hour per IP: a prospect fills this in ONCE, so the
         // ceiling is invisible to a real visitor and makes an open, unauthenticated POST endpoint

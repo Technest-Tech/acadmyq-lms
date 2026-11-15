@@ -7,6 +7,7 @@ import {
   CalendarRange,
   Clock3,
   Lock,
+  Search,
   Users,
   Wallet,
 } from "lucide-react";
@@ -40,6 +41,7 @@ import {
 } from "@/lib/api";
 import { type ExcelColumn } from "@/lib/export-excel";
 import { formatMoney } from "@/lib/money";
+import { searchMatches } from "@/lib/search-fold";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -258,9 +260,12 @@ function SalaryByTeacher({
   const t = useTranslations("payroll");
   const locale = useLocale();
   const [opened, setOpened] = useState<TeacherRangeTarget | null>(null);
+  const [query, setQuery] = useState("");
   const closeLessons = useCallback(() => setOpened(null), []);
 
   if (loading || range === null || range.teachers.length === 0) return null;
+  // Find one teacher among many by name, Arabic-forgiving (Lingo 2026-11-15).
+  const teachers = range.teachers.filter((row) => searchMatches(row.teacher_name ?? "", query));
 
   // The fixed-salary column only earns its width when somebody in the window is on a salary.
   const anyFixed = range.teachers.some((row) => row.base_minor > 0);
@@ -288,12 +293,25 @@ function SalaryByTeacher({
         <span className="text-muted-foreground text-xs">
           {t("rangeByTeacherHint")} · {t("rangeTapHint")}
         </span>
+        <div className="relative ms-auto w-full sm:w-64">
+          <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t("searchTeacher")}
+            aria-label={t("searchTeacher")}
+            className="border-input bg-background placeholder:text-muted-foreground focus:border-primary w-full rounded-xl border py-1.5 ps-9 pe-3 text-sm outline-none"
+            data-testid="salary-search"
+          />
+        </div>
       </div>
+      {teachers.length === 0 && <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">{t("searchNoTeacher")}</p>}
 
       {/* A phone gets one card per teacher: six money columns side by side do not fit, and a
           salary is read teacher by teacher anyway. */}
       <ul className="space-y-2 sm:hidden">
-        {range.teachers.map((row) => {
+        {teachers.map((row) => {
           const fmt = (v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
 
           return (
@@ -366,7 +384,7 @@ function SalaryByTeacher({
             </tr>
           </thead>
           <tbody className="divide-border divide-y">
-            {range.teachers.map((row) => {
+            {teachers.map((row) => {
               const fmt = (v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
 
               return (
@@ -726,6 +744,8 @@ export function PayrollScreen() {
         columns={columns}
         getRowId={(row) => row.id}
         filters={isOwner ? [statusFilter, transferFilter] : []}
+        searchable={isOwner}
+        searchPlaceholder={t("searchTeacher")}
         defaultSort="-period"
         onRowClick={(row) => setSelectedId(row.id)}
         emptyMessage={t("empty")}

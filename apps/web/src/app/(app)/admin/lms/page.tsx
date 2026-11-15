@@ -1,10 +1,10 @@
-import { AdminLmsScreen } from "./screen";
+import { redirect } from "next/navigation";
 
 /**
- * Super Admin LMS oversight (docs/lms): the course-platform client roster with catalogue, learner
- * and storage usage against each client's caps, plus the platform-wide LMS activity feed. Gated
- * client-side (platform.manage) and server-side (the SECURITY DEFINER readers re-assert SUPER_ADMIN).
+ * /admin/lms retired (2026-11-15): the course platform is a module a CLIENT holds, so its numbers
+ * and controls live on that client's page (the "Course platform" tab) and the roster is the
+ * clients roster. The redirect keeps old links and bookmarks working.
  */
-export default function AdminLmsPage() {
-  return <AdminLmsScreen />;
+export default function RetiredPage() {
+  redirect("/admin/clients");
 }

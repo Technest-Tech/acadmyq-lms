@@ -92,7 +92,7 @@ final class TreasuryController extends Controller
 
         // Methods money actually arrives by (the last 90 days) that no account takes yet.
         $mapped = collect($methods)->map(fn ($m) => $m['method'].'|'.$m['currency'])->all();
-        $unmapped = DB::table('receipts')->whereNull('voided_at')->whereNull('cash_account_id')
+        $unmapped = DB::table('receipts')->whereNull('voided_at')->whereNull('cash_account_id')->where('source', '<>', Ledger::SOURCE_OPENING)
             ->where('received_on', '>=', Carbon::parse($today)->subDays(90)->format('Y-m-d'))
             ->distinct()->get(['method', 'currency'])
             ->filter(fn ($r) => ! in_array($r->method.'|'.$r->currency, $mapped, true))
@@ -619,33 +619,85 @@ final class TreasuryController extends Controller
         return response()->json(['id' => $id, 'number' => $number], 201);
     }
 
-    /** Correct an expense's amount (a salary: never beyond what is left on its statement). */
+    /**
+     * Correct an expense instead of voiding it (Lingo 2026-11-15: "edit the date, the receiver's name
+     * or any field instead of cancelling"): its day, payee, description, category, group or amount.
+     * Money stays honest: a closed day refuses on both its old and its new date; a salary keeps its
+     * category and is never paid beyond what is left on its statement; money paid back to a family is
+     * drawn on their receipts, so its amount and category stay (void and pay back again). Every change
+     * is audited with what it was before.
+     */
     public function updateExpense(Request $request, string $id): JsonResponse
     {
         Gate::authorize('expense.manage');
-        $data = $request->validate(['amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000']]);
+        $academyId = $this->academyId();
+        $data = $request->validate([
+            'amount_minor' => ['sometimes', 'integer', 'min:1', 'max:100000000000'],
+            'spent_on' => ['sometimes', 'date_format:Y-m-d', 'before_or_equal:'.$this->today($academyId)],
+            'payee' => ['sometimes', 'nullable', 'string', 'max:160'],
+            'description' => ['sometimes', 'nullable', 'string', 'max:1000'],
+            'category_id' => ['sometimes', 'uuid'],
+            'class_group_id' => ['sometimes', 'nullable', 'uuid', Rule::exists('class_groups', 'id')],
+        ]);
+        if ($data === []) {
+            throw ValidationException::withMessages(['expense' => ['Nothing to change. / لا يوجد تغيير.']]);
+        }
         $e = DB::table('expenses')->where('id', $id)->whereNull('voided_at')->first();
         if ($e === null) {
             abort(404, 'Expense not found.');
         }
         $this->treasury->assertOpenDay((string) $e->cash_account_id, (string) $e->spent_on);
-        if (DB::table('receipt_refunds')->where('expense_id', $id)->exists()) {
+        if (isset($data['spent_on'])) {
+            $this->treasury->assertOpenDay((string) $e->cash_account_id, (string) $data['spent_on']);
+        }
+
+        $refund = DB::table('receipt_refunds')->where('expense_id', $id)->exists();
+        if ($refund && (array_key_exists('amount_minor', $data) || array_key_exists('category_id', $data))) {
             throw ValidationException::withMessages(['amount_minor' => [
                 'Money paid back to a family is drawn on their receipts: void it and pay back again. / المبلغ المردود مسحوب من إيصالات الأسرة: ألغِه واصرفه من جديد.',
             ]]);
         }
         if ($e->payout_id !== null) {
             Gate::authorize('payout.read');
-            $total = (int) DB::table('payouts')->where('id', $e->payout_id)->value('total_minor');
-            $others = (int) DB::table('expenses')->where('payout_id', $e->payout_id)->where('id', '<>', $id)->whereNull('voided_at')->sum('amount_minor');
-            if ((int) $data['amount_minor'] > $total - $others) {
-                throw ValidationException::withMessages(['amount_minor' => ['More than is left to pay on this statement. / أكبر من المتبقي على كشف المرتب.']]);
+            if (array_key_exists('category_id', $data) || array_key_exists('class_group_id', $data)) {
+                throw ValidationException::withMessages(['category_id' => ['A salary stays a salary. / بند المرتب لا يتغير.']]);
+            }
+            if (isset($data['amount_minor'])) {
+                $total = (int) DB::table('payouts')->where('id', $e->payout_id)->value('total_minor');
+                $others = (int) DB::table('expenses')->where('payout_id', $e->payout_id)->where('id', '<>', $id)->whereNull('voided_at')->sum('amount_minor');
+                if ((int) $data['amount_minor'] > $total - $others) {
+                    throw ValidationException::withMessages(['amount_minor' => ['More than is left to pay on this statement. / أكبر من المتبقي على كشف المرتب.']]);
+                }
             }
         }
-        DB::table('expenses')->where('id', $id)->update(['amount_minor' => (int) $data['amount_minor']]);
-        $this->audit('expense.amount_changed', 'expense', $id, ['number' => $e->number, 'before' => (int) $e->amount_minor, 'amount_minor' => (int) $data['amount_minor']]);
+        if (isset($data['category_id'])) {
+            $category = DB::table('expense_categories')->where('id', $data['category_id'])->where('is_active', true)->first();
+            if ($category === null || in_array($category->key, ['teacher_salaries', 'refunds'], true)) {
+                throw ValidationException::withMessages(['category_id' => ['Choose another category. / اختر بندًا آخر.']]);
+            }
+        }
 
-        return response()->json(['ok' => true]);
+        $changes = [];
+        foreach (['amount_minor', 'spent_on', 'payee', 'description', 'category_id', 'class_group_id'] as $field) {
+            if (! array_key_exists($field, $data)) {
+                continue;
+            }
+            $value = is_string($data[$field]) ? (trim($data[$field]) === '' ? null : trim($data[$field])) : $data[$field];
+            if ((string) ($e->{$field} ?? '') !== (string) ($value ?? '')) {
+                $changes[$field] = $value;
+            }
+        }
+        if ($changes === []) {
+            return response()->json(['ok' => true, 'changed' => []]);
+        }
+        DB::table('expenses')->where('id', $id)->update($changes);
+        $this->audit(isset($changes['amount_minor']) && count($changes) === 1 ? 'expense.amount_changed' : 'expense.updated', 'expense', $id, [
+            'number' => $e->number,
+            'before' => array_map(fn ($f) => $e->{$f} ?? null, array_combine(array_keys($changes), array_keys($changes))),
+            'after' => $changes,
+        ]);
+
+        return response()->json(['ok' => true, 'changed' => array_keys($changes)]);
     }
 
     public function voidExpense(Request $request, string $id): JsonResponse
@@ -788,7 +840,7 @@ final class TreasuryController extends Controller
      */
     private function inOut(string $from, string $to, bool $seesSalaries = true): array
     {
-        $in = DB::table('receipts')->whereNull('voided_at')->whereBetween('received_on', [$from, $to])
+        $in = DB::table('receipts')->whereNull('voided_at')->where('source', '<>', Ledger::SOURCE_OPENING)->whereBetween('received_on', [$from, $to])
             ->groupBy('currency')->get(['currency', DB::raw('sum(amount_minor) as amount')])->pluck('amount', 'currency');
         $out = DB::table('expenses as e')->join('expense_categories as c', 'c.id', '=', 'e.category_id')
             ->whereNull('e.voided_at')->whereBetween('e.spent_on', [$from, $to])

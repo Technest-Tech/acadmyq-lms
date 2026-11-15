@@ -10,20 +10,28 @@ import {
   RotateCcw,
   Search,
   Sparkles,
+  Trash2,
   TriangleAlert,
   Users,
   UserX,
   X,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import { StatusBadge } from "@/components/attendance/status-badge";
 import { DoneByCell } from "@/components/team/done-by";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { SegmentTile } from "@/components/ui/segment-tile";
-import { getOverdueSessions, type OverdueSession } from "@/lib/api";
+import {
+  ApiError,
+  bulkDeleteSessions,
+  getOverdueSessions,
+  type BulkDeleteResult,
+  type OverdueSession,
+} from "@/lib/api";
 import { type ExcelColumn, exportRowsToExcel } from "@/lib/export-excel";
 import { formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -173,6 +181,7 @@ export function OverdueLessonsBoard({
   canFollow,
   onError,
   onSeeAll,
+  onBulkDeleted,
 }: {
   state: OverdueState;
   /** Owned by the page, so switching to the period tab and back keeps the chase where it was. */
@@ -190,6 +199,11 @@ export function OverdueLessonsBoard({
   onError: (message: string) => void;
   /** Offered on an empty "My lessons" backlog: the rest of the academy may still owe some. */
   onSeeAll?: () => void;
+  /**
+   * Tick lessons and delete them together ("حذف المحدد"); called once they are gone so the page
+   * re-reads. Absent when the login may not delete lessons — no checkboxes then.
+   */
+  onBulkDeleted?: () => void;
 }) {
   const t = useTranslations("attendance");
   const tb = useTranslations("attendance.overdueBoard");
@@ -200,6 +214,13 @@ export function OverdueLessonsBoard({
   const [followOverrides, setFollowOverrides] = useState<Record<string, FollowInfo>>({});
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  // Bulk delete: the ticked lessons, the confirm step, and what the last run did.
+  const canSelect = onBulkDeleted !== undefined;
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [bulkResult, setBulkResult] = useState<BulkDeleteResult | null>(null);
 
   const set = (patch: Partial<OverdueFilters>) => onFiltersChange({ ...filters, ...patch });
 
@@ -312,6 +333,49 @@ export function OverdueLessonsBoard({
   }, [rows, filters.group, isTeacher, dayFmt]);
 
   const byTeacher = filters.group === "teacher" && !isTeacher;
+
+  /**
+   * What can be ticked: the rows on screen, minus trials (their lessons belong to the trials board,
+   * and the API leaves them alone anyway). A tick on a row the filters then hide is not counted —
+   * the button only ever deletes what the user can see ticked.
+   */
+  const selectable = useMemo(() => (canSelect ? rows.filter((s) => !isTrial(s)) : []), [rows, canSelect]);
+  const selectedIds = useMemo(() => selectable.filter((s) => selected.has(s.id)).map((s) => s.id), [selectable, selected]);
+  const allSelected = selectable.length > 0 && selectedIds.length === selectable.length;
+  const headerBox = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (headerBox.current) headerBox.current.indeterminate = selectedIds.length > 0 && !allSelected;
+  }, [selectedIds.length, allSelected]);
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAll() {
+    setSelected(allSelected ? new Set() : new Set(selectable.map((s) => s.id)));
+  }
+
+  async function runBulkDelete() {
+    setBulkBusy(true);
+    setBulkError(null);
+    try {
+      const result = await bulkDeleteSessions(selectedIds);
+      setBulkResult(result);
+      setSelected(new Set());
+      setConfirmOpen(false);
+      onBulkDeleted?.();
+    } catch (err) {
+      setBulkError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
   const hasActiveFilters = !!(
     filters.search ||
     filters.teacherId ||
@@ -330,7 +394,23 @@ export function OverdueLessonsBoard({
     (s.followed_at ? { followed_at: s.followed_at, followed_by_name: s.followed_by_name ?? null } : null);
 
   /** Columns in the desktop table — the Teacher and Supervisor columns are not a teacher's. */
-  const colCount = 5 + (isTeacher ? 0 : 2);
+  const colCount = 5 + (isTeacher ? 0 : 2) + (canSelect ? 1 : 0);
+
+  /** The tick box on a row; never opens the lesson the row click opens. */
+  function rowBox(s: OverdueSession) {
+    if (isTrial(s)) return null;
+    return (
+      <input
+        type="checkbox"
+        data-testid="overdue-select"
+        aria-label={tb("selectLesson", { student: s.student_name ?? "—" })}
+        checked={selected.has(s.id)}
+        onChange={() => toggleOne(s.id)}
+        onClick={(e) => e.stopPropagation()}
+        className="accent-primary size-4 cursor-pointer"
+      />
+    );
+  }
 
   /** Date grouping already says the date, so the row only needs the time. */
   const lessonStamp = (s: OverdueSession) => {
@@ -690,6 +770,46 @@ export function OverdueLessonsBoard({
         />
       )}
 
+      {bulkResult && (
+        <AlertBanner
+          variant={bulkResult.skipped.length > 0 ? "info" : "success"}
+          message={
+            tb("bulkDone", { count: bulkResult.deleted }) +
+            (bulkResult.skipped.length > 0 ? ` ${tb("bulkSkipped", { count: bulkResult.skipped.length })}` : "")
+          }
+          onDismiss={() => setBulkResult(null)}
+        />
+      )}
+
+      {/* Ticked lessons: how many, and the one thing to do with them. */}
+      {selectedIds.length > 0 && (
+        <div
+          data-testid="overdue-bulk-bar"
+          className="border-destructive/30 bg-destructive/5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border px-4 py-3"
+        >
+          <p className="text-sm font-semibold">{tb("selectedCount", { count: selectedIds.length })}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Button type="button" variant="ghost" size="sm" onClick={() => setSelected(new Set())}>
+              {tb("clearSelection")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              className="gap-1.5"
+              data-testid="overdue-bulk-delete"
+              onClick={() => {
+                setBulkError(null);
+                setConfirmOpen(true);
+              }}
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              {tb("deleteSelected")}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ── The worklist ───────────────────────────────────────────────────
           Drawn exactly like the period table — same columns, same rows, same actions — so the two
           tabs read as one page. What differs is only what a held-up lesson needs: the status says
@@ -728,6 +848,18 @@ export function OverdueLessonsBoard({
                   </button>
                 ))}
               </div>
+            )}
+            {selectable.length > 0 && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="overdue-select-all"
+                aria-pressed={allSelected}
+                onClick={toggleAll}
+              >
+                {allSelected ? tb("clearSelection") : tb("selectAll", { count: selectable.length })}
+              </Button>
             )}
             {rows.length > 0 && (
               <>
@@ -796,6 +928,21 @@ export function OverdueLessonsBoard({
               <table className="w-full text-sm">
                 <thead>
                   <tr className="bg-muted/30 border-b">
+                    {canSelect && (
+                      <th className="w-10 py-3 ps-5">
+                        {selectable.length > 0 && (
+                          <input
+                            ref={headerBox}
+                            type="checkbox"
+                            data-testid="overdue-select-header"
+                            aria-label={tb("selectAll", { count: selectable.length })}
+                            checked={allSelected}
+                            onChange={toggleAll}
+                            className="accent-primary size-4 cursor-pointer"
+                          />
+                        )}
+                      </th>
+                    )}
                     <th className="text-muted-foreground px-5 py-3 text-start text-xs font-semibold uppercase tracking-wide">
                       {t("colTime")}
                     </th>
@@ -842,8 +989,16 @@ export function OverdueLessonsBoard({
                           key={s.id}
                           data-testid="overdue-row"
                           onClick={() => onOpen(s)}
-                          className="hover:bg-muted/30 cursor-pointer transition-colors"
+                          className={cn(
+                            "hover:bg-muted/30 cursor-pointer transition-colors",
+                            selected.has(s.id) && "bg-destructive/5",
+                          )}
                         >
+                          {canSelect && (
+                            <td className="w-10 py-3.5 ps-5" onClick={(e) => e.stopPropagation()}>
+                              {rowBox(s)}
+                            </td>
+                          )}
                           {/* Time + status dot */}
                           <td className="px-5 py-3.5">
                             <div className="flex items-center gap-2">
@@ -922,6 +1077,7 @@ export function OverdueLessonsBoard({
                       <div className="mb-2 flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
+                            {canSelect && rowBox(s)}
                             <span
                               className={cn(
                                 "size-2 shrink-0 rounded-full",
@@ -971,6 +1127,40 @@ export function OverdueLessonsBoard({
           </div>
         )}
       </div>
+
+      {/* Delete the ticked lessons — said plainly what it does, and what it must not be used for. */}
+      <Modal
+        open={confirmOpen}
+        onClose={() => (bulkBusy ? undefined : setConfirmOpen(false))}
+        title={tb("bulkConfirmTitle", { count: selectedIds.length })}
+        size="sm"
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => setConfirmOpen(false)} disabled={bulkBusy}>
+              {tb("cancel")}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="gap-1.5"
+              onClick={() => void runBulkDelete()}
+              disabled={bulkBusy || selectedIds.length === 0}
+              data-testid="overdue-bulk-confirm"
+            >
+              {bulkBusy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : <Trash2 className="size-4" aria-hidden />}
+              {tb("deleteSelected")}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm" data-testid="overdue-bulk-confirm-body">
+          <p>{tb("bulkConfirmBody")}</p>
+          <p className="rounded-xl bg-amber-100 px-3 py-2 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            {tb("bulkConfirmWarning")}
+          </p>
+          {bulkError && <AlertBanner variant="error" message={bulkError} onDismiss={() => setBulkError(null)} />}
+        </div>
+      </Modal>
     </div>
   );
 }

@@ -624,6 +624,46 @@ it('insists on a picture of the proof for anything but cash', function () {
         ->assertCreated()->assertJsonPath('receipt.has_proof', true);
 });
 
+it('records a transfer before its screenshot came, lists it as awaiting the picture, and the collecting hand attaches it later (Lingo 2026-11-15)', function () {
+    acctSwitch($this, true);
+    acctGroup($this);
+    Sanctum::actingAs($this->owner);
+    $r = $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 45000, 'method' => 'INSTAPAY', 'proof_later' => '1'])
+        ->assertCreated()->assertJsonPath('receipt.proof_pending', true)->assertJsonPath('receipt.has_proof', false)->json('receipt');
+    // Cash never waits for a picture, whatever is asked.
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 1000, 'method' => 'CASH', 'proof_later' => '1'])->assertCreated()->assertJsonPath('receipt.proof_pending', false);
+
+    expect(collect($this->getJson('/api/receipts?status=awaiting_proof')->assertOk()->json('receipts'))->pluck('id')->all())->toBe([$r['id']])
+        ->and(collect($this->getJson('/api/accounting/overview')->assertOk()->json('awaiting_proof'))->pluck('number')->all())->toBe([$r['number']]);
+
+    // The desk (no void right) attaches it; the receipt leaves the list.
+    $desk = $this->makeUser($this->academy, 'ACCOUNTANT', ['email' => 'desk-proof@test.local']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($desk);
+    $this->post("/api/receipts/{$r['id']}/proof", ['proof' => UploadedFile::fake()->image('later.jpg')])->assertOk()
+        ->assertJsonPath('receipt.proof_pending', false)->assertJsonPath('receipt.has_proof', true);
+    expect($this->getJson('/api/receipts?status=awaiting_proof')->json('receipts'))->toBe([]);
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->post("/api/receipts/{$r['id']}/proof", ['proof' => UploadedFile::fake()->image('x.jpg')])->assertForbidden();
+});
+
+it('takes only the payment methods the academy chose; nothing changes for one that never chose (Lingo 2026-11-15)', function () {
+    acctSwitch($this, true);
+    acctGroup($this);
+    Sanctum::actingAs($this->owner);
+    expect($this->getJson('/api/accounting/receipt-methods')->assertOk()->json('methods'))->toBe(['CASH', 'INSTAPAY', 'WALLET', 'BANK_TRANSFER', 'CARD', 'OTHER']);
+
+    $this->putJson('/api/accounting/receipt-methods', ['methods' => ['WALLET', 'BANK_TRANSFER', 'INSTAPAY']])->assertOk()->assertJsonPath('methods', ['INSTAPAY', 'WALLET', 'BANK_TRANSFER']);
+    expect($this->getJson("/api/payer-account?guardian_id={$this->parent}")->assertOk()->json('methods'))->toBe(['INSTAPAY', 'WALLET', 'BANK_TRANSFER']);
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 10000, 'method' => 'CASH'])->assertStatus(422)->assertJsonValidationErrors(['method']);
+    $this->post('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 10000, 'method' => 'WALLET', 'proof' => UploadedFile::fake()->image('p.png')])->assertCreated();
+    $this->putJson('/api/accounting/receipt-methods', ['methods' => []])->assertStatus(422);
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->putJson('/api/accounting/receipt-methods', ['methods' => ['CASH']])->assertForbidden();
+});
+
 // Lingo 2026-11-05: a receipt typed as cash that came by InstaPay, or on the wrong day, is corrected
 // in place — the amount and what it paid never move; the money follows to the new method's account.
 it('corrects a receipt’s method, day, reference and note in place, and the treasury follows', function () {

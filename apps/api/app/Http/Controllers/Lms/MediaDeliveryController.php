@@ -79,11 +79,16 @@ final class MediaDeliveryController extends Controller
         }
     }
 
-    /** The signature is already verified by middleware; only accept a well-formed lms/* object key. */
+    /**
+     * The signature is already verified by middleware; only accept a well-formed object key under one
+     * of the two trees this disk serves: `lms/*` (a client's media) and `help/*` (the platform's own
+     * help videos, Admin\HelpVideoController).
+     */
     private function signedKey(Request $request): string
     {
         $key = (string) $request->query('k', '');
-        abort_unless($key !== '' && str_starts_with($key, 'lms/') && ! str_contains($key, '..'), 404);
+        $known = str_starts_with($key, 'lms/') || str_starts_with($key, 'help/');
+        abort_unless($key !== '' && $known && ! str_contains($key, '..'), 404);
 
         return $key;
     }

@@ -131,3 +131,89 @@ it('forbids a teacher from deleting their own lesson', function () {
     $this->deleteJson("/api/sessions/{$session}")->assertStatus(403);
     expect(($this->row)($session)->hidden_at)->toBeNull();
 });
+
+// ── Bulk delete (الحصص المعلقة → حذف المحدد) ──────────────────────────────────
+
+it('deletes a backlog of held-up lessons in one go, each the way one delete does', function () {
+    $a = ($this->lesson)();
+    $b = $this->createSession($this->academy, $this->student, $this->teacher, ['scheduled_at_utc' => '2026-06-02 15:00:00+00', 'status' => 'SCHEDULED']);
+    $this->asAcademy($this->academy);
+    DB::table('session_cancellation_requests')->insert([
+        'id' => (string) Illuminate\Support\Str::uuid(), 'academy_id' => $this->academy, 'session_id' => $b,
+        'teacher_id' => $this->teacher, 'cancel_type' => 'teacher', 'reason' => 'sick', 'status' => 'PENDING',
+    ]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    expect($this->getJson('/api/sessions/overdue')->assertOk()->json('count'))->toBe(2);
+
+    $this->postJson('/api/sessions/bulk-delete', ['session_ids' => [$a, $b]])
+        ->assertOk()->assertJson(['deleted' => 2, 'skipped' => []]);
+
+    expect($this->getJson('/api/sessions/overdue')->assertOk()->json('count'))->toBe(0);
+    foreach ([$a, $b] as $id) {
+        $row = ($this->row)($id);
+        expect($row->status)->toBe('CANCELLED_BY_TEACHER')->and($row->hidden_at)->not->toBeNull()
+            ->and((bool) $row->billed)->toBeFalse()->and((bool) $row->paid_to_teacher)->toBeFalse();
+    }
+    $this->asAcademy($this->academy);
+    expect(DB::table('session_cancellation_requests')->where('session_id', $b)->value('status'))->toBe('REJECTED')
+        ->and(DB::table('audit_log')->where('action', 'session.deleted')->whereIn('entity_id', [$a, $b])->count())->toBe(2);
+});
+
+it('leaves recorded lessons, trial lessons and unknown ids alone, and says why', function () {
+    $held = ($this->lesson)();
+    $recorded = $this->createSession($this->academy, $this->student, $this->teacher, ['scheduled_at_utc' => '2026-06-03 15:00:00+00', 'status' => 'SCHEDULED']);
+    $trialStudent = $this->createStudent($this->academy, null, ['status' => 'TRIAL']);
+    $trial = $this->createSession($this->academy, $trialStudent, $this->teacher, ['scheduled_at_utc' => '2026-06-04 15:00:00+00', 'status' => 'SCHEDULED']);
+    $unknown = (string) Illuminate\Support\Str::uuid();
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$recorded}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $res = $this->postJson('/api/sessions/bulk-delete', ['session_ids' => [$held, $recorded, $trial, $unknown]])->assertOk();
+
+    expect($res->json('deleted'))->toBe(1)
+        ->and(collect($res->json('skipped'))->pluck('reason', 'id')->all())
+        ->toBe([$recorded => 'recorded', $trial => 'trial', $unknown => 'not_found']);
+    expect(($this->row)($recorded)->status)->toBe('ATTENDED')
+        ->and(($this->money)($recorded))->toBe([1, 1])
+        ->and(($this->row)($trial)->hidden_at)->toBeNull()
+        ->and(($this->row)($held)->hidden_at)->not->toBeNull();
+});
+
+it('skips a lesson the books refuse and still deletes the rest', function () {
+    $refused = ($this->lesson)();
+    $fine = $this->createSession($this->academy, $this->student, $this->teacher, ['scheduled_at_utc' => '2026-06-02 15:00:00+00', 'status' => 'SCHEDULED']);
+    // Stand-in for a money guard saying no on this one lesson (DDL is rolled back with the test).
+    DB::unprepared("
+        create function test_refuse_lesson() returns trigger language plpgsql as \$\$
+        begin
+          if new.id = '{$refused}'::uuid and new.status <> old.status then raise exception 'cannot touch this lesson'; end if;
+          return new;
+        end \$\$;
+        create trigger test_refuse_lesson before update on sessions for each row execute function test_refuse_lesson();
+    ");
+
+    Sanctum::actingAs($this->owner);
+    $res = $this->postJson('/api/sessions/bulk-delete', ['session_ids' => [$refused, $fine]])->assertOk();
+
+    expect($res->json('deleted'))->toBe(1)
+        ->and($res->json('skipped.0.id'))->toBe($refused)
+        ->and($res->json('skipped.0.reason'))->toBe('blocked');
+    expect(($this->row)($refused)->status)->toBe('SCHEDULED')
+        ->and(($this->row)($refused)->hidden_at)->toBeNull()
+        ->and(($this->row)($fine)->hidden_at)->not->toBeNull();
+});
+
+it('keeps bulk delete to people who may delete lessons, and to a bounded list', function () {
+    $session = ($this->lesson)();
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson('/api/sessions/bulk-delete', ['session_ids' => [$session]])->assertForbidden();
+    expect(($this->row)($session)->hidden_at)->toBeNull();
+
+    Sanctum::actingAs($this->owner);
+    $tooMany = collect(range(1, App\Http\Controllers\Scheduling\SessionController::BULK_DELETE_MAX + 1))
+        ->map(fn () => (string) Illuminate\Support\Str::uuid())->all();
+    $this->postJson('/api/sessions/bulk-delete', ['session_ids' => $tooMany])->assertUnprocessable();
+    $this->postJson('/api/sessions/bulk-delete', ['session_ids' => []])->assertUnprocessable();
+});

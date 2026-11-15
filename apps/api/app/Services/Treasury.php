@@ -248,6 +248,8 @@ final class Treasury
                 $j->on('m.academy_id', '=', 'r.academy_id')->on('m.method', '=', 'r.method')->on('m.currency', '=', 'r.currency');
             })
             ->whereNull('r.voided_at')
+            // A family's opening credit never reached a drawer or a bank.
+            ->where('r.source', '<>', Ledger::SOURCE_OPENING)
             ->where('r.currency', $account->currency ?? '')
             ->whereRaw('coalesce(r.cash_account_id, m.cash_account_id) = ?', [$accountId]);
     }

@@ -9,6 +9,7 @@ import { DiscountPresetsScreen } from "@/components/accounting/discount-presets"
 import { AccountingTreasuryScreen } from "@/components/accounting/accounting-treasury";
 import { AccountingTabs } from "@/components/accounting/accounting-ui";
 import { ReceiptsRegister } from "@/components/accounting/receipts-register";
+import { ReceiptMethodsCard } from "@/components/accounting/receipt-methods-card";
 import { PageHero } from "@/components/ui/page-hero";
 
 type Tab = "accounts" | "receipts" | "expenses" | "discounts";
@@ -48,7 +49,12 @@ export function AccountingTreasuryHub() {
         onChange={pick}
         testIdPrefix="treasury-tab"
       />
-      {tab === "accounts" && <AccountingTreasuryScreen hero={false} />}
+      {tab === "accounts" && (
+        <>
+          <AccountingTreasuryScreen hero={false} />
+          <ReceiptMethodsCard />
+        </>
+      )}
       {tab === "receipts" && <ReceiptsRegister hero={false} />}
       {tab === "expenses" && <AccountingExpensesScreen hero={false} />}
       {tab === "discounts" && <DiscountPresetsScreen />}

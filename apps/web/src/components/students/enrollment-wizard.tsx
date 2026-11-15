@@ -27,6 +27,7 @@ import { StudentSubscriptionFields, useStudentSubscriptionDraft, type SubjectLin
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Combobox } from "@/components/ui/combobox";
+import { filterGroups, GroupSearchBox } from "@/components/groups/group-search";
 import {
   ApiError,
   getStudent,
@@ -159,6 +160,7 @@ export function EnrollmentWizard({
   const withSubscription = subscriptionPick ?? !groupsOn;
   const [studentLinks, setStudentLinks] = useState<SubjectLink[]>([]);
   const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
+  const [groupQuery, setGroupQuery] = useState("");
   const [groupPicks, setGroupPicks] = useState<{ id: string; joinedOn: string }[]>([]);
   const groupIds = groupPicks.map((g) => g.id);
   // The subject can be the teacher picked on the schedule step, even before the link is saved.
@@ -476,6 +478,7 @@ export function EnrollmentWizard({
                   })}
                 </ul>
               )}
+              <GroupSearchBox count={groupOptions?.length ?? 0} value={groupQuery} onChange={setGroupQuery} testId="enroll-group-subs-search" />
               <div className="relative">
                 <Plus className="text-primary pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
                 <select
@@ -487,7 +490,7 @@ export function EnrollmentWizard({
                   data-testid="enroll-group-subs-pick"
                 >
                   <option value="">{groupOptions === null ? "…" : groupOptions.length === 0 ? t("form.noGroups") : groupPicks.length === 0 ? t("form.addGroup") : t("form.addAnotherGroup")}</option>
-                  {(groupOptions ?? [])
+                  {filterGroups(groupOptions ?? [], groupQuery)
                     .filter((g) => !groupIds.includes(g.id))
                     .map((g) => (
                       <option key={g.id} value={g.id}>

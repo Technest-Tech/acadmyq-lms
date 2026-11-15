@@ -950,6 +950,208 @@ it('two-month offer: refused once next month is charged, or on a charge that is 
         ->and(asTenant($this->academy, fn () => DB::table('receipts')->count()))->toBe(0);
 });
 
+it('two-month offer (lingo 2026-11-15): a pro-rated first month + one FULL month, the family discount kept on the bill, the offer discount off the quote', function () {
+    accountingOn($this);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'خصم اخوات', 'scope' => 'GROUP', 'starts_on' => '2026-06-01'])->assertCreated();
+    $groupId = moneyGroup($this);
+    // Joins today (Wed 17th): June is 4 of 9 lessons = 200, 180 after the family's 10%.
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-17'])->assertCreated();
+    $june = groupLines($this, $groupId)->first();
+    expect((int) $june->list_amount_minor)->toBe(20000)->and((int) $june->amount_minor)->toBe(18000);
+
+    // The screen gets the server's price: 200 + a full 450 = 650, less 20 + 45 of the family discount.
+    $quote = collect($this->getJson("/api/payer-account?guardian_id={$this->parent}")->assertOk()->json('lines'))->firstWhere('id', $june->id)['two_month'];
+    expect($quote)->toBe(['list_minor' => 65000, 'family_discount_minor' => 6500, 'family_label' => 'خصم اخوات', 'amount_minor' => 58500]);
+
+    $this->postJson('/api/receipts', [
+        'guardian_id' => $this->parent, 'amount_minor' => 48500, 'currency' => 'EGP', 'method' => 'CASH', 'apply_rest' => false,
+        'two_month_offers' => [['line_id' => $june->id, 'discount_minor' => 10000]],
+    ])->assertCreated();
+    $line = groupLines($this, $groupId)->first();
+    expect((int) $line->amount_minor)->toBe(48500)
+        ->and((int) $line->group_months)->toBe(2)
+        ->and((int) $line->list_amount_minor)->toBe(65000)
+        ->and((int) $line->discount_minor)->toBe(16500)
+        ->and($line->discount_label)->toBe('خصم اخوات + عرض شهرين');
+});
+
+it('two-month offer: a family discount added, ended or cancelled later never re-prices the agreed two months', function () {
+    accountingOn($this);
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    $june = groupLines($this, $groupId)->first();
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/receipts', [
+        'guardian_id' => $this->parent, 'amount_minor' => 80000, 'currency' => 'EGP', 'method' => 'CASH',
+        'two_month_offers' => [['line_id' => $june->id, 'discount_minor' => 10000]],
+    ])->assertCreated();
+    expect((int) groupLines($this, $groupId)->first()->amount_minor)->toBe(80000);
+
+    $id = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'خصم اخوات', 'apply_to_existing' => true])->assertCreated()->json('id');
+    expect((int) groupLines($this, $groupId)->first()->amount_minor)->toBe(80000);
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$id}/apply-existing")->assertSuccessful();
+    expect((int) groupLines($this, $groupId)->first()->amount_minor)->toBe(80000);
+    $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$id}")->assertSuccessful();
+    expect((int) groupLines($this, $groupId)->first()->amount_minor)->toBe(80000);
+});
+
+it('two-month offer: the account offers it only where it would go through (not on a month whose next is raised)', function () {
+    accountingOn($this);
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    Carbon::setTestNow('2026-07-01 03:00:00');
+    (new RollSessionWindowJob(onlyAcademyId: $this->academy))->handle(app(SessionGenerator::class));
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    [$june, $july] = [groupLines($this, $groupId)[0], groupLines($this, $groupId)[1]];
+
+    Sanctum::actingAs($this->owner);
+    $lines = collect($this->getJson("/api/payer-account?guardian_id={$this->parent}")->assertOk()->json('lines'))->keyBy('id');
+    expect($lines[$june->id]['two_month'])->toBeNull()
+        ->and($lines[$july->id]['two_month']['amount_minor'])->toBe(90000);
+});
+
+it('two-month offer from credit: a subject already paid this month takes the next month with no new money; the credit pays it', function () {
+    accountingOn($this);
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    $june = groupLines($this, $groupId)->first();
+    Sanctum::actingAs($this->owner);
+    // 450 for June + 450 kept as credit.
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 90000, 'currency' => 'EGP', 'method' => 'CASH'])->assertCreated();
+
+    $account = $this->getJson("/api/payer-account?guardian_id={$this->parent}")->assertOk()->json();
+    expect($account['lines'])->toBe([])
+        ->and($account['offer_lines'][0]['id'])->toBe($june->id)
+        ->and($account['offer_lines'][0]['two_month']['amount_minor'])->toBe(90000);
+
+    $this->postJson('/api/two-month-offers', ['line_id' => $june->id, 'discount_minor' => 5000])->assertOk()
+        ->assertJsonPath('amount_minor', 85000)
+        ->assertJsonPath('balance.0.due_minor', 0)
+        ->assertJsonPath('balance.0.credit_minor', 5000);
+    $line = groupLines($this, $groupId)->first();
+    expect((int) $line->group_months)->toBe(2)
+        ->and((int) asTenant($this->academy, fn () => DB::table('receipt_allocations')->where('invoice_line_id', $june->id)->sum('amount_minor')))->toBe(85000);
+
+    // A teacher (no invoice.mark_paid) can't.
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson('/api/two-month-offers', ['line_id' => $june->id])->assertForbidden();
+});
+
+it('a student paused for not paying and brought back to an hours group continues the lessons already paid (Lingo 2026-11-15)', function () {
+    // Mon + Wed, 4 hours a month of 60-minute lessons.
+    Carbon::setTestNow('2026-06-01 06:00:00');
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 240, 'student_ids' => [$this->kids['Adam']]]);
+    expect(groupLines($this, $groupId))->toHaveCount(1);
+    Carbon::setTestNow('2026-06-04 09:00:00');
+    heldLesson($this, $groupId, '2026-06-01');
+    heldLesson($this, $groupId, '2026-06-03');
+
+    // Taken off the group on the 4th (2 of the 4 paid lessons used), brought back on the 10th.
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['left_on' => '2026-06-04', 'reason' => 'PAUSED'])->assertSuccessful();
+    Carbon::setTestNow('2026-06-10 06:00:00');
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-10'])->assertCreated();
+    // No new charge: two paid lessons are still his.
+    expect(groupLines($this, $groupId))->toHaveCount(1);
+
+    // The 8th (while away) doesn't count; the 10th and 15th use up what was paid, then month 2 is raised.
+    Carbon::setTestNow('2026-06-15 20:00:00');
+    heldLesson($this, $groupId, '2026-06-10');
+    expect(groupLines($this, $groupId))->toHaveCount(1);
+    heldLesson($this, $groupId, '2026-06-15');
+    expect(groupLines($this, $groupId))->toHaveCount(2);
+});
+
+// ── Leaving a group with lessons paid and not taken (Lingo 2026-11-15) ───────────
+
+it('leaving an hours group: says how many lessons are left and their worth, and gives them back as the family\'s credit', function () {
+    accountingOn($this);
+    Carbon::setTestNow('2026-06-01 06:00:00');
+    // 4 hours a month at 400 = 100 a lesson.
+    $groupId = moneyGroup($this, ['price_minor' => 40000, 'month_minutes' => 240, 'student_ids' => [$this->kids['Adam']]]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 40000, 'currency' => 'EGP', 'method' => 'CASH'])->assertCreated();
+    Carbon::setTestNow('2026-06-04 09:00:00');
+    heldLesson($this, $groupId, '2026-06-01');
+    heldLesson($this, $groupId, '2026-06-03');
+
+    Sanctum::actingAs($this->owner);
+    $quote = $this->getJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}/leave-quote?left_on=2026-06-04")->assertOk()->json('quote');
+    expect($quote)->toMatchArray(['kind' => 'HOURS', 'attended' => 2, 'remaining' => 2, 'unused_minor' => 20000, 'paid_minor' => 40000, 'refundable_minor' => 20000]);
+
+    $this->deleteJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['left_on' => '2026-06-04', 'reason' => 'STOPPED', 'settlement' => 'CREDIT'])
+        ->assertOk()->assertJsonPath('settlement.mode', 'CREDIT')->assertJsonPath('settlement.amount_minor', 20000);
+    $line = groupLines($this, $groupId)->first();
+    expect((int) $line->amount_minor)->toBe(20000)->and((int) $line->group_minutes)->toBe(120);
+    expect($this->getJson("/api/payer-account?guardian_id={$this->parent}")->json('balance.0.credit_minor'))->toBe(20000);
+});
+
+it('leaving mid-month: the month\'s lessons from that day are paid back in cash from a treasury account', function () {
+    accountingOn($this);
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    Sanctum::actingAs($this->owner);
+    $drawer = $this->postJson('/api/treasury/accounts', ['name' => 'Drawer', 'kind' => 'CASH', 'methods' => ['CASH'], 'opening_on' => '2026-06-01'])->assertCreated()->json('id');
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 45000, 'currency' => 'EGP', 'method' => 'CASH'])->assertCreated();
+
+    // Today the 17th: 17, 22, 24, 29 are left of June's 9 lessons → 200 of the 450.
+    $quote = $this->getJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}/leave-quote")->assertOk()->json();
+    expect($quote['quote'])->toMatchArray(['kind' => 'MONTH', 'attended' => 5, 'remaining' => 4, 'unused_minor' => 20000, 'refundable_minor' => 20000])
+        ->and($quote['accounts'][0]['id'])->toBe($drawer);
+    $this->deleteJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['settlement' => 'REFUND', 'cash_account_id' => $drawer])
+        ->assertOk()->assertJsonPath('settlement.refunded_minor', 20000);
+    expect((int) groupLines($this, $groupId)->first()->amount_minor)->toBe(25000);
+    $account = collect($this->getJson('/api/treasury')->json('accounts'))->firstWhere('id', $drawer);
+    expect($account['balance_minor'])->toBe(25000);
+    expect($this->getJson("/api/payer-account?guardian_id={$this->parent}")->json('balance'))->toBe([]);
+});
+
+it('leaving and keeping the charge as it was changes no money; a teacher may not settle', function () {
+    accountingOn($this);
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam'], $this->kids['Bassel']]]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 90000, 'currency' => 'EGP', 'method' => 'CASH'])->assertCreated();
+    $this->deleteJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['settlement' => 'KEEP'])->assertOk()->assertJsonPath('settlement.mode', 'KEEP');
+    expect(groupLines($this, $groupId)->pluck('amount_minor')->map(fn ($a) => (int) $a)->all())->toBe([45000, 45000]);
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->deleteJson("/api/groups/{$groupId}/members/{$this->kids['Bassel']}", ['settlement' => 'CREDIT'])->assertForbidden();
+});
+
+// ── One trial lesson in a group (Lingo 2026-11-15) ────────────────────────────
+
+it('books one trial lesson in an hours group at the group\'s lesson price: on that sheet only, never billed a month', function () {
+    accountingOn($this);
+    // 4 hours a month at 400 → a 60-minute lesson is 100.
+    $groupId = moneyGroup($this, ['price_minor' => 40000, 'month_minutes' => 240, 'student_ids' => [$this->kids['Adam']]]);
+    $lesson = lessonOn($this, $groupId, '2026-06-22');
+    Sanctum::actingAs($this->owner);
+    expect($this->getJson("/api/groups/{$groupId}/trial-price?lesson_id={$lesson->id}")->assertOk()->json('amount_minor'))->toBe(10000);
+
+    $this->postJson("/api/groups/{$groupId}/trial", ['student_id' => $this->kids['Bassel'], 'lesson_id' => $lesson->id])->assertCreated()->assertJsonPath('trial.amount_minor', 10000);
+    $bassel = groupLines($this, $groupId)->where('student_id', $this->kids['Bassel'])->values();
+    expect($bassel)->toHaveCount(1)
+        ->and($bassel[0]->group_charge)->toBe('LESSON')
+        ->and((int) $bassel[0]->amount_minor)->toBe(10000);
+
+    // On the 22nd's sheet, not the 24th's; the nightly run and the sheet never bill him a month.
+    Carbon::setTestNow('2026-06-22 20:00:00');
+    heldLesson($this, $groupId, '2026-06-22');
+    (new BillGroupMonthsJob(onlyAcademyId: $this->academy))->handle(app(GroupBilling::class));
+    expect(groupLines($this, $groupId)->where('student_id', $this->kids['Bassel'])->count())->toBe(1);
+    $sheet = fn (string $d) => collect($this->getJson('/api/group-lessons/'.lessonOn($this, $groupId, $d)->id)->assertOk()->json('roster'))->pluck('student_id')->all();
+    expect($sheet('2026-06-22'))->toContain($this->kids['Bassel'])
+        ->and($sheet('2026-06-24'))->not->toContain($this->kids['Bassel']);
+
+    // Already in the group: no trial.
+    $this->postJson("/api/groups/{$groupId}/trial", ['student_id' => $this->kids['Adam'], 'lesson_id' => $lesson->id])->assertStatus(422);
+});
+
+it('prices a trial lesson in a calendar-month group as the month\'s price over its lessons', function () {
+    $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);
+    $lesson = lessonOn($this, $groupId, '2026-06-22');
+    Sanctum::actingAs($this->owner);
+    // 450 over June's 9 lessons.
+    expect($this->getJson("/api/groups/{$groupId}/trial-price?lesson_id={$lesson->id}")->assertOk()->json('amount_minor'))->toBe(5000);
+});
+
 // ── Money from an unknown payer (lingo 2026-11-09) ───────────────────────────
 
 it('keeps money from an unknown payer apart until it is assigned, then it pays that family', function () {
