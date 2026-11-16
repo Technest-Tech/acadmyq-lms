@@ -403,14 +403,15 @@ it('trusts a label that states a lesson count, and never charges a cancellation 
         ->and((bool) DB::table('sessions')->where('id', $inOldTime)->value('billed'))->toBeFalse();
 });
 
-it('measures minutes left over from the last block against the lesson that ran over, not this block\'s length', function () {
-    // The old block had 20 minutes left when a 40-minute lesson took it 20 past its end.
-    $old = ($this->open)(['minutes_total' => 60, 'label' => 'Old', 'starts_on' => '2026-05-25']);
-    ($this->attend)(40, '2026-06-01 15:00:00+00');
-    ($this->attend)(40, '2026-06-02 15:00:00+00');
+it('counts minutes left over from the last block as a lesson only when that block took more lessons than it sold', function () {
+    // "12 × 30" took exactly its twelve lessons — two of them entered as 40, so the last ran 20 over.
+    $old = ($this->open)(['minutes_total' => 360, 'label' => '12 × 30', 'starts_on' => '2026-05-01']);
+    foreach (range(1, 12) as $d) {
+        ($this->attend)(in_array($d, [6, 7], true) ? 40 : 30, sprintf('2026-05-%02d 15:00:00+00', $d));
+    }
     expect(($this->package)($old)->status)->toBe('COMPLETED')->and((int) ($this->package)($old)->minutes_overdrawn)->toBe(20);
 
-    // The next one is labelled in 30s: 20 over is half of the 40-minute lesson, not most of a 30.
+    // 20 minutes is most of a 30-minute lesson, but the old block took what it sold: nothing is owed.
     $id = ($this->open)(['minutes_total' => 240, 'label' => '8حصص × 30 د', 'starts_on' => '2026-06-03']);
     expect((int) ($this->package)($id)->absorbed_overdraft_minutes)->toBe(20);
 
@@ -421,4 +422,73 @@ it('measures minutes left over from the last block against the lesson that ran o
 
     $row = ($this->package)($id);
     expect((int) $row->absorbed_overdraft_minutes)->toBe(0)->and((int) $row->minutes_consumed)->toBe(0)->and((int) $row->minutes_total)->toBe(240);
+});
+
+it('counts a whole lesson taken past the last block\'s count onto this one', function () {
+    // "2 × 40" took THREE lessons: the third began with 10 minutes left and ran 30 past the end.
+    $old = ($this->open)(['minutes_total' => 80, 'label' => '2 × 40', 'starts_on' => '2026-05-01']);
+    ($this->attend)(40, '2026-05-01 15:00:00+00');
+    ($this->attend)(30, '2026-05-02 15:00:00+00');
+    ($this->attend)(40, '2026-05-03 15:00:00+00');
+    expect((int) ($this->package)($old)->minutes_overdrawn)->toBe(30);
+
+    $id = ($this->open)(['minutes_total' => 320, 'label' => '8 × 40', 'starts_on' => '2026-06-03']);
+    ($this->switchOn)();
+    $this->artisan('packages:count-in-lessons', ['--academy' => $this->academy, '--apply' => true])
+        ->expectsOutputToContain('30 min from the last block count as 1 lesson(s) · was 30/320 min used → stays open, 7 lessons left')
+        ->assertSuccessful();
+
+    expect((int) ($this->package)($id)->absorbed_overdraft_minutes)->toBe(40)->and((int) ($this->package)($id)->minutes_consumed)->toBe(40);
+});
+
+it('gives lessons already marked the new length: the teacher\'s line follows on its own statement, sealed or not; a finished block stays', function () {
+    // A block in minutes that three 45-minute lessons finished (May), and the teacher's May statement sealed.
+    $old = ($this->open)(['minutes_total' => 135, 'label' => 'May', 'starts_on' => '2026-05-01']);
+    $may = [];
+    foreach ([4, 5, 6] as $d) {
+        $may[] = ($this->attend)(45, sprintf('2026-05-%02d 15:00:00+00', $d));
+    }
+    expect(($this->package)($old)->status)->toBe('COMPLETED');
+    $this->asAcademy($this->academy);
+    app(\App\Services\Payroll::class)->finalizePeriodPayouts($this->academy, 2026, 5, $this->owner->id, 'ACADEMY_OWNER');
+    $this->clearTenantContext();
+
+    // June: a running block counted in lessons, one attended 45, one cancellation with no money on it.
+    ($this->switchOn)();
+    $id = ($this->open)(['minutes_total' => 160, 'lesson_minutes' => 40, 'starts_on' => '2026-06-01']);
+    $june = ($this->attend)(45, '2026-06-02 15:00:00+00');
+    $cancelled = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-03 15:00:00+00', 'duration_minutes' => 45, 'status' => 'CANCELLED_BY_STUDENT',
+    ]);
+
+    $lines = function (array $ids): array {
+        $this->asAcademy($this->academy);
+        $rows = DB::table('payout_line_items')->whereIn('session_id', $ids)->pluck('amount_minor', 'session_id')->map(fn ($a) => (int) $a)->all();
+        $this->clearTenantContext();
+
+        return $rows;
+    };
+    $before = $lines([...$may, $june]);
+    expect($before[$june])->toBe(3750);   // 5000/h × 45 min
+
+    // Listed first: nothing moves.
+    $this->artisan('lessons:retime', ['--academy' => $this->academy, '--from' => 45, '--to' => 40, '--marked' => true])
+        ->expectsOutputToContain('Lessons already marked: 4 attended to correct, 1 cancelled/free with no money on them, 0 left alone')
+        ->expectsOutputToContain('Ustadha · 2026-05 (sealed): 3 lessons, 112.50 → 99.99 EGP (-12.51)')
+        ->assertSuccessful();
+    expect($lines([$june])[$june])->toBe(3750);
+
+    $this->artisan('lessons:retime', ['--academy' => $this->academy, '--from' => 45, '--to' => 40, '--marked' => true, '--apply' => true])->assertSuccessful();
+
+    $after = $lines([...$may, $june]);
+    expect($after[$june])->toBe(3333)->and($after[$may[0]])->toBe(3333);
+    $this->asAcademy($this->academy);
+    expect(DB::table('sessions')->whereIn('id', [...$may, $june, $cancelled])->pluck('duration_minutes')->map(fn ($d) => (int) $d)->unique()->all())->toBe([40]);
+    // The sealed statement is corrected in place and stays sealed.
+    $statement = DB::table('payouts')->where('period_year', 2026)->where('period_month', 5)->first();
+    expect($statement->finalized_at)->not->toBeNull()->and((int) $statement->total_minor)->toBe(9999);
+    // The finished block's books are history; the running one counts lessons, so its lesson is still one.
+    expect((int) DB::table('lesson_packages')->where('id', $old)->value('minutes_consumed'))->toBe(135)
+        ->and(DB::table('lesson_packages')->where('id', $old)->value('status'))->toBe('COMPLETED')
+        ->and((int) DB::table('lesson_packages')->where('id', $id)->value('minutes_consumed'))->toBe(40);
 });

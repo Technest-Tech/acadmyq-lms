@@ -441,11 +441,7 @@ final class LessonPackages
         // form, so its minutes would hold 24 lessons of 40), else the minutes over the length.
         $said = $terms === null ? self::labelLessonCount($package) : null;
         $lessonsSold = $terms !== null ? $terms['lessons'] : ($said ?? $byMinutes);
-        // Whole lessons only, half rounding down: 20 of 40 is none. Measured against the lesson that
-        // ran past the old block's end, not this block's length: 20 minutes over from a 40-minute
-        // lesson is half of it, whatever length this block's label says.
-        $absorbedLessons = (int) ceil((int) $package->absorbed_overdraft_minutes / ($this->overdrawingLessonLength($package) ?? $lessonMinutes) - 0.5);
-        $absorbed = max(0, $absorbedLessons) * $lessonMinutes;
+        $absorbed = $this->absorbedLessons($package, $lessonMinutes) * $lessonMinutes;
         $minutesTotal = max($lessonMinutes, $lessonsSold * $lessonMinutes - $carried);
         $available = $lessonsSold * $lessonMinutes - $absorbed;
 
@@ -494,17 +490,37 @@ final class LessonPackages
         ];
     }
 
-    /** How long the lesson ran that took an earlier block past its end and onto this one; null when none did. */
-    private function overdrawingLessonLength(object $package): ?int
+    /**
+     * The minutes a block took over from the one before, as whole lessons. They count as a lesson
+     * only when both say so: the minutes are most of a lesson (half rounds down — 20 of 40 is none),
+     * AND the old block really took more lessons than it sold. Minutes ran past an old block's end
+     * mostly because its lessons were entered a little long, while it took exactly the lessons it was
+     * sold (Alrayan, 2026-11-17: all eight such blocks) — in lessons, that last lesson finished the old
+     * block, and it is not the new one's to pay for.
+     */
+    private function absorbedLessons(object $package, int $lessonMinutes): int
     {
-        $minutes = DB::table('lesson_packages as old')
-            ->join('lesson_package_credits as c', 'c.package_id', '=', 'old.id')
-            ->join('sessions as se', 'se.id', '=', 'c.session_id')
-            ->where('old.overdraft_absorbed_by', $package->id)
-            ->where('c.minutes_overdrawn', '>', 0)
-            ->max('se.duration_minutes');
+        $byMinutes = (int) ceil((int) $package->absorbed_overdraft_minutes / $lessonMinutes - 0.5);
+        if ($byMinutes <= 0) {
+            return 0;
+        }
 
-        return $minutes !== null && (int) $minutes >= 5 ? (int) $minutes : null;
+        $old = DB::table('lesson_packages')->where('overdraft_absorbed_by', $package->id)->orderByDesc('sequence_no')->first();
+        if ($old === null) {
+            return $byMinutes;
+        }
+
+        $lessons = DB::table('lesson_package_credits as c')
+            ->join('sessions as se', 'se.id', '=', 'c.session_id')
+            ->where('c.package_id', $old->id)
+            ->get(['se.duration_minutes', 'se.package_lessons']);
+        $taken = (int) $lessons->sum(fn ($l) => self::lessonCountOf($l));
+        // What the old block sold: its label, else its minutes over the length its lessons ran.
+        $usual = (int) ($lessons->map(fn ($l) => (int) $l->duration_minutes)->countBy()->sortDesc()->keys()->first() ?? $lessonMinutes);
+        $sold = self::labelTerms($old)['lessons'] ?? self::labelLessonCount($old)
+            ?? max(1, (int) round(((int) $old->minutes_total + (int) $old->carried_over_minutes) / max(5, $usual)));
+
+        return max(0, min($byMinutes, $taken - $sold));
     }
 
     /**

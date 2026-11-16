@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Console\Commands;
 
 use App\Services\LessonPackages;
+use App\Services\SessionDurationCorrection;
 use App\Support\Audit;
 use App\Support\Tenancy;
 use App\Support\TenantContext;
@@ -24,11 +25,20 @@ use Illuminate\Support\Facades\DB;
  *
  * Lessons already marked (attended, cancelled, charged, paid to a teacher) keep their length: changing
  * them moves teachers' pay for months already counted, and that is a separate decision. They are
- * listed, with the hourly-paid teachers' minutes, so it can be made.
+ * listed so it can be made.
+ *
+ * `--marked` is that decision taken: marked lessons get the new length too.
+ *   • attended ones go through {@see SessionDurationCorrection} the way the payroll page corrects a
+ *     lesson: the teacher's line is re-priced on its own statement, sealed or not (one paid from
+ *     the treasury carries the difference to the open statement); an OPEN bill's line follows; a
+ *     running block still in minutes is re-cut; a finished block and a closed or paid bill are left
+ *     as they were;
+ *   • cancelled and free ones with no money on them just get the length;
+ *   • a cancelled or free one that was charged or paid is listed and left.
  *
  * Lists by default; `--apply` writes, in one transaction.
  *
- *   php artisan lessons:retime --academy=<uuid> --from=45 --to=40 [--apply]
+ *   php artisan lessons:retime --academy=<uuid> --from=45 --to=40 [--marked] [--apply]
  */
 final class RetimeLessons extends Command
 {
@@ -38,11 +48,12 @@ final class RetimeLessons extends Command
         {--academy= : The academy (required)}
         {--from= : The length that is wrong, in minutes}
         {--to= : The length it should be, in minutes}
+        {--marked : Also give lessons already marked the new length (teacher pay follows)}
         {--apply : Change them (default: only list)}';
 
     protected $description = "List, then change, an academy's lessons of one length to another (unmarked lessons, timetables, running blocks).";
 
-    public function handle(): int
+    public function handle(SessionDurationCorrection $corrections): int
     {
         $academyId = (string) $this->option('academy');
         $from = (int) $this->option('from');
@@ -62,8 +73,9 @@ final class RetimeLessons extends Command
 
         $ctx = new AuthContext(userId: self::SYSTEM_USER_ID, academyId: $academyId, role: 'SUPER_ADMIN', permissions: []);
         $apply = (bool) $this->option('apply');
+        $withMarked = (bool) $this->option('marked');
 
-        return Tenancy::withContext($ctx, function () use ($academyId, $name, $from, $to, $apply): int {
+        return Tenancy::withContext($ctx, function () use ($academyId, $name, $from, $to, $apply, $withMarked, $corrections): int {
             $slots = DB::table('schedule_slots as sl')
                 ->join('schedules as sc', 'sc.id', '=', 'sl.schedule_id')
                 ->join('students as s', 's.id', '=', 'sc.student_id')
@@ -122,9 +134,28 @@ final class RetimeLessons extends Command
                     (int) $p->minutes_total, $c['minutes_total'], $c['note'] !== '' ? " ({$c['note']})" : ''));
             }
             $this->line(sprintf('  Subscriptions with a lesson length of %d: %d', $from, $subscriptions));
-            $this->line(sprintf('  Left as they are — lessons already marked, %d in all:', (int) $marked->sum('lessons')));
-            foreach ($marked as $m) {
-                $this->line(sprintf('    %s (%s): %d lessons, %d of them paid to the teacher', $m->teacher, $m->pay_type ?? '—', $m->lessons, $m->paid));
+            $markedPlan = null;
+            if ($withMarked) {
+                $markedPlan = $this->markedPlan($corrections, $academyId, $from, $to);
+                $this->line(sprintf('  Lessons already marked: %d attended to correct, %d cancelled/free with no money on them, %d left alone',
+                    count($markedPlan['attended']), count($markedPlan['plain']), count($markedPlan['left'])));
+                foreach ($markedPlan['pay'] as $row) {
+                    $this->line(sprintf('    %s · %04d-%02d%s: %d lessons, %s → %s %s (%s)', $row['teacher'], $row['year'], $row['month'],
+                        $row['sealed'] ? ' (sealed)' : '', $row['lessons'], $this->money($row['before']), $this->money($row['after']), $row['currency'],
+                        $row['carried'] ? 'paid from the treasury: difference carried to the open statement' : $this->money($row['after'] - $row['before'])));
+                }
+                $this->line(sprintf('    Teachers\' pay in all: %s', collect($markedPlan['pay'])->groupBy('currency')
+                    ->map(fn ($rows, $currency) => $this->money($rows->sum('after') - $rows->sum('before')).' '.$currency)->implode(', ') ?: '0'));
+                $this->line(sprintf('    Bills: %d open line(s) follow, %d on closed or paid bills stay · Blocks: %d lesson(s) on running blocks in minutes re-cut, %d on finished or lesson-counted blocks stay',
+                    $markedPlan['invoice_open'], $markedPlan['invoice_closed'], $markedPlan['block_active'], $markedPlan['block_left']));
+                foreach ($markedPlan['left'] as $row) {
+                    $this->line(sprintf('    left: %s · %s · %s', $row->student, $row->day, $row->why));
+                }
+            } else {
+                $this->line(sprintf('  Left as they are — lessons already marked, %d in all (pass --marked to change them too):', (int) $marked->sum('lessons')));
+                foreach ($marked as $m) {
+                    $this->line(sprintf('    %s (%s): %d lessons, %d of them paid to the teacher', $m->teacher, $m->pay_type ?? '—', $m->lessons, $m->paid));
+                }
             }
 
             if (! $apply) {
@@ -133,7 +164,7 @@ final class RetimeLessons extends Command
                 return self::SUCCESS;
             }
 
-            DB::transaction(function () use ($academyId, $from, $to, $slots, $unmarked, $blockChanges): void {
+            DB::transaction(function () use ($academyId, $from, $to, $slots, $unmarked, $blockChanges, $markedPlan, $corrections): void {
                 DB::table('schedule_slots')->whereIn('id', $slots->pluck('id'))->update(['duration_minutes' => $to, 'updated_at' => now()]);
                 $sessions = (clone $unmarked)->update(['duration_minutes' => $to, 'updated_at' => now()]);
                 foreach ($blockChanges as [$p, $c]) {
@@ -150,14 +181,98 @@ final class RetimeLessons extends Command
                 }
                 $subs = DB::table('subscriptions')->where('academy_id', $academyId)->where('lesson_minutes', $from)->update(['lesson_minutes' => $to, 'updated_at' => now()]);
 
+                $corrected = 0;
+                $plain = 0;
+                if ($markedPlan !== null) {
+                    foreach ($markedPlan['attended'] as $sessionId) {
+                        // The payroll page's own path: a sealed statement is corrected in place.
+                        $corrections->update($sessionId, $to, self::SYSTEM_USER_ID, 'SUPER_ADMIN', true);
+                        $corrected++;
+                    }
+                    $plain = DB::table('sessions')->whereIn('id', $markedPlan['plain'])->update(['duration_minutes' => $to, 'updated_at' => now()]);
+                }
+
                 Audit::log('academy.lessons_retimed', 'academy', $academyId, $academyId, null, 'SUPER_ADMIN',
                     before: ['minutes' => $from],
-                    after: ['minutes' => $to, 'slots' => $slots->count(), 'sessions' => $sessions, 'blocks' => count($blockChanges), 'subscriptions' => $subs]);
+                    after: ['minutes' => $to, 'slots' => $slots->count(), 'sessions' => $sessions, 'blocks' => count($blockChanges), 'subscriptions' => $subs,
+                        'marked_attended' => $corrected, 'marked_plain' => $plain]);
             });
             $this->info('Done.');
 
             return self::SUCCESS;
         });
+    }
+
+    /**
+     * What `--marked` will do, read through the duration correction's own preview.
+     *
+     * @return array{attended: list<string>, plain: list<string>, left: list<object>, pay: list<array<string,mixed>>, invoice_open: int, invoice_closed: int, block_active: int, block_left: int}
+     */
+    private function markedPlan(SessionDurationCorrection $corrections, string $academyId, int $from, int $to): array
+    {
+        $sessions = DB::table('sessions as se')
+            ->join('students as s', 's.id', '=', 'se.student_id')
+            ->where('se.academy_id', $academyId)
+            ->where('se.duration_minutes', $from)
+            ->where(fn ($q) => $q->whereNotIn('se.status', ['SCHEDULED', 'RESCHEDULED'])->orWhere('se.billed', true)->orWhere('se.paid_to_teacher', true))
+            ->orderBy('se.scheduled_at_utc')
+            ->get(['se.*', 's.full_name as student']);
+
+        $plan = ['attended' => [], 'plain' => [], 'left' => [], 'pay' => [], 'invoice_open' => 0, 'invoice_closed' => 0, 'block_active' => 0, 'block_left' => 0];
+        $pay = [];
+        foreach ($sessions as $session) {
+            $day = substr((string) $session->scheduled_at_utc, 0, 10);
+            if ((string) $session->status !== 'ATTENDED') {
+                if (! (bool) $session->billed && ! (bool) $session->paid_to_teacher) {
+                    $plan['plain'][] = (string) $session->id;
+                } else {
+                    $plan['left'][] = (object) ['student' => $session->student, 'day' => $day, 'why' => strtolower((string) $session->status).', charged or paid'];
+                }
+
+                continue;
+            }
+
+            $preview = $corrections->preview($session, $to, true);
+            if (! $preview['can_change']) {
+                $plan['left'][] = (object) ['student' => $session->student, 'day' => $day, 'why' => implode(',', $preview['blockers'])];
+
+                continue;
+            }
+            $plan['attended'][] = (string) $session->id;
+
+            if ($preview['invoice'] !== null) {
+                $plan[$preview['invoice']['status'] === 'OPEN' ? 'invoice_open' : 'invoice_closed']++;
+            }
+            $onBlock = DB::table('lesson_package_credits')->where('session_id', $session->id)->exists();
+            if ($preview['package'] !== null && $preview['package']['status'] === 'ACTIVE') {
+                $plan['block_active']++;
+            } elseif ($onBlock) {
+                $plan['block_left']++;
+            }
+            if ($preview['payout'] !== null) {
+                $key = $preview['payout']['payout_id'];
+                if (! isset($pay[$key])) {
+                    $payout = DB::table('payouts as p')->join('teachers as t', 't.id', '=', 'p.teacher_id')->where('p.id', $key)
+                        ->first(['t.full_name', 'p.period_year', 'p.period_month', 'p.finalized_at']);
+                    $pay[$key] = ['teacher' => (string) $payout->full_name, 'year' => (int) $payout->period_year, 'month' => (int) $payout->period_month,
+                        'sealed' => $payout->finalized_at !== null, 'carried' => (bool) $preview['payout']['finalized'],
+                        'currency' => $preview['payout']['currency'], 'lessons' => 0, 'before' => 0, 'after' => 0];
+                }
+                $pay[$key]['lessons']++;
+                $pay[$key]['before'] += (int) $preview['payout']['amount_before'];
+                $pay[$key]['after'] += (int) $preview['payout']['amount_after'];
+            }
+        }
+        usort($pay, fn (array $a, array $b) => [$a['teacher'], $a['year'], $a['month']] <=> [$b['teacher'], $b['year'], $b['month']]);
+        $plan['pay'] = array_values($pay);
+
+        return $plan;
+    }
+
+    /** Minor units as a plain figure: 16000 → "160.00". */
+    private function money(int $minor): string
+    {
+        return number_format($minor / 100, 2, '.', '');
     }
 
     /**
