@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Scheduling;
 
+use App\Domain\StudentCancelCharge;
 use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
@@ -218,7 +219,7 @@ final class CancellationRequestController extends Controller
             approve: true,
             note: $data['note'] ?? null,
             service: $service,
-            billOverride: $mayBill && (bool) ($data['charge_student'] ?? false),
+            billOverride: StudentCancelCharge::chosen($data, $mayBill),
             teacherOverride: $mayBill && (bool) ($data['pay_teacher'] ?? false),
             reasonOverride: $data['reason'] ?? null,
             teacherShareBp: isset($data['teacher_pay_percent']) ? (int) $data['teacher_pay_percent'] * 100 : null,
@@ -244,7 +245,7 @@ final class CancellationRequestController extends Controller
         bool $approve,
         ?string $note,
         ?AttendanceService $service = null,
-        bool $billOverride = false,
+        ?bool $billOverride = false,
         bool $teacherOverride = false,
         ?string $reasonOverride = null,
         ?int $teacherShareBp = null,
@@ -286,6 +287,8 @@ final class CancellationRequestController extends Controller
                 $sessionStatus = $isFree ? 'FREE' : self::CANCEL_STATUS[$req->cancel_type];
                 $reason = $reasonOverride ?? $req->reason;
 
+                // Nobody chose (null): a student's cancellation follows the academy's default.
+                $billOverride = $isFree ? (bool) $billOverride : StudentCancelCharge::charge($academyId, SessionStatus::from($sessionStatus), $billOverride);
                 $service?->record(
                     $session,
                     SessionStatus::from($sessionStatus),

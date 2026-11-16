@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Scheduling;
 
 use App\Domain\OutcomeLock;
 use App\Domain\SessionClassifier;
+use App\Domain\StudentCancelCharge;
 use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
@@ -351,7 +352,7 @@ final class SessionController extends Controller
         // Charging the student / paying the teacher anyway is the money half of a cancellation
         // (session.bill_override). Without it the cancellation stands with the standard verdict.
         $mayBill = Gate::allows('session.bill_override');
-        $billOverride = $mayBill && (bool) ($data['charge_student'] ?? false);
+        $billOverride = StudentCancelCharge::charge((string) $session->academy_id, $next, StudentCancelCharge::chosen($data, $mayBill));
         $teacherOverride = $mayBill && (bool) ($data['pay_teacher'] ?? false);
         $prevStatus = (string) $session->status;
 

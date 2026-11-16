@@ -13,6 +13,16 @@ import type { AcademyKind } from "@/lib/api";
  * control should not exist for them. `null` capabilities (a platform Super Admin with no academy
  * entered) gate nothing. The server still enforces the gate (entitled: → 402); this is UX only.
  */
+/**
+ * A lesson the student cancels is charged unless the office says not to (`student_cancel_charged`,
+ * Alrayan 2026-11-17). Strict: only a session that lists it — the "charge the student?" question
+ * starts at Yes for a student's cancellation, and must not anywhere else.
+ */
+export function useStudentCancelCharged(): boolean {
+  const { session } = useAuth();
+  return session?.capabilities?.includes("student_cancel_charged") ?? false;
+}
+
 export function useCapability(capability: string): boolean {
   const { session } = useAuth();
   return (

@@ -4597,7 +4597,8 @@
       "modern_look": "Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy's own colours",
       "courses_art": "Courses & curricula theme — for English and curriculum academies: the modern look in ocean blue and coral instead of navy and gold, no ornaments, and a books-and-course picture instead of the mushaf and mosque",
       "packages_in_lessons": "Packages in lessons — a block counts lessons, not minutes: every lesson takes one whatever its length (the length only pays the teacher); running blocks are converted by the platform",
-      "centre": "Centre mode — lesson subscriptions, groups first, any student on a manual lesson, salary blocks"
+      "centre": "Centre mode — lesson subscriptions, groups first, any student on a manual lesson, salary blocks",
+      "student_cancel_charged": "A student's cancellation counts as a lesson taken — charged (off the package, or on the bill) unless the office says not to; teachers' pay unchanged"
     }
   },
   "adminDashboard": {

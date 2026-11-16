@@ -6,6 +6,7 @@ namespace App\Http\Controllers\Scheduling;
 
 use App\Domain\OutcomeLock;
 use App\Domain\SessionClassifier;
+use App\Domain\StudentCancelCharge;
 use App\Enums\SessionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
@@ -117,7 +118,8 @@ final class AttendanceController extends Controller
         // is still recorded, with the standard verdict — neither charged nor paid.
         $overridable = $isCancel || $isFree;
         $mayBill = Gate::allows('session.bill_override');
-        $billOverride = $overridable ? ($mayBill && (bool) ($data['charge_student'] ?? false)) : null;
+        // A student's cancellation is charged by default where the academy counts it as a lesson taken.
+        $billOverride = $overridable ? StudentCancelCharge::charge($academyId, $next, StudentCancelCharge::chosen($data, $mayBill)) : null;
         $teacherOverride = $overridable ? ($mayBill && (bool) ($data['pay_teacher'] ?? false)) : null;
 
         // One unit: a refusal from the books must not leave the lesson marked double.

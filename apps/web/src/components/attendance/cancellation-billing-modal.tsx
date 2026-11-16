@@ -4,6 +4,7 @@ import { GraduationCap, Loader2, UserRound } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useStudentCancelCharged } from "@/lib/capabilities";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import type { TeacherPayPercent } from "@/lib/api";
@@ -131,18 +132,20 @@ export function CancellationBillingModal({
   // Without it the two questions are not asked — the API would ignore the answers anyway — and the
   // lesson is recorded with the standard verdict: neither charged nor paid.
   const canBill = useAuth().can("session.bill_override");
-  const [chargeStudent, setChargeStudent] = useState(false);
+  // Where a student's cancellation counts as a lesson taken, the question starts at Yes for one.
+  const chargeByDefault = useStudentCancelCharged() && !isFree && cancelType === "student";
+  const [chargeStudent, setChargeStudent] = useState(chargeByDefault);
   const [teacherShare, setTeacherShare] = useState<TeacherShare>(0);
   const [reason, setReason] = useState(defaultReason);
 
   // Reset to defaults each time the modal is (re)opened so a prior cancellation never leaks in.
   useEffect(() => {
     if (open) {
-      setChargeStudent(false);
+      setChargeStudent(chargeByDefault);
       setTeacherShare(0);
       setReason(defaultReason);
     }
-  }, [open, defaultReason]);
+  }, [open, defaultReason, chargeByDefault]);
 
   return (
     <Modal

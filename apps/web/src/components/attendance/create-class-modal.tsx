@@ -4,6 +4,7 @@ import { CalendarPlus, Loader2, TriangleAlert } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
+import { useStudentCancelCharged } from "@/lib/capabilities";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -76,6 +77,7 @@ export function CreateClassModal({
   const [when, setWhen] = useState(() => defaultWhen(day));
   const [duration, setDuration] = useState(60);
   const [status, setStatus] = useState<ClassStatus>("ATTENDED");
+  const chargeByDefault = useStudentCancelCharged();
   const [chargeStudent, setChargeStudent] = useState(false);
   const [payTeacher, setPayTeacher] = useState(false);
   const [description, setDescription] = useState("");
@@ -341,7 +343,12 @@ export function CreateClassModal({
             data-testid="create-class-status"
             className={inputClass}
             value={status}
-            onChange={(e) => setStatus(e.target.value as ClassStatus)}
+            onChange={(e) => {
+              const next = e.target.value as ClassStatus;
+              setStatus(next);
+              // Where a student's cancellation counts as a lesson taken, it starts charged.
+              setChargeStudent(next === "CANCELLED_BY_STUDENT" && chargeByDefault);
+            }}
           >
             {statuses.map((s) => (
               <option key={s} value={s}>

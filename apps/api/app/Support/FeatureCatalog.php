@@ -45,6 +45,7 @@ final class FeatureCatalog
         'accounting' => 'Accounting — numbered receipts, partial payments, balances & collection sheets',
         'centre' => 'Centre mode — lesson subscriptions of its own (centre_subscriptions), groups first, any student on a manual lesson, salary blocks',
         'packages_in_lessons' => 'Packages in lessons — a block counts lessons, not minutes: each lesson takes one whatever its length (the length only pays the teacher)',
+        'student_cancel_charged' => 'A student\'s cancellation counts as a lesson taken — charged (off the package, or on the bill) unless the office says not to; teachers\' pay unchanged',
         'modern_look' => 'Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy\'s own colours',
         'courses_art' => 'Courses & curricula theme — the modern look in ocean blue and coral, no ornaments, and a books-and-course banner picture (switches the modern look on with it)',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
@@ -188,6 +189,7 @@ final class FeatureCatalog
             'accounting',
             'centre',
             'packages_in_lessons',
+            'student_cancel_charged',
             'modern_look',
             'courses_art',
         ],
@@ -224,6 +226,9 @@ final class FeatureCatalog
         // A Quran academy's packages counted in lessons, not minutes (2026-11-15): the clients we try
         // it with first, because their running blocks are converted (`packages:count-in-lessons`).
         'packages_in_lessons',
+        // A lesson the student cancels is a lesson taken (Alrayan, 2026-11-17): changes what every
+        // cancellation costs a family, so only for the clients who ask.
+        'student_cancel_charged',
     ];
 
     /**

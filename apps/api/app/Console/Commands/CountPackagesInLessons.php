@@ -26,7 +26,12 @@ use Illuminate\Support\Facades\DB;
  * Lists by default; `--apply` writes. Writing needs the switch on, or the blocks would show lessons
  * and go on burning minutes.
  *
- *   php artisan packages:count-in-lessons --academy=<uuid> [--apply]
+ * `--student-cancels`: the academy counts a lesson the student cancels as a lesson taken, so the
+ * student's uncharged cancellations in each block's time are counted onto it, in date order.
+ * `--length-map=45:40`: a length that is a typo for another (Alrayan has no 45-minute lessons); pair
+ * it with `lessons:retime`, which fixes the timetables and unmarked lessons.
+ *
+ *   php artisan packages:count-in-lessons --academy=<uuid> [--student-cancels] [--length-map=45:40] [--apply]
  */
 final class CountPackagesInLessons extends Command
 {
@@ -34,6 +39,8 @@ final class CountPackagesInLessons extends Command
 
     protected $signature = 'packages:count-in-lessons
         {--academy= : The academy (required)}
+        {--student-cancels : Count uncharged student cancellations in each block time as lessons taken}
+        {--length-map= : Lengths that are typos for others, e.g. 45:40 (comma-separated)}
         {--apply : Convert them (default: only list)}';
 
     protected $description = "List, then convert, an academy's running packages from minutes to lessons.";
@@ -56,6 +63,17 @@ final class CountPackagesInLessons extends Command
         }
 
         $apply = (bool) $this->option('apply');
+        $cancels = (bool) $this->option('student-cancels');
+        $map = [];
+        foreach (array_filter(explode(',', (string) $this->option('length-map'))) as $pair) {
+            [$a, $b] = array_map('intval', explode(':', $pair) + [1 => 0]);
+            if ($a < 5 || $b < 5) {
+                $this->error("Bad --length-map pair \"{$pair}\" (use 45:40).");
+
+                return self::FAILURE;
+            }
+            $map[$a] = $b;
+        }
         $on = Tenancy::withContext($ctx, fn () => LessonPackages::lessonsOn($academyId));
         if ($apply && ! $on) {
             $this->error("{$name}: switch \"packages_in_lessons\" on first (Super Admin → the client → Features).");
@@ -77,6 +95,7 @@ final class CountPackagesInLessons extends Command
         $noLength = 0;
         foreach ($rows as $p) {
             $length = Tenancy::withContext($ctx, fn () => $packages->detectLessonLength($p));
+            $length = $length !== null ? ($map[$length] ?? $length) : null;
             if ($length === null) {
                 $noLength++;
                 $this->line(sprintf('  %s · %s: no lesson length to go on — stays in hours', $p->student_name, $p->label));
@@ -84,17 +103,21 @@ final class CountPackagesInLessons extends Command
                 continue;
             }
 
-            $plan = Tenancy::withContext($ctx, fn () => $packages->lessonReplay($p, $length));
+            $plan = Tenancy::withContext($ctx, fn () => $packages->lessonReplay($p, $length, $cancels));
             $capacity = (int) $p->minutes_total + (int) $p->carried_over_minutes;
             $outcome = $plan['overdrawn_after'] > 0
-                ? sprintf('FINISHES, %d min past the end go to the next block', $plan['overdrawn_after'])
+                ? sprintf('FINISHES, %d lesson(s) past the end go to the next block', intdiv($plan['overdrawn_after'], $length))
                 : ($plan['left_after'] <= 0 ? 'FINISHES' : sprintf('stays open, %d lessons left', max(1, intdiv($plan['left_after'], $length))));
             if ($plan['left_after'] <= 0) {
                 $closing++;
             }
             $this->line(sprintf(
-                '  %s · %s: lessons of %d min · %d sold · %d taught · was %d/%d min used → %s%s',
-                $p->student_name, $p->label, $length, $plan['lessons_sold'], $plan['lessons_used'],
+                '  %s · %s: lessons of %d min · %d sold%s · %d taken%s%s · was %d/%d min used → %s%s',
+                $p->student_name, $p->label, $length, $plan['lessons_sold'],
+                $plan['lessons_by_minutes'] !== null ? sprintf(' (the label says so; its minutes would hold %d)', $plan['lessons_by_minutes']) : '',
+                $plan['lessons_used'],
+                $plan['cancels_counted'] > 0 ? sprintf(' (%d of them student cancellations)', $plan['cancels_counted']) : '',
+                $plan['absorbed_after'] !== (int) $p->absorbed_overdraft_minutes ? sprintf(' · %d stray min from the last block dropped', (int) $p->absorbed_overdraft_minutes - $plan['absorbed_after']) : '',
                 (int) $p->minutes_consumed, $capacity, $outcome,
                 $plan['left_after'] <= 0 && (bool) $p->auto_renew ? ' (renews: new block + bill)' : '',
             ));
@@ -112,9 +135,9 @@ final class CountPackagesInLessons extends Command
 
         $done = 0;
         foreach ($plans as $packageId => $length) {
-            Tenancy::withContext($ctx, function () use ($packages, $packageId, $length, &$done): void {
-                DB::transaction(function () use ($packages, $packageId, $length, &$done): void {
-                    if ($packages->convertToLessons($packageId, $length, null, 'SUPER_ADMIN') !== null) {
+            Tenancy::withContext($ctx, function () use ($packages, $packageId, $length, $cancels, &$done): void {
+                DB::transaction(function () use ($packages, $packageId, $length, $cancels, &$done): void {
+                    if ($packages->convertToLessons($packageId, $length, null, 'SUPER_ADMIN', $cancels) !== null) {
                         $done++;
                     }
                 });
