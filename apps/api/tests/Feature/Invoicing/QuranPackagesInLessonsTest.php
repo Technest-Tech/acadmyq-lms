@@ -460,6 +460,12 @@ it('gives lessons already marked the new length: the teacher\'s line follows on 
     $cancelled = $this->createSession($this->academy, $this->student, $this->teacher, [
         'scheduled_at_utc' => '2026-06-03 15:00:00+00', 'duration_minutes' => 45, 'status' => 'CANCELLED_BY_STUDENT',
     ]);
+    // A cancellation charged to the block: it took a lesson, and its length carries no money.
+    $charged = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-04 15:00:00+00', 'duration_minutes' => 45, 'status' => 'SCHEDULED',
+    ]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$charged}/attendance", ['status' => 'CANCELLED_BY_STUDENT', 'charge_student' => true])->assertOk();
 
     $lines = function (array $ids): array {
         $this->asAcademy($this->academy);
@@ -473,7 +479,7 @@ it('gives lessons already marked the new length: the teacher\'s line follows on 
 
     // Listed first: nothing moves.
     $this->artisan('lessons:retime', ['--academy' => $this->academy, '--from' => 45, '--to' => 40, '--marked' => true])
-        ->expectsOutputToContain('Lessons already marked: 4 attended to correct, 1 cancelled/free with no money on them, 0 left alone')
+        ->expectsOutputToContain('Lessons already marked: 4 attended to correct, 2 cancelled/free whose length carries no money, 0 left alone')
         ->expectsOutputToContain('Ustadha · 2026-05 (sealed): 3 lessons, 112.50 → 99.99 EGP (-12.51)')
         ->assertSuccessful();
     expect($lines([$june])[$june])->toBe(3750);
@@ -483,12 +489,12 @@ it('gives lessons already marked the new length: the teacher\'s line follows on 
     $after = $lines([...$may, $june]);
     expect($after[$june])->toBe(3333)->and($after[$may[0]])->toBe(3333);
     $this->asAcademy($this->academy);
-    expect(DB::table('sessions')->whereIn('id', [...$may, $june, $cancelled])->pluck('duration_minutes')->map(fn ($d) => (int) $d)->unique()->all())->toBe([40]);
+    expect(DB::table('sessions')->whereIn('id', [...$may, $june, $cancelled, $charged])->pluck('duration_minutes')->map(fn ($d) => (int) $d)->unique()->all())->toBe([40]);
     // The sealed statement is corrected in place and stays sealed.
     $statement = DB::table('payouts')->where('period_year', 2026)->where('period_month', 5)->first();
     expect($statement->finalized_at)->not->toBeNull()->and((int) $statement->total_minor)->toBe(9999);
     // The finished block's books are history; the running one counts lessons, so its lesson is still one.
     expect((int) DB::table('lesson_packages')->where('id', $old)->value('minutes_consumed'))->toBe(135)
         ->and(DB::table('lesson_packages')->where('id', $old)->value('status'))->toBe('COMPLETED')
-        ->and((int) DB::table('lesson_packages')->where('id', $id)->value('minutes_consumed'))->toBe(40);
+        ->and((int) DB::table('lesson_packages')->where('id', $id)->value('minutes_consumed'))->toBe(80);
 });

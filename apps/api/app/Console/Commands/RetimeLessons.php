@@ -33,8 +33,9 @@ use Illuminate\Support\Facades\DB;
  *     the treasury carries the difference to the open statement); an OPEN bill's line follows; a
  *     running block still in minutes is re-cut; a finished block and a closed or paid bill are left
  *     as they were;
- *   • cancelled and free ones with no money on them just get the length;
- *   • a cancelled or free one that was charged or paid is listed and left.
+ *   • cancelled and free ones just get the length when it carries no money: not paid to a teacher,
+ *     not on a bill, and — if charged to a block — a block that counts lessons or has finished;
+ *   • any other cancelled or free one is listed and left.
  *
  * Lists by default; `--apply` writes, in one transaction.
  *
@@ -137,7 +138,7 @@ final class RetimeLessons extends Command
             $markedPlan = null;
             if ($withMarked) {
                 $markedPlan = $this->markedPlan($corrections, $academyId, $from, $to);
-                $this->line(sprintf('  Lessons already marked: %d attended to correct, %d cancelled/free with no money on them, %d left alone',
+                $this->line(sprintf('  Lessons already marked: %d attended to correct, %d cancelled/free whose length carries no money, %d left alone',
                     count($markedPlan['attended']), count($markedPlan['plain']), count($markedPlan['left'])));
                 foreach ($markedPlan['pay'] as $row) {
                     $this->line(sprintf('    %s · %04d-%02d%s: %d lessons, %s → %s %s (%s)', $row['teacher'], $row['year'], $row['month'],
@@ -223,10 +224,18 @@ final class RetimeLessons extends Command
         foreach ($sessions as $session) {
             $day = substr((string) $session->scheduled_at_utc, 0, 10);
             if ((string) $session->status !== 'ATTENDED') {
-                if (! (bool) $session->billed && ! (bool) $session->paid_to_teacher) {
+                // Its length is money only where a teacher was paid for it, a bill carries it, or a
+                // running block still in minutes burned it.
+                $onBill = DB::table('invoice_line_items')->where('session_id', $session->id)->exists();
+                $onMinuteBlock = DB::table('lesson_package_credits as c')
+                    ->join('lesson_packages as p', 'p.id', '=', 'c.package_id')
+                    ->where('c.session_id', $session->id)->where('p.status', 'ACTIVE')->whereNull('p.lesson_minutes')
+                    ->exists();
+                if (! (bool) $session->paid_to_teacher && ! $onBill && ! $onMinuteBlock) {
                     $plan['plain'][] = (string) $session->id;
                 } else {
-                    $plan['left'][] = (object) ['student' => $session->student, 'day' => $day, 'why' => strtolower((string) $session->status).', charged or paid'];
+                    $plan['left'][] = (object) ['student' => $session->student, 'day' => $day, 'why' => strtolower((string) $session->status)
+                        .((bool) $session->paid_to_teacher ? ', paid to the teacher' : ($onBill ? ', on a bill' : ', on a running block in minutes'))];
                 }
 
                 continue;
