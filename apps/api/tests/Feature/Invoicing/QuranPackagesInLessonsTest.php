@@ -402,3 +402,23 @@ it('trusts a label that states a lesson count, and never charges a cancellation 
         ->and($onBlock)->not->toContain($inOldTime)
         ->and((bool) DB::table('sessions')->where('id', $inOldTime)->value('billed'))->toBeFalse();
 });
+
+it('measures minutes left over from the last block against the lesson that ran over, not this block\'s length', function () {
+    // The old block had 20 minutes left when a 40-minute lesson took it 20 past its end.
+    $old = ($this->open)(['minutes_total' => 60, 'label' => 'Old', 'starts_on' => '2026-05-25']);
+    ($this->attend)(40, '2026-06-01 15:00:00+00');
+    ($this->attend)(40, '2026-06-02 15:00:00+00');
+    expect(($this->package)($old)->status)->toBe('COMPLETED')->and((int) ($this->package)($old)->minutes_overdrawn)->toBe(20);
+
+    // The next one is labelled in 30s: 20 over is half of the 40-minute lesson, not most of a 30.
+    $id = ($this->open)(['minutes_total' => 240, 'label' => '8حصص × 30 د', 'starts_on' => '2026-06-03']);
+    expect((int) ($this->package)($id)->absorbed_overdraft_minutes)->toBe(20);
+
+    ($this->switchOn)();
+    $this->artisan('packages:count-in-lessons', ['--academy' => $this->academy, '--apply' => true])
+        ->expectsOutputToContain('lessons of 30 min · 8 sold · 0 taken · 20 stray min from the last block dropped')
+        ->assertSuccessful();
+
+    $row = ($this->package)($id);
+    expect((int) $row->absorbed_overdraft_minutes)->toBe(0)->and((int) $row->minutes_consumed)->toBe(0)->and((int) $row->minutes_total)->toBe(240);
+});

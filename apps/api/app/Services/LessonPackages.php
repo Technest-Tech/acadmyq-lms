@@ -441,8 +441,10 @@ final class LessonPackages
         // form, so its minutes would hold 24 lessons of 40), else the minutes over the length.
         $said = $terms === null ? self::labelLessonCount($package) : null;
         $lessonsSold = $terms !== null ? $terms['lessons'] : ($said ?? $byMinutes);
-        // Whole lessons only, half rounding down: 20 of 40 is none.
-        $absorbedLessons = (int) ceil((int) $package->absorbed_overdraft_minutes / $lessonMinutes - 0.5);
+        // Whole lessons only, half rounding down: 20 of 40 is none. Measured against the lesson that
+        // ran past the old block's end, not this block's length: 20 minutes over from a 40-minute
+        // lesson is half of it, whatever length this block's label says.
+        $absorbedLessons = (int) ceil((int) $package->absorbed_overdraft_minutes / ($this->overdrawingLessonLength($package) ?? $lessonMinutes) - 0.5);
         $absorbed = max(0, $absorbedLessons) * $lessonMinutes;
         $minutesTotal = max($lessonMinutes, $lessonsSold * $lessonMinutes - $carried);
         $available = $lessonsSold * $lessonMinutes - $absorbed;
@@ -490,6 +492,19 @@ final class LessonPackages
             'hourly_rate_after' => $this->deriveHourlyRate((int) $package->price_minor, $lessonsSold * $lessonMinutes),
             'credits' => $out,
         ];
+    }
+
+    /** How long the lesson ran that took an earlier block past its end and onto this one; null when none did. */
+    private function overdrawingLessonLength(object $package): ?int
+    {
+        $minutes = DB::table('lesson_packages as old')
+            ->join('lesson_package_credits as c', 'c.package_id', '=', 'old.id')
+            ->join('sessions as se', 'se.id', '=', 'c.session_id')
+            ->where('old.overdraft_absorbed_by', $package->id)
+            ->where('c.minutes_overdrawn', '>', 0)
+            ->max('se.duration_minutes');
+
+        return $minutes !== null && (int) $minutes >= 5 ? (int) $minutes : null;
     }
 
     /**

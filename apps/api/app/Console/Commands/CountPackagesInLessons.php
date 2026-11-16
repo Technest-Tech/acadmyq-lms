@@ -117,7 +117,9 @@ final class CountPackagesInLessons extends Command
                 $plan['lessons_by_minutes'] !== null ? sprintf(' (the label says so; its minutes would hold %d)', $plan['lessons_by_minutes']) : '',
                 $plan['lessons_used'],
                 $plan['cancels_counted'] > 0 ? sprintf(' (%d of them student cancellations)', $plan['cancels_counted']) : '',
-                $plan['absorbed_after'] !== (int) $p->absorbed_overdraft_minutes ? sprintf(' · %d stray min from the last block dropped', (int) $p->absorbed_overdraft_minutes - $plan['absorbed_after']) : '',
+                $plan['absorbed_after'] === (int) $p->absorbed_overdraft_minutes ? '' : ($plan['absorbed_after'] === 0
+                    ? sprintf(' · %d stray min from the last block dropped', (int) $p->absorbed_overdraft_minutes)
+                    : sprintf(' · %d min from the last block count as %d lesson(s)', (int) $p->absorbed_overdraft_minutes, intdiv($plan['absorbed_after'], $length))),
                 (int) $p->minutes_consumed, $capacity, $outcome,
                 $plan['left_after'] <= 0 && (bool) $p->auto_renew ? ' (renews: new block + bill)' : '',
             ));
