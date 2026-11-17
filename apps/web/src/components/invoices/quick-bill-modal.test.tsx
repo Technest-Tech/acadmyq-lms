@@ -159,3 +159,25 @@ describe("QuickBillModal — a centre's subscription bill comes first (docs/cent
     expect(screen.queryByTestId("quick-package-due")).toBeNull();
   });
 });
+
+describe("QuickBillModal — a pay-by date (2026-11-17)", () => {
+  it("sends the picked pay-by date", async () => {
+    const { academyToday } = await import("@/lib/academy-clock");
+    const { addDays } = await import("@/components/invoices/due-date");
+    listLessonPackages.mockResolvedValue({ packages: [] });
+    createQuickBill.mockResolvedValue({ id: "inv-d", url: "https://x.test/i/tok" });
+
+    renderModal();
+    await userEvent.click(screen.getByTestId("quick-mode-name"));
+    await userEvent.type(screen.getByTestId("quick-name"), "زائر");
+    await userEvent.type(screen.getByTestId("quick-amount"), "25");
+    await userEvent.type(screen.getByTestId("quick-description"), "اختبار مستوى");
+    await userEvent.click(screen.getByTestId("quick-due-preset-7"));
+    expect(screen.getByTestId("quick-due-date")).toHaveValue(addDays(academyToday(), 7));
+    await userEvent.click(screen.getByRole("button", { name: arMessages.invoices.quick.create }));
+
+    await waitFor(() =>
+      expect(createQuickBill).toHaveBeenCalledWith(expect.objectContaining({ payer_name: "زائر", due_on: addDays(academyToday(), 7) })),
+    );
+  });
+});

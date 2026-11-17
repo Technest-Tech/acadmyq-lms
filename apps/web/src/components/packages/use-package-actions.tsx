@@ -1,9 +1,11 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { useLocale, useTranslations } from "next-intl";
 import { useState, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
+import { PrepayModal } from "@/components/packages/prepay-modal";
 import { ClosePackageModal } from "@/components/packages/close-package-modal";
 import { EditPackageForm } from "@/components/packages/edit-package-form";
 import { OpenPackageForm } from "@/components/packages/open-package-form";
@@ -16,6 +18,7 @@ import {
   billPackageOverdraft,
   closeLessonPackage,
   remindLessonPackage,
+  cancelPrepayment,
   sendInvoicePaymentLink,
   syncLessonPackage,
   type LessonPackageRow,
@@ -28,7 +31,9 @@ type PackageModal =
   | { kind: "edit"; row: LessonPackageRow }
   | { kind: "close"; row: LessonPackageRow }
   | { kind: "toMonthly"; row: LessonPackageRow }
-  | { kind: "markPaid"; row: LessonPackageRow };
+  | { kind: "markPaid"; row: LessonPackageRow }
+  | { kind: "prepay"; rows: LessonPackageRow[] }
+  | { kind: "cancelPrepay"; row: LessonPackageRow };
 
 /**
  * Everything a package card can do — the handlers and the modals behind them — for any screen that
@@ -53,6 +58,8 @@ export function usePackageActions({
   actionProps: (row: LessonPackageRow) => PackageActionProps;
   /** Open the "new package" form, with a student already chosen when given. */
   openNew: (studentId?: string) => void;
+  /** Pay ahead for these running packages (a family's children, or one). */
+  openPrepay: (rows: LessonPackageRow[]) => void;
   openDetail: (row: LessonPackageRow) => void;
   modals: ReactNode;
 } {
@@ -62,7 +69,7 @@ export function usePackageActions({
   const canManage = can("package.manage");
   const canSendInvoice = can("invoice.send_link");
   const canMarkPaid = can("invoice.mark_paid");
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const timezone = academyTimeZone();
 
   const [modal, setModal] = useState<PackageModal>({ kind: "closed" });
   const [busy, setBusy] = useState(false);
@@ -202,7 +209,22 @@ export function usePackageActions({
     onMarkPaid: () => setModal({ kind: "markPaid", row }),
     onRenew: () => setModal({ kind: "open", studentId: row.student_id }),
     onReturnToMonthly: () => setModal({ kind: "toMonthly", row }),
+    onPrepay: () => setModal({ kind: "prepay", rows: [row] }),
+    onCancelPrepay: () => setModal({ kind: "cancelPrepay", row }),
   });
+
+  async function confirmCancelPrepay(row: LessonPackageRow) {
+    if (!row.open_prepayment_id) return;
+    setBusy(true);
+    try {
+      await cancelPrepayment(row.open_prepayment_id);
+      saved(t("prepay.cancelled", { name: row.student_name }));
+    } catch (err) {
+      onAlert("error", err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const modals = (
     <>
@@ -292,6 +314,33 @@ export function usePackageActions({
         )}
       </Modal>
 
+      {modal.kind === "prepay" && <PrepayModal rows={modal.rows} onClose={close} onDone={saved} />}
+
+      {/* ── Take back the prepaid blocks not used yet ────────────────── */}
+      <Modal open={modal.kind === "cancelPrepay"} onClose={close} title={t("prepay.cancelTitle")} size="sm">
+        {modal.kind === "cancelPrepay" && (
+          <div className="space-y-4">
+            <p className="text-muted-foreground text-sm">
+              {t("prepay.cancelBody", { name: modal.row.student_name, count: modal.row.prepaid_blocks_left ?? 0 })}
+            </p>
+            <div className="flex items-center justify-end gap-2 border-t pt-4">
+              <Button variant="ghost" size="sm" onClick={close} disabled={busy}>
+                {t("actions.cancel")}
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => void confirmCancelPrepay(modal.row)}
+                disabled={busy}
+                data-testid="confirm-cancel-prepay"
+              >
+                {t("prepay.cancelConfirm")}
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
       {modal.kind === "markPaid" && modal.row.invoice_id !== null && (
         <MarkPaidModal
           open
@@ -308,6 +357,7 @@ export function usePackageActions({
   return {
     actionProps,
     openNew: (studentId) => setModal({ kind: "open", studentId }),
+    openPrepay: (rows) => setModal({ kind: "prepay", rows }),
     openDetail: (row) => setModal({ kind: "detail", row }),
     modals,
   };

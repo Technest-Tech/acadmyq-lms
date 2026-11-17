@@ -67,7 +67,7 @@ describe("StudentTimetable lesson delete", () => {
     expect(within(dialog).getByText(/comes off the student's invoice/)).toBeInTheDocument();
     await user.click(screen.getByTestId("lesson-delete-confirm"));
 
-    await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("b"));
+    await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("b", { keepMoney: false }));
     await waitFor(() => expect(api.getCalendar).toHaveBeenCalledTimes(2));
   });
 

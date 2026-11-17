@@ -9,7 +9,9 @@ use App\Http\Controllers\Accounting\SettlementController;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\LessonPackages;
+use App\Services\PackageLessonCounting;
 use App\Services\PackageLessonLog;
+use App\Services\PackagePrepayments;
 use App\Services\SessionDurationCorrection;
 use App\Services\Whatsapp\PackageReminderMessage;
 use App\Services\Whatsapp\WhatsAppSender;
@@ -17,7 +19,6 @@ use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\CurrentSubscription;
-use App\Support\Entitlement;
 use App\Support\PackagePurpose;
 use App\Support\StudentTeachers;
 use Illuminate\Http\JsonResponse;
@@ -253,6 +254,39 @@ final class LessonPackageController extends Controller
             'total' => $lowBalance + $needsBilling + $pendingOverdraft + $unpaid + $outOfHours,
             'financials' => $financials,
         ]);
+    }
+
+    /**
+     * GET /api/packages/paid-bills?guardian_id= — the hand-made bills a NEW student's first package
+     * may stand on: paid in full before the student was on file, under a typed name or the chosen
+     * family ({@see LessonPackages::paidBillsToAdopt}). Feeds "the first package is already paid" on
+     * the new-student form, so the block opens on that bill instead of raising a second one.
+     */
+    public function paidBills(Request $request, LessonPackages $packages): JsonResponse
+    {
+        Gate::authorize('package.manage');
+
+        $data = $request->validate(['guardian_id' => ['sometimes', 'nullable', 'uuid']]);
+
+        $rows = $packages->paidBillsToAdopt((string) app(AuthContext::class)->academyId, $data['guardian_id'] ?? null)
+            ->leftJoin('guardians as g', 'g.id', '=', 'inv.guardian_id')
+            ->orderByDesc('inv.created_at')
+            ->limit(100)
+            ->get([
+                'inv.id', 'inv.total_minor', 'inv.currency', 'inv.paid_at', 'inv.created_at', 'inv.guardian_id',
+                DB::raw('coalesce(inv.payer_name, g.full_name) as payer_name'),
+                DB::raw('(select li.description from invoice_line_items li where li.invoice_id = inv.id order by li.created_at, li.id limit 1) as description'),
+            ]);
+
+        return response()->json(['bills' => $rows->map(fn (object $r): array => [
+            'id' => (string) $r->id,
+            'payer_name' => (string) ($r->payer_name ?? ''),
+            'from_family' => $r->guardian_id !== null,
+            'description' => $r->description !== null ? (string) $r->description : null,
+            'total_minor' => (int) $r->total_minor,
+            'currency' => (string) $r->currency,
+            'raised_on' => substr((string) $r->created_at, 0, 10),
+        ])->all()]);
     }
 
     /**
@@ -1107,6 +1141,14 @@ final class LessonPackageController extends Controller
                 'i.amount_paid_minor as invoice_paid_minor', 'i.public_token as invoice_token',
                 'i.paid_at as invoice_paid_at',
                 'i.payment_method', 'i.payment_reason', 'i.payment_reference', 'i.payment_proof_path',
+                'p.prepayment_id',
+                // Blocks the family paid ahead and not used yet (PackagePrepayments), and the newest
+                // such prepayment — the one a "take back" acts on.
+                DB::raw('(select coalesce(sum(pp.blocks_total - pp.blocks_used), 0) from package_prepayments pp
+                            where pp.student_id = p.student_id and pp.cancelled_at is null) as prepaid_blocks_left'),
+                DB::raw('(select pp.id from package_prepayments pp
+                            where pp.student_id = p.student_id and pp.cancelled_at is null and pp.blocks_used < pp.blocks_total
+                            order by pp.created_at desc limit 1) as open_prepayment_id'),
             ])
             ->selectSub(
                 DB::table('lesson_package_credits as pc')
@@ -1383,6 +1425,140 @@ final class LessonPackageController extends Controller
     }
 
     /**
+     * GET /api/packages/lessons/{sessionId}/counting?counts=1&teacher_percent=50 — what setting a
+     * cancelled lesson to count (or not) would do: which block it comes off or goes back to, the
+     * lessons that move between blocks, a block re-opening, the teacher's salary line. Read only.
+     */
+    public function countingPreview(Request $request, string $sessionId, PackageLessonCounting $counting): JsonResponse
+    {
+        Gate::authorize('package.manage');
+
+        $data = $request->validate([
+            'counts' => ['required', 'boolean'],
+            'teacher_percent' => ['nullable', 'integer', Rule::in(PackageLessonCounting::TEACHER_PERCENTS)],
+        ]);
+        $session = DB::table('sessions')->where('id', $sessionId)->first();
+        if ($session === null) {
+            abort(404, 'Lesson not found.');
+        }
+
+        return response()->json($counting->preview($session, (bool) $data['counts'], isset($data['teacher_percent']) ? (int) $data['teacher_percent'] : null));
+    }
+
+    /**
+     * POST /api/packages/lessons/{sessionId}/counting — set a cancelled lesson to count on the
+     * student's package (or not) and what the teacher is paid of it (none / ¼ / ½ / whole); the
+     * blocks and the salary are worked out again ({@see PackageLessonCounting}). The money half of a
+     * cancellation needs `session.bill_override`; a teacher change on a sealed month, `payout.adjust`.
+     */
+    public function setCounting(Request $request, string $sessionId, PackageLessonCounting $counting): JsonResponse
+    {
+        Gate::authorize('package.manage');
+        Gate::authorize('session.bill_override');
+
+        $data = $request->validate([
+            'counts' => ['required', 'boolean'],
+            'teacher_percent' => ['nullable', 'integer', Rule::in(PackageLessonCounting::TEACHER_PERCENTS)],
+        ]);
+        $session = DB::table('sessions')->where('id', $sessionId)->first();
+        if ($session === null) {
+            abort(404, 'Lesson not found.');
+        }
+        $teacherPercent = isset($data['teacher_percent']) ? (int) $data['teacher_percent'] : null;
+
+        $preview = $counting->preview($session, (bool) $data['counts'], $teacherPercent);
+        if ($preview['teacher']['percent_after'] !== $preview['teacher']['percent_before'] && ($preview['teacher']['statement']['sealed'] ?? false)) {
+            Gate::authorize('payout.adjust');
+        }
+
+        $ctx = app(AuthContext::class);
+
+        return response()->json(['ok' => true] + $counting->apply($sessionId, (bool) $data['counts'], $teacherPercent, (string) $ctx->userId, (string) $ctx->role));
+    }
+
+    /**
+     * POST /api/packages/prepay — pay ahead for one student or a whole family (Ahmed 2026-11-17):
+     * each listed student's next `blocks` packages, and — with `include_current` — what their
+     * running one still owes. One payment (method, reference, proof, the day it came in) for all of
+     * it; all students or none. The renewals then open already paid ({@see PackagePrepayments}).
+     */
+    public function prepay(Request $request, PackagePrepayments $prepayments): JsonResponse
+    {
+        Gate::authorize('package.manage');
+        Gate::authorize('invoice.mark_paid');
+
+        $data = $request->validate([
+            'students' => ['required', 'array', 'min:1', 'max:20'],
+            'students.*.student_id' => ['required', 'uuid', 'distinct'],
+            'students.*.blocks' => ['required', 'integer', 'min:1', 'max:'.PackagePrepayments::MAX_BLOCKS],
+            'students.*.include_current' => ['sometimes', 'boolean'],
+            'payment_method' => ['required', 'string', 'in:CASH,BANK_TRANSFER,OTHER'],
+            'payment_reference' => ['nullable', 'string', 'max:255'],
+            'payment_proof' => ['nullable', 'file', 'image', 'mimes:jpg,jpeg,png,webp', 'max:20480'],
+            'paid_on' => ['nullable', 'date_format:Y-m-d'],
+            'note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $academyId = (string) app(AuthContext::class)->academyId;
+        $timezone = (string) (DB::table('academies')->where('id', $academyId)->value('timezone') ?: 'UTC');
+        $today = Carbon::now($timezone)->toDateString();
+        $paidOn = $data['paid_on'] ?? $today;
+        if ($paidOn > $today) {
+            throw ValidationException::withMessages(['paid_on' => ['The payment date cannot be in the future. / تاريخ الدفع لا يمكن أن يكون في المستقبل.']]);
+        }
+
+        $proofPath = null;
+        if ($request->hasFile('payment_proof')) {
+            $proof = $request->file('payment_proof');
+            $proofPath = $proof?->storeAs("package-prepayment-proofs/{$academyId}", Str::uuid().'.'.strtolower((string) ($proof->extension() ?: 'jpg')), 'local');
+        }
+
+        $payment = [
+            'method' => (string) $data['payment_method'],
+            'reference' => isset($data['payment_reference']) && trim((string) $data['payment_reference']) !== '' ? trim((string) $data['payment_reference']) : null,
+            'proof_path' => is_string($proofPath) && $proofPath !== '' ? $proofPath : null,
+            'note' => $data['note'] ?? null,
+            'paid_on' => $paidOn,
+        ];
+
+        $results = DB::transaction(fn (): array => array_map(
+            fn (array $row): array => $prepayments->prepay(
+                (string) $row['student_id'],
+                (int) $row['blocks'],
+                (bool) ($row['include_current'] ?? false),
+                $payment,
+                app(AuthContext::class)->userId,
+                app(AuthContext::class)->role,
+            ),
+            $data['students'],
+        ));
+
+        // What came in, per currency (never summed across currencies).
+        $totals = [];
+        foreach ($results as $r) {
+            $totals[$r['currency']] = ($totals[$r['currency']] ?? 0) + $r['amount_minor'];
+            if ($r['current_paid_minor'] > 0 && $r['current_currency'] !== null) {
+                $totals[$r['current_currency']] = ($totals[$r['current_currency']] ?? 0) + $r['current_paid_minor'];
+            }
+        }
+
+        return response()->json([
+            'prepayments' => $results,
+            'totals' => array_map(fn (string $c, int $a): array => ['currency' => $c, 'amount_minor' => $a], array_keys($totals), array_values($totals)),
+        ], 201);
+    }
+
+    /** DELETE /api/packages/prepayments/{id} — take back the prepaid blocks not used yet. */
+    public function cancelPrepayment(string $id, PackagePrepayments $prepayments): JsonResponse
+    {
+        Gate::authorize('package.manage');
+
+        $prepayments->cancel($id, app(AuthContext::class)->userId, app(AuthContext::class)->role);
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
      * Shape one row for the client. `minutes_remaining` is clamped at zero and the overdraw is
      * reported separately — "how much is left" and "how far past the end we went" are two
      * different questions and collapsing them into one signed number reads wrong on a progress bar.
@@ -1489,6 +1665,10 @@ final class LessonPackageController extends Controller
             // How many of THIS block's used minutes were the previous block's last lesson running over.
             'absorbed_overdraft_minutes' => (int) $row->absorbed_overdraft_minutes,
             'auto_renew' => (bool) $row->auto_renew,
+            // Paid ahead: this block was settled from a prepayment, and how many more are prepaid.
+            'prepaid' => isset($row->prepayment_id) && $row->prepayment_id !== null,
+            'prepaid_blocks_left' => (int) ($row->prepaid_blocks_left ?? 0),
+            'open_prepayment_id' => isset($row->open_prepayment_id) && $row->open_prepayment_id !== null ? (string) $row->open_prepayment_id : null,
             // New label / hours / price parked for the next renewal; null = it renews as it is.
             'next_terms' => $row->next_terms !== null ? json_decode((string) $row->next_terms, true) : null,
             'opened_automatically' => (bool) $row->opened_automatically,
@@ -1612,7 +1792,7 @@ final class LessonPackageController extends Controller
 
         $this->assertActiveTeacher((string) $teacherId);
 
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
+        $timezone = $this->academyTimezone($academyId); // the academy clock, whatever the device says
         $startUtc = $this->resolveInstant($data, $timezone);
         $sessionId = (string) Str::uuid();
 

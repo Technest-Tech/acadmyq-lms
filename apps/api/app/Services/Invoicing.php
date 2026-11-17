@@ -504,6 +504,8 @@ final class Invoicing implements BillingHook
         string $actorUserId,
         string $actorRole,
         ?string $payerName = null,
+        /** The academy-local day the payer is asked to pay by (Y-m-d), if any. */
+        ?string $dueOn = null,
     ): string {
         $total = 0;
         foreach ($lines as $line) {
@@ -520,6 +522,7 @@ final class Invoicing implements BillingHook
             'student_id' => $studentId,
             // A typed name for a payer who is not on the books — only when neither link is set.
             'payer_name' => $guardianId === null && $studentId === null ? $payerName : null,
+            'due_on' => $dueOn,
             'period_year' => $year,
             'period_month' => $month,
             'status' => 'OPEN',

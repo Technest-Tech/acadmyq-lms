@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   Ban,
   BellRing,
@@ -85,8 +86,7 @@ export function NotificationsScreen() {
     (iso: string) =>
       new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en", {
         dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(iso)),
+        timeStyle: "short", timeZone: academyTimeZone() }).format(new Date(iso)),
     [locale],
   );
 
@@ -645,8 +645,7 @@ function AttendedTab({
     month: "long",
   });
   const timeFmt = new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en", {
-    timeStyle: "short",
-  });
+    timeStyle: "short", timeZone: academyTimeZone() });
 
   // Group on the lesson's own day (viewer-local), keeping the feed's newest-first order.
   const groups: { day: string; rows: NotificationRow[] }[] = [];

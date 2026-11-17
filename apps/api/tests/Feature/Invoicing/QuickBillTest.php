@@ -2,10 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Services\LessonPackages;
 use Database\Seeders\DemoAcademySeeder;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesTenantData;
@@ -140,7 +143,7 @@ it('refuses a hand-typed name on an automatic invoice at the database', function
         'period_month' => 6,
         'currency' => 'EGP',
         'public_token' => 'tok-'.uniqid(),
-    ]))->toThrow(Illuminate\Database\QueryException::class);
+    ]))->toThrow(QueryException::class);
 });
 
 it('sends the payment message with the link on the academy subdomain', function () {
@@ -239,11 +242,11 @@ it('will not delete a custom bill money was paid on', function () {
 
 it('will not delete a package\'s bill or a monthly invoice from here', function () {
     $this->asAcademy($this->academy);
-    $packageBill = DB::table('lesson_packages')->where('id', app(App\Services\LessonPackages::class)->open([
+    $packageBill = DB::table('lesson_packages')->where('id', app(LessonPackages::class)->open([
         'student_id' => $this->student, 'label' => '4 hours', 'minutes_total' => 240, 'price_minor' => 24000,
         'currency' => 'EGP', 'bill_timing' => 'ON_START', 'starts_on' => '2026-06-01', 'carry_over' => false,
     ], (string) $this->owner->id, 'ACADEMY_OWNER')['package_id'])->value('invoice_id');
-    $auto = (string) Illuminate\Support\Str::uuid();
+    $auto = (string) Str::uuid();
     DB::table('invoices')->insert([
         'id' => $auto, 'academy_id' => $this->academy, 'kind' => 'AUTO', 'student_id' => $this->student,
         'period_year' => 2026, 'period_month' => 5, 'currency' => 'EGP', 'public_token' => 'tok-'.uniqid(),
@@ -268,4 +271,57 @@ it('lets only someone who can raise a bill delete one', function () {
     $this->deleteJson("/api/invoices/{$id}")->assertForbidden();
     $this->asAcademy($this->academy);
     expect(DB::table('invoices')->where('id', $id)->exists())->toBeTrue();
+});
+
+it('takes a pay-by date: listed with what the bill is for, on the pay page, and chased only after it', function () {
+    Sanctum::actingAs($this->owner);
+    $id = (string) $this->postJson('/api/invoices/quick', [
+        'student_id' => $this->student, 'amount_minor' => 7000, 'currency' => 'EGP',
+        'description' => 'Books for term two', 'due_on' => '2026-06-13',
+    ])->assertCreated()->json('id');
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->where('id', $id)->value('due_on'))->toBe('2026-06-13');
+
+    $row = listedBill($this, $id);
+    expect($row['due_on'])->toBe('2026-06-13')
+        ->and($row['description'])->toBe('Books for term two')
+        ->and($row['line_count'])->toBe(1)
+        ->and($row['needs_follow_up'])->toBeFalse();
+
+    // Two days on — well past the 24h grace — but the pay-by day itself is not late yet.
+    Carbon::setTestNow('2026-06-13 20:00:00');
+    expect($this->getJson('/api/invoices/follow-up')->assertOk()->json('count'))->toBe(0);
+
+    // The day after it, it is.
+    Carbon::setTestNow('2026-06-14 09:00:00');
+    expect($this->getJson('/api/invoices/follow-up')->assertOk()->json('count'))->toBe(1)
+        ->and(listedBill($this, $id)['needs_follow_up'])->toBeTrue();
+    expect(collect($this->getJson('/api/invoices?filter[kind]=MANUAL&filter[due]=overdue')->assertOk()->json('rows'))->pluck('id'))->toContain($id);
+    expect(collect($this->getJson('/api/invoices?filter[kind]=MANUAL&filter[due]=upcoming')->assertOk()->json('rows'))->pluck('id'))->not->toContain($id);
+
+    $token = (string) DB::table('invoices')->where('id', $id)->value('public_token');
+    $this->clearTenantContext();
+    $this->getJson('/api/i/'.$token)->assertOk()->assertJsonPath('due_on', '2026-06-13');
+});
+
+it('moves or clears a hand-made bill\'s pay-by date, and only for someone who raises bills', function () {
+    $id = quickBill($this);
+    Sanctum::actingAs($this->owner);
+
+    $this->patchJson("/api/invoices/{$id}/due-on", ['due_on' => '2026-06-20'])->assertOk()->assertJsonPath('due_on', '2026-06-20');
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->where('id', $id)->value('due_on'))->toBe('2026-06-20')
+        ->and(DB::table('audit_log')->where('action', 'invoice.due_on_changed')->where('entity_id', $id)->exists())->toBeTrue();
+    expect(collect($this->getJson('/api/invoices?filter[kind]=MANUAL&filter[due]=upcoming')->assertOk()->json('rows'))->pluck('id'))->toContain($id);
+
+    $this->patchJson("/api/invoices/{$id}/due-on", ['due_on' => null])->assertOk();
+    expect(DB::table('invoices')->where('id', $id)->value('due_on'))->toBeNull();
+    expect(collect($this->getJson('/api/invoices?filter[kind]=MANUAL&filter[due]=none')->assertOk()->json('rows'))->pluck('id'))->toContain($id);
+
+    $this->patchJson("/api/invoices/{$id}/due-on", ['due_on' => '20-06-2026'])->assertUnprocessable();
+
+    $teacher = $this->makeUser($this->academy, 'TEACHER', ['email' => 'teacher-due@test.local']);
+    Sanctum::actingAs($teacher);
+    $this->patchJson("/api/invoices/{$id}/due-on", ['due_on' => '2026-06-21'])->assertForbidden();
 });

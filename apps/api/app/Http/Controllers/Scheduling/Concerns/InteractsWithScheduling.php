@@ -74,21 +74,25 @@ trait InteractsWithScheduling
 
     /**
      * Resolve a requested instant from either an explicit UTC ISO string (`scheduled_at_utc`) or
-     * a local wall-clock (`local_datetime` + `timezone`), converted per-date so DST is correct.
+     * a typed wall-clock (`local_datetime`), converted per-date so DST is correct.
+     *
+     * A typed time is read on ONE clock, the one the caller passes (the academy's). A `timezone`
+     * in the request is deliberately not honoured: it used to be the device's, and a PC left on
+     * summer time (Nov 2026: about one device in ten) saved every lesson it added an hour early
+     * for everybody else. A weekly timetable tied to a student's country is the one exception,
+     * and it is not resolved here.
      */
-    protected function resolveInstant(array $data, string $fallbackTimezone): Carbon
+    protected function resolveInstant(array $data, string $clock): Carbon
     {
         if (! empty($data['scheduled_at_utc'])) {
             return Carbon::parse((string) $data['scheduled_at_utc'])->utc();
         }
         if (! empty($data['local_datetime'])) {
-            $tz = $data['timezone'] ?? $fallbackTimezone;
-
-            return TimeHelper::toUtc((string) $data['local_datetime'], (string) $tz);
+            return TimeHelper::toUtc((string) $data['local_datetime'], $clock);
         }
 
         throw ValidationException::withMessages([
-            'scheduled_at_utc' => ['Provide scheduled_at_utc, or local_datetime with a timezone.'],
+            'scheduled_at_utc' => ['Provide scheduled_at_utc, or local_datetime.'],
         ]);
     }
 

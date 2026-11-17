@@ -6,8 +6,9 @@ import {
   BadgeCheck,
   BellRing,
   BookOpenCheck,
-  CalendarDays,
+  CalendarCheck,
   CalendarClock,
+  CalendarDays,
   CalendarX,
   Check,
   Clock3,
@@ -22,6 +23,7 @@ import {
   Plus,
   Receipt,
   RefreshCw,
+  Undo2,
   WalletCards,
 } from "lucide-react";
 import Link from "next/link";
@@ -99,6 +101,10 @@ export interface PackageActionProps {
   onReturnToMonthly: () => void;
   /** WhatsApp the payer a reminder: pay what is due, or renew a block that ran out. */
   onRemind: () => void;
+  /** Pay coming packages ahead (PackagePrepayments). */
+  onPrepay?: () => void;
+  /** Take back the prepaid packages not used yet. */
+  onCancelPrepay?: () => void;
   canManage: boolean;
   canSendInvoice: boolean;
   canMarkPaid: boolean;
@@ -117,7 +123,7 @@ export function nextTermsText(row: LessonPackageRow, locale: string, t: (key: st
   return [
     next.label ?? row.label,
     blockAmount(next.minutes_total ?? row.minutes_total, next.lesson_minutes ?? row.lesson_minutes, t, locale),
-    formatMoney({ amount: next.price_minor ?? row.price_minor, currency: row.currency }, locale),
+    formatMoney({ amount: next.price_minor ?? row.price_minor, currency: next.currency ?? row.currency }, locale),
   ].join(" · ");
 }
 
@@ -125,6 +131,7 @@ export function nextTermsText(row: LessonPackageRow, locale: string, t: (key: st
 export function PackageCard(props: PackageActionProps & { timezone: string }) {
   const { row, timezone, onOpenDetail } = props;
   const t = useTranslations("packages");
+  const tPrepay = useTranslations("packages.prepay");
   const locale = useLocale();
   // Sold in lessons (a centre): count and price in lessons, not hours.
   const lessonMinutes = row.lesson_minutes ?? null;
@@ -214,6 +221,17 @@ export function PackageCard(props: PackageActionProps & { timezone: string }) {
               <span className="text-muted-foreground min-w-0 truncate text-xs">
                 {row.label}
               </span>
+              {/* Paid ahead: settled from a prepayment, and how many more wait prepaid. */}
+              {(row.prepaid || (row.prepaid_blocks_left ?? 0) > 0) && (
+                <span
+                  className="shrink-0 rounded-md bg-emerald-500/12 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
+                  data-testid="package-prepaid-chip"
+                >
+                  {(row.prepaid_blocks_left ?? 0) > 0
+                    ? tPrepay("chipLeft", { count: row.prepaid_blocks_left ?? 0 })
+                    : tPrepay("chip")}
+                </span>
+              )}
               {/* A centre's block for one subject: which one, at a glance. */}
               {row.subject && (
                 <span
@@ -559,6 +577,8 @@ export function PackageActions({
   onRenew,
   onReturnToMonthly,
   onRemind,
+  onPrepay,
+  onCancelPrepay,
   canManage,
   canSendInvoice,
   canMarkPaid,
@@ -622,6 +642,20 @@ export function PackageActions({
     label: t("actions.viewProof"),
     external: `${apiBase()}${row.payment_proof_url}`,
     testId: "package-receipt",
+  });
+  add(canManage && canMarkPaid && isActive && row.bill_timing === "ON_START" && onPrepay !== undefined, {
+    key: "prepay",
+    icon: CalendarCheck,
+    label: t("actions.prepay"),
+    onClick: () => onPrepay?.(),
+    testId: "prepay-package",
+  });
+  add(canManage && (row.open_prepayment_id ?? null) !== null && onCancelPrepay !== undefined, {
+    key: "cancelPrepay",
+    icon: Undo2,
+    label: t("actions.cancelPrepay"),
+    onClick: () => onCancelPrepay?.(),
+    testId: "cancel-prepay-package",
   });
   add(canManage && row.awaiting_next_package, {
     key: "renew",

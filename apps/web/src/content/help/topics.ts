@@ -11,6 +11,7 @@ import {
   Layers,
   MessageCircle,
   NotebookPen,
+  NotebookText,
   ReceiptText,
   Scale,
   Settings,
@@ -49,6 +50,7 @@ export const HELP_TOPICS: readonly HelpTopicDef[] = [
       { id: "overview", noneOf: ["teacher.read_own"] },
       { id: "overdue", anyOf: ["session.mark_attendance"], profile: "QURAN" },
       { id: "enter", anyOf: ["teacher.read_own"] },
+      { id: "reports", anyOf: ["teacher.read_own"] },
     ],
   },
   {
@@ -155,6 +157,21 @@ export const HELP_TOPICS: readonly HelpTopicDef[] = [
       { id: "request", anyOf: ["session.cancel_request", "session.free_request"], noneOf: ["session.cancel"] },
       { id: "add", anyOf: ["session.create"] },
       { id: "undo", anyOf: ["session.revert_attendance"] },
+    ],
+  },
+  // سجل التقارير. A centre writes no lesson report (unless it opted into the structured one), so
+  // the page is the Quran academy's, as its menu row is.
+  {
+    id: "lesson-reports",
+    icon: NotebookText,
+    group: "teaching",
+    href: "/lesson-reports",
+    routes: ["/lesson-reports"],
+    anyOf: ["session.read"],
+    profile: "QURAN",
+    tasks: [
+      { id: "find" },
+      { id: "missing", anyOf: ["session.write_report"] },
     ],
   },
   {

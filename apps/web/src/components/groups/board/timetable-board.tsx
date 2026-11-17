@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { AlertTriangle, CalendarClock, CalendarPlus, ChevronLeft, ChevronRight, Clock, Download, Ellipsis, MapPin, MoveRight } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -150,7 +151,7 @@ export function TimetableBoard() {
   const { can } = useAuth();
   const canMark = can("session.mark_attendance");
   const canManage = can("group.manage");
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const browserTz = academyTimeZone();
   const today = todayIn(browserTz);
   // The centre's look (group-look): the day strip and the filters on white cards, each hour block a
   // card of its own. The markup is otherwise the same for everyone.

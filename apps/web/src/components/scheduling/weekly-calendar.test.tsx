@@ -26,13 +26,15 @@ vi.mock("next/navigation", () => ({
 
 import * as api from "@/lib/api";
 
-const TZ = "Africa/Cairo";
+// A zone that never changes its clocks: the hour below holds in every season. (On Cairo this
+// test broke on 30 Oct 2026, when 14:00Z stopped being 17:00.)
+const TZ = "Asia/Riyadh";
 
 // A session placed in the current visible week (today's column), so the grid always shows it.
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(
   new Date(),
 );
-const sessionUtc = `${today}T14:00:00Z`; // 17:00 Cairo (June, +3)
+const sessionUtc = `${today}T14:00:00Z`; // 17:00 Riyadh (+3 all year)
 
 function ownerSession(): Session {
   return makeSession("ACADEMY_OWNER", {
@@ -119,7 +121,7 @@ describe("WeeklyCalendar (Sprint 5 §5.5)", () => {
     const card = await screen.findByTestId("session-se1");
     expect(card).toHaveAttribute("data-status", "SCHEDULED");
     expect(card).toHaveTextContent("Yusuf");
-    // 17:00 Cairo renders as 5:00 PM in English.
+    // 17:00 Riyadh renders as 5:00 PM in English.
     expect(card).toHaveTextContent("5:00");
   });
 

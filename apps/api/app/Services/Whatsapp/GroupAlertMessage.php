@@ -69,7 +69,8 @@ final class GroupAlertMessage
             ],
             GroupAlertCatalog::TRIAL_STARTED => [
                 $ar ? ($many ? '🎯 *حصص تجريبية تبدأ الآن*' : '🎯 *حصة تجريبية تبدأ الآن*') : ($many ? '🎯 *Trial lessons starting now*' : '🎯 *Trial lesson starting now*'),
-                ...$this->trialLines($payloads, $ar, $timezone, $now),
+                ...$this->trialBlocks($payloads, $ar, $timezone, $now),
+                '',
                 $ar ? 'بعد انتهائها سجّلوا القرار (حضر / لم يحضر) من صفحة الحصص التجريبية.' : 'Once it ends, record the decision (attended / no-show) on the Trials page.',
                 ...$this->trialLink($payloads),
             ],
@@ -78,8 +79,10 @@ final class GroupAlertMessage
                 $ar
                     ? 'انتهت منذ '.$this->arMinutes($settings['not_marked_after_minutes']).' ولم يُسجِّل أحد هل حضر الطالب أم لم يحضر.'
                     : 'Ended '.$settings['not_marked_after_minutes'].' min ago and nobody has recorded attended or no-show.',
-                ...$this->trialLines($payloads, $ar, $timezone, $now),
-                ...$this->trialLink($payloads),
+                ...$this->trialBlocks($payloads, $ar, $timezone, $now),
+                ...($this->trialLink($payloads) !== []
+                    ? ['', $ar ? 'سجّلوا القرار من هنا:' : 'Record the decision here:', ...$this->trialLink($payloads)]
+                    : []),
             ],
             GroupAlertCatalog::PACKAGE_LOW => [
                 $ar ? '⏳ *باقة أوشكت على الانتهاء*' : '⏳ *Package running low*',
@@ -104,17 +107,18 @@ final class GroupAlertMessage
             ],
             GroupAlertCatalog::PAYMENT_OVERDUE => [
                 $ar ? ($many ? '🔔 *فواتير لم تُدفع بعد*' : '🔔 *فاتورة لم تُدفع بعد*') : ($many ? '🔔 *Invoices still unpaid*' : '🔔 *Invoice still unpaid*'),
+                ...array_merge(...array_map(fn (array $p): array => $this->overdueBlock($p, $ar), $payloads)),
+                '',
                 $ar
-                    ? 'تذكير كل '.$this->arDays($settings['payment_reminder_days']).' حتى يُسجَّل الدفع.'
-                    : 'A reminder every '.$settings['payment_reminder_days'].' day(s) until payment is recorded.',
-                ...array_map(fn (array $p): string => $this->overdueLine($p, $ar), $payloads),
+                    ? 'يتكرر هذا التذكير كل '.$this->arDays($settings['payment_reminder_days']).' حتى يُسجَّل الدفع.'
+                    : 'This reminder repeats every '.($settings['payment_reminder_days'] === 1 ? 'day' : $settings['payment_reminder_days'].' days').' until payment is recorded.',
             ],
             GroupAlertCatalog::LESSON_REMINDER => [
-                $ar ? ($many ? '⏰ *تذكير بمواعيد الحصص*' : '⏰ *تذكير بموعد الحصة*') : ($many ? '⏰ *Lesson reminders*' : '⏰ *Lesson reminder*'),
+                $this->reminderHeadline($payloads, $ar, $now, true),
                 ...$this->reminderLines($payloads, $ar, $timezone, $now, true),
             ],
             GroupAlertCatalog::LESSON_STARTING => [
-                $ar ? ($many ? '🔔 *حان موعد الحصص*' : '🔔 *حان موعد الحصة*') : ($many ? '🔔 *Lessons starting now*' : '🔔 *Lesson starting now*'),
+                $this->reminderHeadline($payloads, $ar, $now, false),
                 ...$this->reminderLines($payloads, $ar, $timezone, $now, false),
             ],
             GroupAlertCatalog::TEST => $this->testLines($payloads[0] ?? [], $ar),
@@ -162,53 +166,130 @@ final class GroupAlertMessage
     }
 
     /**
-     * One line per lesson for a family or a teacher, so unlike the staff lines it carries no phone
-     * number — and it says how long is left, because the family may not share the academy's clock.
+     * The first line of a reminder, which is also what the phone's notification shows. For the usual
+     * case, one lesson, it carries the one thing the family needs: how long is left. A message that
+     * lists several lessons says so instead, and each lesson states its own time left.
+     *
+     * @param  list<array<string,mixed>>  $payloads
+     */
+    private function reminderHeadline(array $payloads, bool $ar, CarbonImmutable $now, bool $countdown): string
+    {
+        $many = count($payloads) > 1;
+        $trial = $payloads !== [] && array_filter($payloads, fn (array $p): bool => ($p['kind'] ?? 'LESSON') !== 'TRIAL') === [];
+
+        if (! $countdown) {
+            return $ar
+                ? '🔔 *'.($many ? ($trial ? 'حان موعد الحصص التجريبية الآن' : 'حان موعد الحصص الآن') : ($trial ? 'حان موعد الحصة التجريبية الآن' : 'حان موعد الحصة الآن')).'*'
+                : '🔔 *'.($many ? ($trial ? 'Trial lessons starting now' : 'Lessons starting now') : ($trial ? 'Trial lesson starting now' : 'Lesson starting now')).'*';
+        }
+
+        $left = $many ? null : $this->timeLeft((string) ($payloads[0]['starts_at'] ?? ''), $now, $ar);
+        if ($left === null) {
+            return $ar
+                ? '⏰ *'.($many ? ($trial ? 'تذكير بمواعيد الحصص التجريبية' : 'تذكير بمواعيد الحصص') : ($trial ? 'تذكير بموعد الحصة التجريبية' : 'تذكير بموعد الحصة')).'*'
+                : '⏰ *'.($many ? ($trial ? 'Trial lesson reminders' : 'Lesson reminders') : ($trial ? 'Trial lesson reminder' : 'Lesson reminder')).'*';
+        }
+
+        return $ar
+            ? '⏰ *تذكير: '.($trial ? 'الحصة التجريبية' : 'الحصة')." {$left}*"
+            : '⏰ *'.($trial ? 'Trial lesson reminder' : 'Lesson reminder').": starts {$left}*";
+    }
+
+    /**
+     * One short block per lesson for a family or a teacher: when, who, with whom, each on its own
+     * line under a label, so nobody has to untangle a sentence. Unlike the staff lines it carries no
+     * phone number.
      *
      * @param  list<array<string,mixed>>  $payloads
      * @return list<string>
      */
     private function reminderLines(array $payloads, bool $ar, string $timezone, CarbonImmutable $now, bool $countdown): array
     {
-        return array_map(function (array $p) use ($ar, $timezone, $now, $countdown): string {
+        $many = count($payloads) > 1;
+        $mixed = count(array_unique(array_map(fn (array $p): string => (string) ($p['kind'] ?? 'LESSON'), $payloads))) > 1;
+
+        $lines = [];
+        foreach ($payloads as $p) {
             $startsAt = (string) ($p['starts_at'] ?? '');
-            $teacher = $this->name($p['teacher'] ?? null);
-            $student = $this->name($p['student'] ?? null);
-            $class = $this->name($p['class'] ?? null);
+            $kind = (string) ($p['kind'] ?? 'LESSON');
 
-            $who = match ($p['kind'] ?? 'LESSON') {
-                'CLASS' => $ar ? "المعلم {$teacher} — مجموعة {$class}" : "{$teacher} — group {$class}",
-                'TRIAL' => $ar ? "حصة تجريبية: المعلم {$teacher} مع {$student}" : "Trial: {$teacher} with {$student}",
-                default => $ar ? "المعلم {$teacher} مع {$student}" : "{$teacher} with {$student}",
-            };
-            $line = '• '.$this->when($startsAt, $timezone, $now, $ar)." — {$who}";
+            // In a list, the time left sits beside each lesson's time; alone, the headline has it.
+            $left = $countdown && $many ? $this->timeLeft($startsAt, $now, $ar) : null;
+            $time = '*'.$this->when($startsAt, $timezone, $now, $ar).'*'.($left !== null ? " ({$left})" : '');
 
-            if ($countdown && $startsAt !== '') {
-                $left = (int) ceil($now->diffInSeconds(CarbonImmutable::parse($startsAt)) / 60);
-                if ($left > 0) {
-                    $line .= $ar ? ' (بعد '.$this->arMinutes($left).')' : " (in {$left} min)";
-                }
+            $lines[] = '';
+            if ($mixed && $kind === 'TRIAL') {
+                $lines[] = $ar ? '🎯 حصة تجريبية' : '🎯 Trial lesson';
             }
+            $lines[] = ($ar ? '🕒 الموعد: ' : '🕒 Time: ').$time;
+            $lines[] = $kind === 'CLASS'
+                ? ($ar ? '👥 المجموعة: *' : '👥 Group: *').$this->name($p['class'] ?? null).'*'
+                : ($ar ? '👤 الطالب: *' : '👤 Student: *').$this->name($p['student'] ?? null).'*';
+            $lines[] = ($ar ? '🧑‍🏫 المعلم: *' : '🧑‍🏫 Teacher: *').$this->name($p['teacher'] ?? null).'*';
+        }
 
-            return $line;
-        }, $payloads);
+        return $lines;
+    }
+
+    /** "بعد 30 دقيقة" / "in 30 min" until the lesson starts; null once it has. */
+    private function timeLeft(string $iso, CarbonImmutable $now, bool $ar): ?string
+    {
+        if ($iso === '') {
+            return null;
+        }
+
+        $left = (int) ceil($now->diffInSeconds(CarbonImmutable::parse($iso), false) / 60);
+        if ($left <= 0) {
+            return null;
+        }
+
+        $hours = intdiv($left, 60);
+        $minutes = $left % 60;
+
+        if (! $ar) {
+            return match (true) {
+                $hours === 0 => "in {$minutes} min",
+                $minutes === 0 => $hours === 1 ? 'in 1 hour' : "in {$hours} hours",
+                default => "in {$hours} h {$minutes} min",
+            };
+        }
+
+        // After «بعد» the dual is دقيقتين / ساعتين, not the nominative the other counters use.
+        $arMinutes = $minutes === 2 ? 'دقيقتين' : $this->arMinutes($minutes);
+        $arHours = match (true) {
+            $hours === 1 => 'ساعة',
+            $hours === 2 => 'ساعتين',
+            default => $this->arHours($hours),
+        };
+
+        return match (true) {
+            $hours === 0 => "بعد {$arMinutes}",
+            $minutes === 0 => "بعد {$arHours}",
+            $minutes === 30 => "بعد {$arHours} ونصف",
+            default => "بعد {$arHours} و{$arMinutes}",
+        };
     }
 
     /**
-     * A lesson line plus the prospect's number — a trial is the one lesson whose student the
-     * supervisor may need to call on the spot ("are you joining?").
+     * One block per trial for the staff group: when, who, with whom, and the prospect's number — a
+     * trial is the one lesson whose student the supervisor may need to call on the spot ("are you
+     * joining?").
      *
      * @param  list<array<string,mixed>>  $payloads
      * @return list<string>
      */
-    private function trialLines(array $payloads, bool $ar, string $timezone, CarbonImmutable $now): array
+    private function trialBlocks(array $payloads, bool $ar, string $timezone, CarbonImmutable $now): array
     {
-        $lines = $this->sessionLines($payloads, $ar, $timezone, $now);
+        $lines = [];
+        foreach ($payloads as $p) {
+            $lines[] = '';
+            $lines[] = ($ar ? '🕒 الموعد: *' : '🕒 Time: *').$this->when((string) ($p['starts_at'] ?? ''), $timezone, $now, $ar).'*';
+            $lines[] = ($ar ? '👤 الطالب: *' : '👤 Student: *').$this->name($p['student'] ?? null).'*';
+            $lines[] = ($ar ? '🧑‍🏫 المعلم: *' : '🧑‍🏫 Teacher: *').$this->name($p['teacher'] ?? null).'*';
 
-        foreach ($payloads as $i => $p) {
             $phone = trim((string) ($p['phone'] ?? ''));
             if ($phone !== '') {
-                $lines[$i] .= " — {$phone}";
+                $lines[] = ($ar ? '📞 الهاتف: ' : '📞 Phone: ').$phone;
             }
         }
 
@@ -329,36 +410,50 @@ final class GroupAlertMessage
         return $line;
     }
 
-    /** @param array<string,mixed> $p */
-    private function overdueLine(array $p, bool $ar): string
+    /**
+     * One block per unpaid invoice: who owes, how much is left, which invoice and how late, then the
+     * number to call and the link to send.
+     *
+     * @param  array<string,mixed>  $p
+     * @return list<string>
+     */
+    private function overdueBlock(array $p, bool $ar): array
     {
         $currency = (string) ($p['currency'] ?? '');
-        $remaining = $this->money((int) ($p['remaining_minor'] ?? 0), $currency);
-        $payer = $this->name($p['payer'] ?? null);
         $period = (string) ($p['period'] ?? '');
         $days = (int) ($p['days_late'] ?? 0);
 
-        $line = $ar ? "• {$payer} — متبقٍ {$remaining}" : "• {$payer} — {$remaining} due";
+        $due = ($ar ? '💰 المتبقي: *' : '💰 Due: *').$this->money((int) ($p['remaining_minor'] ?? 0), $currency).'*';
         if ((int) ($p['paid_minor'] ?? 0) > 0) {
-            $total = $this->money((int) ($p['total_minor'] ?? 0), $currency);
-            $line .= $ar ? " من {$total}" : " of {$total}";
+            $due .= ($ar ? ' من ' : ' of ').$this->money((int) ($p['total_minor'] ?? 0), $currency);
         }
+
+        $lines = [
+            '',
+            ($ar ? '👤 الاسم: *' : '👤 Name: *').$this->name($p['payer'] ?? null).'*',
+            $due,
+        ];
+
+        $facts = [];
         if ($period !== '') {
-            $line .= $ar ? " — فاتورة {$period}" : " — invoice {$period}";
+            $facts[] = $ar ? "فاتورة {$period}" : "Invoice {$period}";
         }
         if ($days > 0) {
-            $line .= $ar ? ' — متأخرة '.$this->arDays($days) : " — {$days} day(s) late";
+            $facts[] = $ar ? 'متأخرة '.$this->arDays($days) : ($days === 1 ? '1 day late' : "{$days} days late");
+        }
+        if ($facts !== []) {
+            $lines[] = '📅 '.implode(' · ', $facts);
         }
 
         $phone = trim((string) ($p['payer_phone'] ?? ''));
         if ($phone !== '') {
-            $line .= " — {$phone}";
+            $lines[] = ($ar ? '📞 الهاتف: ' : '📞 Phone: ').$phone;
         }
         if (! empty($p['invoice_url'])) {
-            $line .= "\n  ".($ar ? 'الفاتورة: ' : 'Invoice: ').$p['invoice_url'];
+            $lines[] = ($ar ? '🔗 رابط الفاتورة: ' : '🔗 Invoice link: ').$p['invoice_url'];
         }
 
-        return $line;
+        return $lines;
     }
 
     /**

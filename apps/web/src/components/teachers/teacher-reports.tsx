@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   AlertTriangle,
   FileText,
@@ -76,8 +77,7 @@ function PerformanceNotes({ teacherId }: { teacherId: string }) {
     () =>
       new Intl.DateTimeFormat(locale, {
         dateStyle: "medium",
-        timeStyle: "short",
-      }),
+        timeStyle: "short", timeZone: academyTimeZone() }),
     [locale],
   );
 

@@ -10,12 +10,12 @@ use App\Support\FeatureCatalog;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Crypt;
-use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
@@ -705,4 +705,32 @@ it('corrects a receipt’s method, day, reference and note in place, and the tre
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/receipts/{$other['id']}/void", ['reason' => 'typed twice'])->assertOk();
     $this->postJson("/api/receipts/{$other['id']}/amend", ['note' => 'x'])->assertStatus(422);
+});
+
+it('moves a bill paid under a typed name, and its receipt, to the family when the first package opens on it', function () {
+    acctSwitch($this, true);
+    Sanctum::actingAs($this->owner);
+
+    $bill = $this->postJson('/api/invoices/quick', ['payer_name' => 'Dalia Newcomer', 'amount_minor' => 40000, 'currency' => 'EGP', 'description' => 'First package'])->assertCreated()->json('id');
+    $receiptId = $this->postJson("/api/invoices/{$bill}/mark-paid", ['payment_method' => 'CASH'])->assertOk()->json('receipt.id');
+
+    $res = $this->postJson('/api/students', [
+        'full_name' => 'Dalia Newcomer', 'guardian_id' => $this->celineParent, 'status' => 'REGULAR',
+        'package' => ['label' => '8 hours', 'hours' => 8, 'price_minor' => 40000, 'currency' => 'EGP', 'paid_invoice_id' => $bill],
+    ])->assertCreated();
+    expect($res->json('packageInvoiceId'))->toBe($bill);
+
+    acctTenant($this->academy, function () use ($bill, $receiptId, $res): void {
+        $invoice = DB::table('invoices')->where('id', $bill)->first();
+        $receipt = DB::table('receipts')->where('id', $receiptId)->first();
+
+        // One bill, one receipt, both on the family's account now — and nothing left owing.
+        expect($invoice->guardian_id)->toBe($this->celineParent)
+            ->and($invoice->payer_name)->toBeNull()
+            ->and((int) $invoice->amount_paid_minor)->toBe(40000)
+            ->and($receipt->guardian_id)->toBe($this->celineParent)
+            ->and($receipt->payer_name)->toBeNull()
+            ->and(DB::table('invoices')->where('guardian_id', $this->celineParent)->where('kind', 'MANUAL')->count())->toBe(1)
+            ->and(DB::table('lesson_packages')->where('student_id', $res->json('studentId'))->value('invoice_id'))->toBe($bill);
+    });
 });

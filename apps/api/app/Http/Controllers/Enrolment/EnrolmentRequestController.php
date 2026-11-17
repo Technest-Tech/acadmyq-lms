@@ -148,7 +148,7 @@ final class EnrolmentRequestController extends Controller
             'duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
         ]);
 
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
+        $timezone = $this->academyTimezone($academyId); // the academy clock, whatever the device says
         $startUtc = $this->resolveInstant($data, $timezone);
         $duration = (int) $data['duration_minutes'];
 

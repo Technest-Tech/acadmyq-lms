@@ -98,7 +98,7 @@ describe("TeacherLessons", () => {
     expect(screen.getByText(/off the teacher's salary/)).toBeInTheDocument();
     await userEvent.click(screen.getByTestId("lesson-delete-confirm"));
 
-    await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("done"));
+    await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("done", { keepMoney: false }));
     await waitFor(() => expect(api.getSessionsByDay).toHaveBeenCalledTimes(2));
   });
 
@@ -109,6 +109,17 @@ describe("TeacherLessons", () => {
     await userEvent.click(within(done).getByTestId("lesson-delete"));
     await userEvent.click(screen.getByTestId("lesson-delete-confirm"));
     expect(await screen.findByTestId("lesson-delete-error")).toHaveTextContent("already closed");
+  });
+
+  it("offers a schedule-only delete once the server refuses, leaving the money alone", async () => {
+    vi.mocked(api.deleteSession).mockRejectedValueOnce(new Error("This lesson's package is already closed and billed"));
+    renderTab();
+    const done = await screen.findByTestId("lesson-row-done");
+    await userEvent.click(within(done).getByTestId("lesson-delete"));
+    expect(screen.queryByTestId("lesson-delete-keep-money")).toBeNull();
+    await userEvent.click(screen.getByTestId("lesson-delete-confirm"));
+    await userEvent.click(await screen.findByTestId("lesson-delete-keep-money"));
+    await waitFor(() => expect(api.deleteSession).toHaveBeenLastCalledWith("done", { keepMoney: true }));
   });
 
   it("hides delete from someone without the capability", async () => {

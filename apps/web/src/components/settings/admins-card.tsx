@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { Eye, EyeOff, KeyRound, ShieldCheck, UserPlus } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -215,8 +216,7 @@ export function AdminsCard() {
                           ? t("lastLogin", {
                               when: new Date(admin.lastLoginAt).toLocaleString(locale === "ar" ? "ar-EG" : "en-GB", {
                                 dateStyle: "medium",
-                                timeStyle: "short",
-                              }),
+                                timeStyle: "short", timeZone: academyTimeZone() }),
                             })
                           : t("neverLoggedIn")}
                       </p>

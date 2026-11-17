@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   ArrowRightLeft,
   BarChart3,
@@ -724,8 +725,7 @@ function ConversionRates({
   const asOf = fx.as_of
     ? new Intl.DateTimeFormat(locale, {
         dateStyle: "medium",
-        timeStyle: "short",
-      }).format(new Date(fx.as_of * 1000))
+        timeStyle: "short", timeZone: academyTimeZone() }).format(new Date(fx.as_of * 1000))
     : null;
 
   if (fx.rates.length === 0) {

@@ -5,7 +5,6 @@ import {
   CalendarDays,
   Clock,
   GraduationCap,
-  Globe,
   Info,
   Plus,
   Save,
@@ -13,6 +12,7 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { ClockField } from "@/components/scheduling/clock-field";
 import { LessonLengthWarning } from "@/components/scheduling/lesson-length-warning";
 import {
   countPastLessons,
@@ -38,30 +38,6 @@ const fieldClass =
 /** Backend bounds for a slot's length (ScheduleController: integer, min:1, max:600). */
 const DURATION_MIN = 1;
 const DURATION_MAX = 600;
-
-/** Region-relevant zones; the active schedule's own zone is always folded in. */
-const TZ_CURATED = [
-  "Africa/Cairo",
-  "Asia/Riyadh",
-  "Asia/Dubai",
-  "Asia/Kuwait",
-  "Asia/Qatar",
-  "Asia/Bahrain",
-  "Asia/Amman",
-  "Asia/Baghdad",
-  "Asia/Beirut",
-  "Asia/Jerusalem",
-  "Africa/Khartoum",
-  "Africa/Casablanca",
-  "Africa/Tunis",
-  "Africa/Algiers",
-  "Africa/Tripoli",
-  "Europe/Istanbul",
-  "Europe/London",
-  "Europe/Paris",
-  "America/New_York",
-  "UTC",
-];
 
 /** Trim a stored "17:00:00" TIME down to the "17:00" an <input type=time> wants. */
 function hhmm(time: string): string {
@@ -171,11 +147,8 @@ export function ScheduleSection({
     [t],
   );
 
-  const tzOptions = useMemo(() => {
-    const set = new Set(TZ_CURATED);
-    if (timezone) set.add(timezone);
-    return [...set].map((z) => ({ value: z, label: z.replace(/_/g, " ") }));
-  }, [timezone]);
+  // The student's country and its clock, when they live outside the academy's.
+  const [studentClock, setStudentClock] = useState<{ country: string | null; timezone: string | null }>({ country: null, timezone: null });
   const [active, setActive] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -186,6 +159,7 @@ export function ScheduleSection({
       const res = await getStudentSchedule(studentId, teacherId);
       setActive(res.schedule !== null);
       setTimezone(res.schedule?.timezone ?? "");
+      setStudentClock({ country: res.student_country ?? null, timezone: res.student_timezone ?? null });
       const saved = res.schedule?.start_date?.slice(0, 10) ?? null;
       setSavedStart(saved);
       setStartDate(saved ?? todayLocal());
@@ -515,20 +489,19 @@ export function ScheduleSection({
 
               {/* Settings + actions panel */}
               <div className="space-y-4 rounded-xl border bg-muted/20 p-4">
-                {/* Timezone */}
-                <div className="space-y-1.5 sm:max-w-xs">
-                  <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-                    <Globe className="size-3.5" aria-hidden />
-                    {t("timezone")}
-                  </label>
-                  <Combobox
-                    options={tzOptions}
-                    value={timezone}
-                    onChange={setTimezone}
-                    placeholder={t("timezonePlaceholder")}
-                    searchPlaceholder={t("timetable.searchTimezone")}
-                  />
-                </div>
+                {/* Which clock the timetable is tied to: the academy's, or the student's country */}
+                <ClockField
+                  className="sm:max-w-md"
+                  value={timezone}
+                  slots={slots}
+                  studentCountry={studentClock.country}
+                  studentTimezone={studentClock.timezone}
+                  disabled={!canManage || saving}
+                  onChange={(tz, next) => {
+                    setTimezone(tz);
+                    setSlots(next);
+                  }}
+                />
 
                 {/* Starts from */}
                 <StartDateField

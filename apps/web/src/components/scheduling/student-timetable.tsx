@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   CalendarRange,
   ChevronLeft,
@@ -57,7 +58,7 @@ export function StudentTimetable({
   const locale = useLocale();
   const { can } = useAuth();
 
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = academyTimeZone();
   const today = todayInTz(tz);
   const [anchor, setAnchor] = useState(() => startOfMonth(today));
   const [sessions, setSessions] = useState<CalendarSession[]>([]);

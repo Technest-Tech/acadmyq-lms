@@ -9,11 +9,11 @@ use App\Http\Controllers\Groups\Concerns\InteractsWithClassGroups;
 use App\Services\ClassGroups;
 use App\Services\CourseTerm;
 use App\Services\GroupBilling;
-use App\Services\Ledger;
 use App\Services\GroupLeaveSettlement;
 use App\Services\GroupLessonGenerator;
-use App\Services\GroupTrial;
 use App\Services\GroupPayroll;
+use App\Services\GroupTrial;
+use App\Services\Ledger;
 use App\Services\Rooms;
 use App\Services\StudentLevels;
 use App\Support\Audit;
@@ -150,7 +150,8 @@ final class ClassGroupController extends Controller
                 'location' => $data['location'] ?? null,
                 'room_id' => $data['room_id'] ?? null,
                 'meeting_url' => $data['meeting_url'] ?? null,
-                'timezone' => $data['timezone'] ?? $this->academyTimezone($academyId),
+                // A group runs on the academy clock. The form used to send the device's zone here.
+                'timezone' => $this->academyTimezone($academyId),
                 'start_date' => $data['start_date'],
                 'end_date' => $data['end_date'] ?? null,
                 'lessons_planned' => $data['lessons_planned'] ?? null,
@@ -215,7 +216,7 @@ final class ClassGroupController extends Controller
 
         $fields = array_intersect_key($data, array_flip([
             'name', 'specialization_id', 'level', 'level_id', 'teacher_id', 'capacity', 'mode', 'location', 'room_id',
-            'meeting_url', 'timezone', 'start_date', 'end_date', 'lessons_planned', 'notes',
+            'meeting_url', 'start_date', 'end_date', 'lessons_planned', 'notes', // not `timezone`: a group stays on the academy clock
             ...self::PRICE_FIELDS, ...self::TEACHER_PAY_FIELDS,
         ]));
         if (isset($fields['name'])) {
@@ -699,7 +700,7 @@ final class ClassGroupController extends Controller
             'topic' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
 
-        $tz = $data['timezone'] ?? (string) $group->timezone;
+        $tz = (string) $group->timezone; // the group's own clock, whatever the device says
         $start = TimeHelper::toUtc($data['local_datetime'].':00', $tz);
         $teacherId = $data['teacher_id'] ?? (string) $group->teacher_id;
         $this->assertActiveTeacher($teacherId);

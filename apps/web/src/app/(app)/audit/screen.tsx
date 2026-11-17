@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { History, ListFilter, Lock, ShieldCheck } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useMemo, useState } from "react";
@@ -163,8 +164,7 @@ export function AuditLogScreen() {
   const exportColumns = useMemo<ExcelColumn<AuditEntry>[]>(() => {
     const dateFmt = new Intl.DateTimeFormat(locale, {
       dateStyle: "medium",
-      timeStyle: "short",
-    });
+      timeStyle: "short", timeZone: academyTimeZone() });
     return [
       {
         header: t("colTime"),

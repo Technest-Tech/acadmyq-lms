@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import type { SessionStatus } from "@academiq/contracts";
 import { Video } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
@@ -116,7 +117,7 @@ export function EnterLessonButton({
     const opensAt = new Date(
       new Date(lesson.scheduled_at_utc).getTime() - JOIN_OPENS_MINUTES_BEFORE * 60_000,
     );
-    const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(opensAt);
+    const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }).format(opensAt);
     return (
       <Button
         type="button"

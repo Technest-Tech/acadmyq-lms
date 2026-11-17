@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { KhatamLattice } from "@/components/ornaments";
 import {
   Activity,
@@ -647,7 +648,7 @@ function PendingRow({
         </div>
         <div className="shrink-0 text-right">
           <span className="block rounded-lg bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
-            {new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(at)}
+            {new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }).format(at)}
           </span>
           <p className="mt-0.5 text-[10px] text-muted-foreground">{ago}</p>
         </div>
@@ -1666,8 +1667,8 @@ export function AcademyDashboard() {
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
                 {trialLessonsThisWeek.map((s) => {
                   const dt = new Date(s.scheduled_at_utc);
-                  const dayLabel = dt.toLocaleDateString(locale.startsWith("ar") ? "ar-u-nu-arab" : locale, { weekday: "short" });
-                  const timeLabel = dt.toLocaleTimeString(locale.startsWith("ar") ? "ar-u-nu-arab" : locale, { hour: "2-digit", minute: "2-digit" });
+                  const dayLabel = dt.toLocaleDateString(locale.startsWith("ar") ? "ar-u-nu-arab" : locale, { weekday: "short", timeZone: academyTimeZone() });
+                  const timeLabel = dt.toLocaleTimeString(locale.startsWith("ar") ? "ar-u-nu-arab" : locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() });
                   const statusColor =
                     s.status === "ATTENDED" ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-300"
                     : s.status === "ABSENT_UNEXCUSED" ? "bg-rose-100 text-rose-700 dark:bg-rose-950/50 dark:text-rose-300"

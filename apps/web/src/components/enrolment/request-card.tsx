@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarClock, Check, GraduationCap, MessageCircle, NotebookPen, Phone, RotateCcw, Save, UserCheck, X } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -50,7 +51,7 @@ export function RequestCard({
   const [note, setNote] = useState(request.staff_note ?? "");
   const [savingNote, setSavingNote] = useState(false);
 
-  const created = new Date(request.created_at).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" });
+  const created = new Date(request.created_at).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone: academyTimeZone() });
   const trialLive = request.trial !== null && request.trial.status !== "CANCELLED";
   const canBook = canManage && request.status !== "ENROLLED" && !(trialLive && request.trial?.status === "SCHEDULED");
   const days = WEEK_ORDER.filter((d) => request.preferred_days.includes(d));
@@ -138,7 +139,7 @@ export function RequestCard({
           <span className="font-medium">{request.trial.status === "CANCELLED" ? t("card.trialCancelled") : t("card.trialBooked")}</span>
           {request.trial.scheduled_at_utc && (
             <span className="text-muted-foreground">
-              {new Date(request.trial.scheduled_at_utc).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short" })}
+              {new Date(request.trial.scheduled_at_utc).toLocaleString(locale, { dateStyle: "medium", timeStyle: "short", timeZone: academyTimeZone() })}
               {request.trial.teacher_name ? ` · ${request.trial.teacher_name}` : ""}
             </span>
           )}

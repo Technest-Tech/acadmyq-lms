@@ -38,6 +38,7 @@ import { Combobox, type ComboboxOption } from "@/components/ui/combobox";
 import { Modal } from "@/components/ui/modal";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
 import { FactCard, ProfileCard } from "@/components/ui/profile-card";
+import { ChangeCurrencyModal } from "@/components/guardians/change-currency-modal";
 import { FamilyAccountsCard } from "@/components/accounting/family-accounts-card";
 import { SubscriptionsCard } from "@/components/students/subscriptions-card";
 import { ParentPortalCard } from "@/components/guardians/parent-portal-card";
@@ -486,6 +487,8 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [modal, setModal] = useState<"none" | "add" | "deactivate">("none");
+  // Moving the family to another currency — children's prices and unpaid packages with it.
+  const [currencyOpen, setCurrencyOpen] = useState(false);
   // Deleting a parent with children takes the children too — ticked by hand, never assumed.
   const [alsoChildren, setAlsoChildren] = useState(false);
   // Why the family left, and (with the CRM) a "former parent" lead to win them back.
@@ -759,7 +762,23 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
           label={t("colCurrency")}
           tone="gold"
           value={guardian.currency}
-          sub={t("detail.billingCurrency")}
+          sub={
+            canEdit && canPrice ? (
+              <span>
+                {t("detail.billingCurrency")} ·{" "}
+                <button
+                  type="button"
+                  onClick={() => setCurrencyOpen(true)}
+                  className="text-primary font-semibold underline-offset-4 hover:underline"
+                  data-testid="guardian-currency-change"
+                >
+                  {t("currencyChange.open")}
+                </button>
+              </span>
+            ) : (
+              t("detail.billingCurrency")
+            )
+          }
         />
         <FactCard
           icon={CalendarDays}
@@ -986,18 +1005,31 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
                 </div>
               </Field>
               <Field label={t("form.currency")}>
-                <div className="relative">
-                  <Coins className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
-                  <input
-                    aria-label={t("form.currency")}
-                    className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                    maxLength={3}
-                    value={guardian.currency}
-                    onChange={(e) =>
-                      set("currency", e.target.value.toUpperCase())
-                    }
-                  />
-                </div>
+                {canPrice ? (
+                  // One way to change it, and it carries the children's prices and packages along.
+                  <div className="border-input flex items-center justify-between gap-2 rounded-xl border px-3.5 py-2">
+                    <span className="flex items-center gap-2 text-sm font-semibold">
+                      <Coins className="text-muted-foreground size-4" aria-hidden />
+                      {guardian.currency}
+                    </span>
+                    <Button type="button" size="sm" variant="outline" onClick={() => setCurrencyOpen(true)} data-testid="guardian-form-currency-change">
+                      {t("currencyChange.open")}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="relative">
+                    <Coins className="text-muted-foreground pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2" />
+                    <input
+                      aria-label={t("form.currency")}
+                      className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                      maxLength={3}
+                      value={guardian.currency}
+                      onChange={(e) =>
+                        set("currency", e.target.value.toUpperCase())
+                      }
+                    />
+                  </div>
+                )}
               </Field>
             </div>
 
@@ -1181,13 +1213,27 @@ export function FamilyProfile({ guardianId }: { guardianId: string }) {
         </ProfileCard>
       )}
 
+      {currencyOpen && (
+        <ChangeCurrencyModal
+          guardianId={guardianId}
+          currentCurrency={guardian.currency}
+          childList={children}
+          onClose={() => setCurrencyOpen(false)}
+          onDone={(message) => {
+            setCurrencyOpen(false);
+            flash(message);
+            void refresh();
+          }}
+        />
+      )}
+
       {/* ── Add a child: a new student, or one already on the roster ─── */}
       <Modal
         open={modal === "add"}
         onClose={() => setModal("none")}
         title={t("detail.addChildTitle", { name: guardian.full_name })}
         description={t("detail.addChildDesc")}
-        size="md"
+        size={addMode === "new" ? "xl" : "md"}
         footer={
           // The create form carries its own buttons; only the picker needs a footer.
           addMode === "existing" ? (

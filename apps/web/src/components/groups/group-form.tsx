@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarDays, Clock, Coins, GraduationCap, Link2, ListChecks, MapPin, Plus, StickyNote, Trash2, Users, Video, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
@@ -180,7 +181,7 @@ export function GroupForm({
   // Each half of the money is its own capability, and an edit only shows what the API showed us.
   const canPrice = can("student.set_price") && (!editing || group.pricing !== null);
   const canPay = can("teacher.set_pay") && (!editing || group.teacher_pay !== null);
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const browserTz = academyTimeZone();
 
   const [name, setName] = useState(group?.name ?? "");
   const [teacherId, setTeacherId] = useState(group?.teacher_id ?? "");

@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarClock, ExternalLink } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState, type ReactNode } from "react";
@@ -39,7 +40,7 @@ export function StudentMonthCard({
 }) {
   const t = useTranslations("students");
   const locale = useLocale();
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const timezone = academyTimeZone();
   const [data, setData] = useState<StudentMonth | null>(null);
   const [error, setError] = useState(false);
 

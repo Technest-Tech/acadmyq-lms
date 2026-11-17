@@ -1,5 +1,6 @@
 "use client";
 
+import { ClockField } from "@/components/scheduling/clock-field";
 import {
   CalendarRange,
   Check,
@@ -33,6 +34,7 @@ import {
   getStudent,
   listTeachers,
   openLessonPackage,
+  getStudentSchedule,
   putStudentSchedule,
   reassignTeacher,
   setSubscription,
@@ -211,9 +213,21 @@ export function EnrollmentWizard({
 
   // Schedule step
   const [slots, setSlots] = useState<ScheduleSlot[]>([]);
-  const [timezone, setTimezone] = useState(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone,
-  );
+  // "" = the academy's clock. This used to open on the device's zone, which tied the timetable to
+  // whatever the PC was set to.
+  const [timezone, setTimezone] = useState("");
+  const [studentClock, setStudentClock] = useState<{ country: string | null; timezone: string | null }>({ country: null, timezone: null });
+  useEffect(() => {
+    let live = true;
+    getStudentSchedule(studentId)
+      .then((res) => live && setStudentClock({ country: res.student_country ?? null, timezone: res.student_timezone ?? null }))
+      .catch(() => {
+        // The clock field then simply offers no suggestion.
+      });
+    return () => {
+      live = false;
+    };
+  }, [studentId]);
 
   // Pricing step — the same monthly fields as the new-student form and the profile's edit modal.
   const monthly = useMonthlyTerms({ defaultCurrency: defaults.currency });
@@ -417,14 +431,17 @@ export function EnrollmentWizard({
               </div>
             ))}
 
-            <Field label={t("form.timezone")}>
-              <input
-                className={cn(inputBase, "px-3.5 py-2.5")}
-                placeholder={t("form.timezonePlaceholder")}
-                value={timezone}
-                onChange={(e) => setTimezone(e.target.value)}
-              />
-            </Field>
+            <ClockField
+              value={timezone}
+              slots={slots}
+              studentCountry={studentClock.country}
+              studentTimezone={studentClock.timezone}
+              disabled={busy}
+              onChange={(tz, next) => {
+                setTimezone(tz);
+                setSlots(next);
+              }}
+            />
           </div>
         )}
       </div>

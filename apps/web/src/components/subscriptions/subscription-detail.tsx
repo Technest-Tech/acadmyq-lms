@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
@@ -26,7 +27,7 @@ export function SubscriptionDetail({ id, initial }: { id: string; initial?: Subs
   const [row, setRow] = useState<SubscriptionRow | null>(initial ?? null);
   const [lessons, setLessons] = useState<SubscriptionLessonRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const timezone = academyTimeZone();
 
   useEffect(() => {
     let live = true;

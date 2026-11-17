@@ -10,11 +10,20 @@ import { StudentForm } from "./student-form";
 vi.mock("@/lib/api", async (importActual) => ({
   ...(await importActual<typeof import("@/lib/api")>()),
   createStudent: vi.fn(),
+  putStudentSchedule: vi.fn(),
   listTeachers: vi.fn(),
   listGuardians: vi.fn(),
+  listPaidBills: vi.fn(),
 }));
 
 import * as api from "@/lib/api";
+import { academyToday } from "@/lib/academy-clock";
+
+// The timetable's clock picker asks the server for the world's zones; it copes without them.
+vi.mock("@/lib/clock-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/clock-api")>()),
+  getClockZones: () => Promise.reject(new Error("offline")),
+}));
 
 const groupsApi = { listGroups: vi.fn(), addGroupMembers: vi.fn() };
 vi.mock("@/lib/groups-api", async (importOriginal) => ({
@@ -460,12 +469,162 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     });
   });
 
-  it("keeps a Quran academy's new student monthly by default", async () => {
+  it("starts a Quran academy's new student on a lesson package: no name, paid up front from today", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "i1" });
     const user = userEvent.setup();
     renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
     await fillActiveStudent(user);
-    expect(screen.queryByLabelText(enMessages.packages.form.lessons)).not.toBeInTheDocument();
+
+    expect(screen.getByTestId("billing-package")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("billing-package").textContent).toContain(enMessages.students.form.billingPackage);
+    // The package's own fields, without a name to type or a fold of dates to open.
+    expect(screen.getByLabelText(enMessages.packages.form.lessons)).toBeInTheDocument();
+    expect(screen.queryByLabelText(enMessages.packages.form.label)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("package-advanced-toggle")).not.toBeInTheDocument();
+    expect(screen.getByTestId("package-simple-terms")).toHaveTextContent(enMessages.packages.form.simplePaidUpfront);
+    expect(screen.getByTestId("package-simple-terms")).toHaveTextContent(enMessages.packages.form.simpleStartsToday);
+
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(api.createStudent).mock.calls[0]![0];
+    expect(sent.package).toMatchObject({ bill_timing: "ON_START", starts_on: academyToday(), auto_renew: true, price_minor: 80000 });
+    // The name writes itself.
+    expect(sent.package?.label).not.toBe("");
+    expect(sent).not.toHaveProperty("subscription");
+  });
+
+  it("opens the first package on the bill paid before the student was added, and insists on a bill once ticked", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "bill-1" });
+    vi.mocked(api.listPaidBills).mockResolvedValue({
+      bills: [{ id: "bill-1", payer_name: "Omar Newcomer", from_family: false, description: "First package", total_minor: 70000, currency: "EGP", raised_on: "2026-11-10" }],
+    });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
+    await fillActiveStudent(user);
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+
+    // Nothing is asked until the box is ticked.
+    expect(api.listPaidBills).not.toHaveBeenCalled();
+    await user.click(screen.getByTestId("paid-first-toggle"));
+    const picker = await screen.findByTestId("paid-first-bill");
+
+    // Ticked with no bill named: refused, because a package with no bill would be billed later.
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+    expect(await screen.findByText(enMessages.students.form.paidFirstRequired)).toBeInTheDocument();
+    expect(api.createStudent).not.toHaveBeenCalled();
+
+    await user.selectOptions(picker, "bill-1");
+    // The bill is for another amount than the package: said, not blocked.
+    expect(screen.getByTestId("paid-first-differs")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createStudent).mock.calls[0]![0].package).toMatchObject({ paid_invoice_id: "bill-1", price_minor: 80000 });
+  });
+
+  it("sends no paid bill when the box is left alone", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "i1" });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
+    await fillActiveStudent(user);
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createStudent).mock.calls[0]![0].package).not.toHaveProperty("paid_invoice_id");
+  });
+
+  it("still sells a Quran student monthly when that card is picked", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
+    await fillActiveStudent(user);
+    await user.click(screen.getByTestId("billing-monthly"));
+    expect(screen.queryByLabelText(enMessages.packages.form.lessons)).not.toBeInTheDocument();
+    expect(screen.getByTestId("billing-monthly")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  async function pickTeacherOne(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(await screen.findByTestId("add-teacher-link"));
+    await user.click(screen.getByTestId("teacher-link-select-0"));
+    await user.click(await screen.findByRole("option", { name: /Teacher One/ }));
+  }
+
+  it("saves the weekly timetable right after the student, at the package's lesson length, from today", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "i1" });
+    vi.mocked(api.putStudentSchedule).mockResolvedValue({ scheduleId: "sc1", generated: { created: 8, removed: 0 } } as never);
+    const user = userEvent.setup();
+    const { onCreated } = renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"], extraPermissions: ["schedule.manage"] });
+    await fillActiveStudent(user);
+    await pickTeacherOne(user);
+
+    // Folded until asked for; opening it picks the first day of the week (Saturday).
+    expect(screen.queryByTestId("new-student-timetable")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("timetable-open"));
+    expect(screen.getByTestId("timetable-day-6")).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByTestId("timetable-day-2"));
+
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.selectOptions(screen.getByTestId("new-student-pkg-count-length"), "45");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    await waitFor(() => expect(api.putStudentSchedule).toHaveBeenCalledTimes(1));
+    expect(api.putStudentSchedule).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        teacher_id: "t1",
+        start_date: academyToday(),
+        slots: [
+          { weekday: 6, start_time_local: "17:00", duration_minutes: 45 },
+          { weekday: 2, start_time_local: "17:00", duration_minutes: 45 },
+        ],
+      }),
+    );
+    await waitFor(() => expect(onCreated).toHaveBeenCalledWith("s1", { packageOpened: true }));
+  });
+
+  it("refuses a timetable with no teacher, before anything is saved", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"], extraPermissions: ["schedule.manage"] });
+    await fillActiveStudent(user);
+    await user.click(await screen.findByTestId("timetable-open"));
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    expect(await screen.findByText(enMessages.students.form.timetableTeacherRequired)).toBeInTheDocument();
+    expect(api.createStudent).not.toHaveBeenCalled();
+  });
+
+  it("keeps the student when the timetable fails, and says where to add it", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "i1" });
+    vi.mocked(api.putStudentSchedule).mockRejectedValue(new api.ApiError(422, "Clash with another lesson"));
+    const user = userEvent.setup();
+    const { onCreated } = renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"], extraPermissions: ["schedule.manage"] });
+    await fillActiveStudent(user);
+    await pickTeacherOne(user);
+    await user.click(screen.getByTestId("timetable-open"));
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    expect(await screen.findByText(/Clash with another lesson/)).toBeInTheDocument();
+    expect(onCreated).not.toHaveBeenCalled();
+    expect(api.createStudent).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no timetable on a trial", async () => {
+    const user = userEvent.setup();
+    renderForm({ extraPermissions: ["schedule.manage"] });
+    // An active student (the default) is offered one…
+    expect(await screen.findByTestId("timetable-open")).toBeInTheDocument();
+    await user.click(screen.getByTestId("intent-trial"));
+    expect(screen.queryByTestId("timetable-open")).not.toBeInTheDocument();
   });
 
   const centreGroups = () =>

@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarClock, ClipboardCheck, Layers, Users } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -59,7 +60,7 @@ export function TeacherGroups({ teacherId }: { teacherId: string }) {
   }, [teacherId]);
 
   const when = (iso: string) =>
-    new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }).format(new Date(iso));
+    new Intl.DateTimeFormat(locale === "ar" ? "ar" : "en", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: academyTimeZone() }).format(new Date(iso));
 
   if (error) return <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />;
   if (groups === null) {

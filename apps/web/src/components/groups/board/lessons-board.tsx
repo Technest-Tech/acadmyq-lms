@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { AlertTriangle, CalendarClock, CalendarDays, CalendarRange, ChevronLeft, ChevronRight, ClipboardCheck, LayoutGrid, MapPin, Sun, UserRoundCog, Video } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -47,7 +48,7 @@ export function LessonsBoard() {
   const { can } = useAuth();
   const canMark = can("session.mark_attendance");
   const canManage = can("group.manage");
-  const browserTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const browserTz = academyTimeZone();
   // A centre works from its weekly timetable (hour blocks, rooms); everyone else's views are unchanged.
   const centre = useCapability("centre");
   const views: View[] = centre ? ["timetable", "day", "week", "owed"] : ["day", "week", "owed"];

@@ -1211,8 +1211,11 @@ export function SubscriptionSection({
 
   // Only when the rate actually moves on a package student who still owes on a block.
   const duePackages = preview?.packages ?? [];
+  // A new currency is not a question (Ahmed 2026-11-17): the unpaid packages and their bills move
+  // to it, and a paid running block renews in it — the form says so instead of asking.
+  const currencyMoved = basis === "PER_PACKAGE" && sub !== null && currency !== "" && currency !== sub.currency.trim();
   const askPackages =
-    basis === "PER_PACKAGE" && duePackages.length > 0 && sub !== null && toMinor(price) !== sub.price_minor;
+    basis === "PER_PACKAGE" && !currencyMoved && duePackages.length > 0 && sub !== null && toMinor(price) !== sub.price_minor;
 
   async function save() {
     setSaving(true);
@@ -1238,7 +1241,9 @@ export function SubscriptionSection({
       setShowSet(false);
       const moved = res.repriced_packages ?? [];
       onChanged(
-        moved.length > 0
+        currencyMoved
+          ? t("subscription.currencyMoved.saved", { count: moved.length, currency })
+          : moved.length > 0
           ? t("subscription.repricedPackages", { count: moved.length })
           : res.repriced.sessions > 0
           ? t("subscription.savedRepriced", {
@@ -1518,6 +1523,44 @@ export function SubscriptionSection({
           </div>
           ) : (
             <MonthlyTermsFields terms={monthly} idPrefix="sub-edit" />
+          )}
+
+          {/* Another currency: what moves with it, stated — not asked. */}
+          {currencyMoved && (
+            <div
+              className="space-y-2 rounded-xl border border-sky-300/60 bg-sky-500/[0.06] px-3 py-2.5 text-xs dark:border-sky-800/50"
+              data-testid="currency-move-note"
+            >
+              <p className="text-sm font-semibold">{t("subscription.currencyMoved.title", { from: sub!.currency.trim(), to: currency })}</p>
+              {duePackages.length > 0 ? (
+                <>
+                  <ul className="bg-background/70 space-y-1 rounded-lg px-3 py-2">
+                    {duePackages.map((p) => (
+                      <li key={p.id} className="flex items-center justify-between gap-2" data-testid="currency-move-line">
+                        <span className="min-w-0 truncate">
+                          {t("subscription.repricePackages.packageNo", { n: p.sequence_no })} · {p.label}
+                        </span>
+                        <span className="shrink-0 font-semibold tabular-nums">
+                          {formatMoney({ amount: p.price_minor, currency: p.currency }, locale)} →{" "}
+                          {formatMoney({ amount: Math.round((toMinor(price) * p.minutes_total) / 60), currency }, locale)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="text-muted-foreground">{t("subscription.currencyMoved.bills")}</p>
+                </>
+              ) : (
+                <p className="text-muted-foreground">{t("subscription.currencyMoved.nothingDue")}</p>
+              )}
+              <p className="text-muted-foreground">{t("subscription.currencyMoved.renewal")}</p>
+              {(preview?.packages_blocked ?? []).length > 0 && (
+                <p className="text-amber-700 dark:text-amber-300">
+                  {t("subscription.repricePackages.blocked", {
+                    packages: (preview?.packages_blocked ?? []).map((p) => `#${p.sequence_no}`).join("، "),
+                  })}
+                </p>
+              )}
+            </div>
           )}
 
           {/* A package student's new rate and the blocks still owed at the old one: those too, or

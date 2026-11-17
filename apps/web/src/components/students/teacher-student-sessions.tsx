@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarDays, ChevronLeft, ChevronRight, Clock } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
@@ -37,7 +38,7 @@ export function TeacherStudentSessions({
 }) {
   const t = useTranslations("scheduling");
   const locale = useLocale();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = academyTimeZone();
   const today = todayInTz(tz);
 
   const [anchor, setAnchor] = useState(() => startOfMonth(today));

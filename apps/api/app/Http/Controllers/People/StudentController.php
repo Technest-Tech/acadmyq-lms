@@ -9,7 +9,6 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Services\CentreSubscriptions;
 use App\Services\ChargeCancellation;
-use App\Services\ClassGroups;
 use App\Services\FamilyCharges;
 use App\Services\Invoicing;
 use App\Services\LessonPackages;
@@ -252,6 +251,7 @@ final class StudentController extends Controller
                     'starts_on' => $package['starts_on'] ?? null,
                     'expires_on' => $package['expires_on'] ?? null,
                     'auto_renew' => (bool) ($package['auto_renew'] ?? true),
+                    'paid_invoice_id' => $package['paid_invoice_id'] ?? null,
                     // A brand-new student has no earlier package to carry hours from.
                     'carry_over' => false,
                 ], $this->ctx()->userId, $this->ctx()->role);
@@ -624,13 +624,25 @@ final class StudentController extends Controller
         }
 
         $data = $this->validateSubscription($request->input('subscription', $request->all()));
-        $subId = $this->writeSubscription($academyId, $id, $data, replace: true);
 
-        return response()->json([
-            'subscriptionId' => $subId,
-            'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, $subId),
-            'repriced_packages' => $this->maybeRepricePackages($request, $id, $data['price_basis'] ?? null, (int) ($data['price_minor'] ?? 0)),
-        ], 200);
+        // A package student moving to another currency takes their unpaid packages with them
+        // ({@see maybeRepricePackages()}) — the packages right is asked before anything is written.
+        $old = $this->activeSubscription($id);
+        $newCurrency = isset($data['currency']) ? strtoupper(trim((string) $data['currency'])) : null;
+        $movedCurrency = $old !== null && $newCurrency !== null && $newCurrency !== trim((string) $old->currency) ? $newCurrency : null;
+        if ($movedCurrency !== null && ($data['price_basis'] ?? null) === LessonPackages::BASIS && (int) ($data['price_minor'] ?? 0) > 0) {
+            Gate::authorize('package.manage');
+        }
+
+        return DB::transaction(function () use ($request, $academyId, $id, $data, $movedCurrency): JsonResponse {
+            $subId = $this->writeSubscription($academyId, $id, $data, replace: true);
+
+            return response()->json([
+                'subscriptionId' => $subId,
+                'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, $subId),
+                'repriced_packages' => $this->maybeRepricePackages($request, $id, $data['price_basis'] ?? null, (int) ($data['price_minor'] ?? 0), $movedCurrency),
+            ], 200);
+        });
     }
 
     /**
@@ -700,16 +712,26 @@ final class StudentController extends Controller
             $after['price_minor'] = 0;
         }
 
-        // Forward-only: start_date is untouched, so already-closed invoices (Sprint 7) are never
-        // back-dated (R-INV-3, decision §3.2). Only future billing sees the new price.
-        DB::table('subscriptions')->where('id', $sub->id)->update($after + ['updated_at' => now()]);
-        Audit::log('subscription.price_changed', 'subscription', $sub->id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
+        // A package student moving to another currency takes their unpaid packages with them —
+        // that needs the packages right, asked before anything is written.
+        $basis = $after['price_basis'] ?? $sub->price_basis;
+        $movedCurrency = isset($after['currency']) && $after['currency'] !== trim((string) $sub->currency) ? $after['currency'] : null;
+        if ($movedCurrency !== null && $basis === LessonPackages::BASIS && (int) $after['price_minor'] > 0) {
+            Gate::authorize('package.manage');
+        }
 
-        return response()->json([
-            'ok' => true,
-            'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, (string) $sub->id),
-            'repriced_packages' => $this->maybeRepricePackages($request, $id, $after['price_basis'] ?? $sub->price_basis, (int) $after['price_minor']),
-        ]);
+        return DB::transaction(function () use ($request, $id, $academyId, $sub, $after, $before, $basis, $movedCurrency): JsonResponse {
+            // Forward-only: start_date is untouched, so already-closed invoices (Sprint 7) are never
+            // back-dated (R-INV-3, decision §3.2). Only future billing sees the new price.
+            DB::table('subscriptions')->where('id', $sub->id)->update($after + ['updated_at' => now()]);
+            Audit::log('subscription.price_changed', 'subscription', $sub->id, $academyId, $this->ctx()->userId, $this->ctx()->role, after: $after, before: $before);
+
+            return response()->json([
+                'ok' => true,
+                'repriced' => $this->maybeRepriceOpenInvoices($request, $id, $academyId, (string) $sub->id),
+                'repriced_packages' => $this->maybeRepricePackages($request, $id, $basis, (int) $after['price_minor'], $movedCurrency),
+            ]);
+        });
     }
 
     /**
@@ -718,16 +740,19 @@ final class StudentController extends Controller
      * — the rate form asks "also the old due packages, or only new ones?". Otherwise the new rate
      * only prices blocks opened from now on.
      *
-     * @return list<array{id:string, sequence_no:int, before_minor:int, after_minor:int}>
+     * A new CURRENCY is not a question (Ahmed 2026-11-17): the unpaid packages and their bills move
+     * to it at the new rate, and a paid running block renews in it.
+     *
+     * @return list<array{id:string, sequence_no:int, before_minor:int, after_minor:int, currency?:string}>
      */
-    private function maybeRepricePackages(Request $request, string $studentId, ?string $basis, int $hourlyRate): array
+    private function maybeRepricePackages(Request $request, string $studentId, ?string $basis, int $hourlyRate, ?string $movedCurrency = null): array
     {
-        if (! $request->boolean('reprice_packages') || $basis !== LessonPackages::BASIS || $hourlyRate <= 0) {
+        if ($basis !== LessonPackages::BASIS || $hourlyRate <= 0 || (! $request->boolean('reprice_packages') && $movedCurrency === null)) {
             return [];
         }
         Gate::authorize('package.manage');
 
-        return app(LessonPackages::class)->repriceUnpaid($studentId, $hourlyRate, $this->ctx()->userId, $this->ctx()->role);
+        return app(LessonPackages::class)->repriceUnpaid($studentId, $hourlyRate, $this->ctx()->userId, $this->ctx()->role, $movedCurrency);
     }
 
     /**
@@ -1301,6 +1326,8 @@ final class StudentController extends Controller
             $rules['package.expires_on'] = ['sometimes', 'nullable', 'date', 'after_or_equal:package.starts_on'];
             $rules['package.auto_renew'] = ['sometimes', 'boolean'];
             $rules['package.lesson_minutes'] = ['sometimes', 'nullable', 'integer', 'min:5', 'max:600'];
+            // Paid on a hand-made bill before the student was on file: that bill is the package's.
+            $rules['package.paid_invoice_id'] = ['sometimes', 'nullable', 'uuid'];
         }
 
         return $request->validate($rules);

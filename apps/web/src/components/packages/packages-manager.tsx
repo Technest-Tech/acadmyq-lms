@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   AlertTriangle,
   CircleDollarSign,
@@ -74,7 +75,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const canManage = can("package.manage");
   const canSendInvoice = can("invoice.send_link");
   const timezone = useMemo(
-    () => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC",
+    () => academyTimeZone(),
     [],
   );
 
@@ -122,7 +123,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
     if (variant === "success") setTimeout(() => setAlert(null), 4500);
   }
 
-  const { actionProps, openNew, openDetail, modals } = usePackageActions({
+  const { actionProps, openNew, openDetail, openPrepay, modals } = usePackageActions({
     onChanged: refresh,
     onAlert: showAlert,
     studentsWithHistory,
@@ -460,6 +461,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                 canSendInvoice={canSendInvoice}
                 actionProps={actionProps}
                 onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
+                onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
               />
             ))}
           </div>

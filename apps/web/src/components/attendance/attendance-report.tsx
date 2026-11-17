@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   Check,
   CheckCircle2,
@@ -250,8 +251,7 @@ export function AttendanceReport({
   const outcomeLocked = !!session.outcome_locked;
   const dateText = new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(session.scheduled_at_utc));
+    timeStyle: "short", timeZone: academyTimeZone() }).format(new Date(session.scheduled_at_utc));
 
   // FREE is its own status now. Legacy rows stored a trial as ATTENDED + is_free_trial=true —
   // keep surfacing those as FREE so historical data reads correctly until it's re-saved.

@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   CalendarRange,
   ClipboardList,
@@ -10,15 +11,16 @@ import {
   Users,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import { StudentClocksButton } from "@/components/scheduling/clock-notices";
 import { Button } from "@/components/ui/button";
 import type { TimetableSummary } from "@/lib/api";
+import { clockName } from "@/lib/clock-api";
+import { formatHm12 } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-/** A schedule-local "17:00:00" wall-clock rendered as a 12-hour time (am/pm) in the locale. */
+/** A "17:00:00" wall-clock rendered as a 12-hour time (am/pm) in the locale. */
 function formatTime(time: string, locale: string): string {
-  const [h, m] = time.split(":").map(Number);
-  const d = new Date(2000, 0, 1, h ?? 0, m ?? 0);
-  return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  return formatHm12(time.slice(0, 5), locale);
 }
 
 /** Total weekly minutes a timetable books across all its slots. */
@@ -29,8 +31,9 @@ function weeklyMinutes(tt: TimetableSummary): number {
 /**
  * The List view as the academy's full timetable roster — one card per student's ACTIVE weekly
  * schedule, independent of any calendar period (the recurring rule, not generated sessions).
- * Each card shows the weekly pattern (read straight from the schedule slots in the schedule's
- * own timezone) with affordances to update the schedule or open the full lesson log. A header
+ * Each card shows the weekly pattern on the ACADEMY's clock, and, for a timetable tied to a
+ * student's country, the student's own day and time beside it, with affordances to update the
+ * schedule or open the full lesson log. A header
  * action opens the "new timetable" form. Read-only callers see only the log affordance.
  */
 export function TimetablesView({
@@ -40,6 +43,7 @@ export function TimetablesView({
   onUpdate,
   onLog,
   onAddNew,
+  onClockChanged,
 }: {
   timetables: TimetableSummary[];
   loading: boolean;
@@ -48,9 +52,12 @@ export function TimetablesView({
   onUpdate: (studentId: string, studentName: string, teacherId: string) => void;
   onLog: (studentId: string, studentName: string) => void;
   onAddNew: () => void;
+  /** Timetables were tied to another clock from the "student clocks" tool: reload them. */
+  onClockChanged?: () => void;
 }) {
   const t = useTranslations("scheduling");
   const locale = useLocale();
+  const academyTz = academyTimeZone();
 
   return (
     <div className="space-y-3" data-testid="timetables-view">
@@ -66,16 +73,20 @@ export function TimetablesView({
           </p>
         </div>
         {canManage && (
-          <Button
-            type="button"
-            size="sm"
-            data-testid="add-timetable"
-            onClick={onAddNew}
-            className="ms-auto gap-1.5"
-          >
-            <Plus className="size-3.5" />
-            {t("timetables.addNew")}
-          </Button>
+          <div className="ms-auto flex flex-wrap items-center gap-2">
+            {/* Students abroad still on the academy's clock, tied to their own in one press. */}
+            <StudentClocksButton onChanged={onClockChanged} />
+            <Button
+              type="button"
+              size="sm"
+              data-testid="add-timetable"
+              onClick={onAddNew}
+              className="gap-1.5"
+            >
+              <Plus className="size-3.5" />
+              {t("timetables.addNew")}
+            </Button>
+          </div>
         )}
       </div>
 
@@ -94,6 +105,9 @@ export function TimetablesView({
           {timetables.map((tt) => {
             const name = tt.student_name ?? "—";
             const mins = weeklyMinutes(tt);
+            // Tied to the student's country: the card leads with the academy's hour and adds theirs.
+            const onStudentClock = tt.timezone !== academyTz;
+            const studentPlace = onStudentClock ? clockName(tt.timezone, locale, null, tt.timezone_country ?? undefined) : "";
             return (
               <li
                 key={tt.schedule_id}
@@ -141,32 +155,33 @@ export function TimetablesView({
                     ) : (
                       <div className="space-y-1.5">
                         {tt.slots.map((s, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between gap-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs"
-                          >
-                            <span className="font-semibold text-foreground">
-                              {t(`weekday.${s.weekday}`)}
-                            </span>
-                            <span className="text-muted-foreground flex items-center gap-1.5 tabular-nums">
-                              <Clock className="size-3" aria-hidden />
-                              {formatTime(s.start_time_local, locale)}
-                              <span className="text-muted-foreground/40">·</span>
-                              {s.duration_minutes}
-                              {t("timetable.durationUnit")}
-                            </span>
+                          <div key={i} className="rounded-lg border bg-muted/30 px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="font-semibold text-foreground">
+                                {t(`weekday.${s.academy_weekday ?? s.weekday}`)}
+                              </span>
+                              <span className="text-muted-foreground flex items-center gap-1.5 tabular-nums">
+                                <Clock className="size-3" aria-hidden />
+                                {formatTime(s.academy_time ?? s.start_time_local, locale)}
+                                <span className="text-muted-foreground/40">·</span>
+                                {s.duration_minutes}
+                                {t("timetable.durationUnit")}
+                              </span>
+                            </div>
+                            {onStudentClock && (
+                              <p className="text-muted-foreground mt-1 text-[11px]" data-testid="student-clock-time">
+                                {t("clock.studentTime", {
+                                  place: studentPlace,
+                                  time: `${t(`weekday.${s.weekday}`)} ${formatTime(s.start_time_local, locale)}`,
+                                })}
+                              </p>
+                            )}
                           </div>
                         ))}
                       </div>
                     )}
                   </div>
 
-                  {/* Timezone hint */}
-                  {tt.timezone && (
-                    <p className="text-muted-foreground/70 text-[11px]">
-                      {tt.timezone.replace(/_/g, " ")}
-                    </p>
-                  )}
 
                   {/* Actions */}
                   <div className="mt-auto flex items-center gap-2 border-t pt-3">

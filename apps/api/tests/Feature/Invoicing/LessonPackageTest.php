@@ -447,6 +447,95 @@ it('never re-prices a package with money already paid toward its bill', function
     expect((int) ($this->packageRow)($package['package_id'])->price_minor)->toBe(80000);
 });
 
+// ─── Moving to another currency (Ahmed 2026-11-17) ───────────────────────────
+
+/** The rate form's save in another currency — no "old packages too?" question needed. */
+function newPackageCurrency($test, string $currency, int $rateMinor): TestResponse
+{
+    Sanctum::actingAs($test->owner);
+
+    return $test->putJson("/api/students/{$test->student}/subscription", [
+        'plan_label' => 'Hours package',
+        'sessions_per_month' => null,
+        'price_minor' => $rateMinor,
+        'currency' => $currency,
+        'price_basis' => 'PER_PACKAGE',
+        'start_date' => '2026-01-01',
+        'reprice_packages' => false,
+    ])->assertOk();
+}
+
+it('moves an unpaid package and its bill to the new currency at the new rate', function () {
+    $package = ($this->openPackage)(4, 80000);
+
+    newPackageCurrency($this, 'USD', 1500)
+        ->assertJsonPath('repriced_packages.0.after_minor', 6000)
+        ->assertJsonPath('repriced_packages.0.currency', 'USD');
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect(trim((string) $row->currency))->toBe('USD')
+        ->and((int) $row->price_minor)->toBe(6000)
+        ->and((int) $row->hourly_rate_minor)->toBe(1500)
+        // The EGP bill is voided; a USD one with the same lines takes its place.
+        ->and(DB::table('invoices')->where('id', $package['invoice_id'])->value('status'))->toBe('VOID')
+        ->and((string) $row->invoice_id)->not->toBe((string) $package['invoice_id']);
+    $bill = DB::table('invoices')->where('id', $row->invoice_id)->first();
+    expect(trim((string) $bill->currency))->toBe('USD')
+        ->and((int) $bill->total_minor)->toBe(6000)
+        ->and(DB::table('invoice_line_items')->where('invoice_id', $bill->id)->pluck('currency')->map(fn ($c) => trim((string) $c))->unique()->all())->toBe(['USD']);
+});
+
+it('keeps a paid running package as it is, and renews it in the new currency at the new rate', function () {
+    $package = ($this->openPackage)(1, 20000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/invoices/{$package['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    newPackageCurrency($this, 'USD', 1500)->assertJsonPath('repriced_packages', []);
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect(trim((string) $row->currency))->toBe('EGP')
+        ->and((int) $row->price_minor)->toBe(20000)
+        ->and(json_decode((string) $row->next_terms, true))->toBe(['currency' => 'USD', 'price_minor' => 1500]);
+
+    // The hour runs out; the renewal opens in USD at 15/hour.
+    ($this->attend)(($this->lesson)(60));
+    $this->asAcademy($this->academy);
+    $next = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect($next)->not->toBeNull()
+        ->and(trim((string) $next->currency))->toBe('USD')
+        ->and((int) $next->price_minor)->toBe(1500)
+        ->and(trim((string) DB::table('invoices')->where('id', $next->invoice_id)->value('currency')))->toBe('USD');
+});
+
+it('moves a whole family to another currency in one step', function () {
+    $package = ($this->openPackage)(4, 80000);
+    Sanctum::actingAs($this->owner);
+
+    $this->postJson("/api/guardians/{$this->guardian}/currency", [
+        'currency' => 'usd',
+        'children' => [['student_id' => $this->student, 'price_minor' => 1500]],
+    ])->assertOk()->assertJsonPath('children.0.packages.0.currency', 'USD');
+
+    $this->asAcademy($this->academy);
+    expect(trim((string) DB::table('guardians')->where('id', $this->guardian)->value('currency')))->toBe('USD');
+    $sub = DB::table('subscriptions')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect(trim((string) $sub->currency))->toBe('USD')->and((int) $sub->price_minor)->toBe(1500);
+    $row = ($this->packageRow)($package['package_id']);
+    expect(trim((string) $row->currency))->toBe('USD')->and((int) $row->price_minor)->toBe(6000);
+
+    // A child from another family is refused, and nothing moves.
+    $other = $this->createStudent($this->academy, $this->createGuardian($this->academy));
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/guardians/{$this->guardian}/currency", [
+        'currency' => 'SAR',
+        'children' => [['student_id' => $other, 'price_minor' => 1000]],
+    ])->assertUnprocessable();
+    $this->asAcademy($this->academy);
+    expect(trim((string) DB::table('guardians')->where('id', $this->guardian)->value('currency')))->toBe('USD');
+});
+
 it('cancels an unused renewal: its bill is voided and the overdraft goes back to be billed', function () {
     $first = ($this->openPackage)(1, 20000, autoRenew: true);
     ($this->attend)(($this->lesson)(90));
@@ -1824,4 +1913,333 @@ it('a centre adds a subscription for a subject the student is only now starting:
     $this->postJson('/api/packages', ['student_id' => $this->student, 'label' => 'English', 'hours' => 4, 'price_minor' => 40000, 'teacher_id' => $english, 'new_subject' => true, 'course' => 'English'])->assertCreated();
     $this->asAcademy($this->academy);
     expect(DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->count())->toBe(3);
+});
+
+/*
+|--------------------------------------------------------------------------
+| The first package was paid before the student was on file
+|--------------------------------------------------------------------------
+|
+| The desk raises a hand-made bill under a typed name, the family pays it, and only then is the
+| student added. The package opens ON that bill: no second bill, nothing on the Due page.
+*/
+
+/** A hand-made bill under a typed name, paid in full unless told otherwise. */
+function paidNameBill(string $payer = 'Pia Newcomer', int $amountMinor = 400000, bool $pay = true): string
+{
+    $id = test()->postJson('/api/invoices/quick', [
+        'payer_name' => $payer, 'amount_minor' => $amountMinor, 'currency' => 'EGP', 'description' => 'First package',
+    ])->assertCreated()->json('id');
+
+    if ($pay) {
+        test()->postJson("/api/invoices/{$id}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+    }
+
+    return $id;
+}
+
+it('opens the first package on the bill paid before the student was added', function () {
+    Sanctum::actingAs($this->owner);
+    $bill = paidNameBill();
+
+    $listed = collect($this->getJson('/api/packages/paid-bills')->assertOk()->json('bills'));
+    expect($listed->pluck('id')->all())->toBe([$bill])
+        ->and($listed[0]['payer_name'])->toBe('Pia Newcomer')
+        ->and($listed[0]['total_minor'])->toBe(400000);
+
+    $res = $this->postJson('/api/students', [
+        'full_name' => 'Pia Newcomer',
+        'guardian_id' => $this->guardian,
+        'status' => 'REGULAR',
+        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000, 'currency' => 'EGP', 'paid_invoice_id' => $bill],
+    ])->assertCreated();
+
+    $studentId = $res->json('studentId');
+    expect($res->json('packageInvoiceId'))->toBe($bill);
+
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $bill)->first();
+    expect(DB::table('invoices')->where('kind', 'MANUAL')->count())->toBe(1)
+        ->and($invoice->payer_name)->toBeNull()
+        ->and($invoice->student_id)->toBe($studentId)
+        ->and($invoice->status)->toBe('PAID')
+        ->and(DB::table('invoice_line_items')->where('invoice_id', $bill)->value('student_id'))->toBe($studentId)
+        ->and(DB::table('lesson_packages')->where('student_id', $studentId)->value('invoice_id'))->toBe($bill);
+
+    // Not on the Due page, and the bill cannot be used for a second student.
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $due = collect($this->getJson('/api/packages?scope=due')->assertOk()->json('packages'))->pluck('student_id');
+    expect($due)->not->toContain($studentId)
+        ->and($this->getJson('/api/packages/paid-bills')->assertOk()->json('bills'))->toBe([]);
+});
+
+it('refuses a bill that is unpaid, in another currency or already a package bill, and creates nobody', function () {
+    Sanctum::actingAs($this->owner);
+    $unpaid = paidNameBill('Not Yet', pay: false);
+
+    $attempt = fn (array $package) => $this->postJson('/api/students', [
+        'full_name' => 'Refused Rami', 'guardian_id' => $this->guardian, 'status' => 'REGULAR',
+        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000] + $package,
+    ]);
+
+    $attempt(['currency' => 'EGP', 'paid_invoice_id' => $unpaid])->assertStatus(422)->assertJsonValidationErrors('package.paid_invoice_id');
+
+    $paid = paidNameBill('Paid Pia');
+    $attempt(['currency' => 'USD', 'paid_invoice_id' => $paid])->assertStatus(422)->assertJsonValidationErrors('package.paid_invoice_id');
+
+    $attempt(['currency' => 'EGP', 'paid_invoice_id' => $paid])->assertCreated();
+    $attempt(['currency' => 'EGP', 'paid_invoice_id' => $paid])->assertStatus(422)->assertJsonValidationErrors('package.paid_invoice_id');
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('students')->where('full_name', 'Refused Rami')->count())->toBe(1);
+});
+
+// ─── Paying packages ahead (Ahmed 2026-11-17) ────────────────────────────────
+
+/** Pay ahead for this student: `blocks` coming packages, and the running one's bill with it. */
+function prepayPackages($test, int $blocks, bool $includeCurrent = true): TestResponse
+{
+    Sanctum::actingAs($test->owner);
+
+    return $test->postJson('/api/packages/prepay', [
+        'students' => [['student_id' => $test->student, 'blocks' => $blocks, 'include_current' => $includeCurrent]],
+        'payment_method' => 'CASH',
+        'payment_reference' => 'two months ahead',
+    ]);
+}
+
+function activeBlock($test): object
+{
+    (fn () => $this->asAcademy($this->academy))->call($test);
+
+    return DB::table('lesson_packages')->where('student_id', $test->student)->where('status', 'ACTIVE')->first();
+}
+
+it('pays the running package and the next two ahead: those renewals open paid, the third is due', function () {
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+
+    prepayPackages($this, 2)->assertCreated()
+        ->assertJsonPath('prepayments.0.blocks', 2)
+        ->assertJsonPath('prepayments.0.amount_minor', 40000)
+        ->assertJsonPath('totals.0.amount_minor', 60000);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->where('id', $first['invoice_id'])->value('status'))->toBe('PAID');
+
+    // Block #2 opens already paid, and says one more is prepaid.
+    ($this->attend)(($this->lesson)(60, '2026-06-02 10:00:00+00'));
+    $second = activeBlock($this);
+    expect(DB::table('invoices')->where('id', $second->invoice_id)->value('status'))->toBe('PAID')
+        ->and($second->prepayment_id)->not->toBeNull();
+    Sanctum::actingAs($this->owner);
+    $row = collect($this->getJson("/api/packages?student_id={$this->student}&scope=open")->assertOk()->json('packages'))->firstWhere('id', (string) $second->id);
+    expect($row['prepaid'])->toBeTrue()->and($row['prepaid_blocks_left'])->toBe(1);
+
+    // #3 too.
+    ($this->attend)(($this->lesson)(60, '2026-06-03 10:00:00+00'));
+    $third = activeBlock($this);
+    expect(DB::table('invoices')->where('id', $third->invoice_id)->value('status'))->toBe('PAID');
+
+    // The paid-for period is over: #4 is owed like any block, and it is the only one on Due.
+    ($this->attend)(($this->lesson)(60, '2026-06-04 10:00:00+00'));
+    $fourth = activeBlock($this);
+    expect(DB::table('invoices')->where('id', $fourth->invoice_id)->value('status'))->toBe('OPEN');
+    Sanctum::actingAs($this->owner);
+    $due = collect($this->getJson("/api/packages?student_id={$this->student}&scope=due")->assertOk()->json('packages'))->pluck('id')->all();
+    expect($due)->toBe([(string) $fourth->id]);
+});
+
+it('gives the block back when a prepaid renewal is undone before it was used', function () {
+    ($this->openPackage)(1, 20000, autoRenew: true);
+    prepayPackages($this, 1)->assertCreated();
+    ($this->attend)(($this->lesson)(60));
+    $renewal = activeBlock($this);
+    expect(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('PAID');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/{$renewal->id}/cancel")->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('VOID')
+        ->and((int) DB::table('package_prepayments')->where('student_id', $this->student)->value('blocks_used'))->toBe(0);
+});
+
+it('takes back the prepaid blocks not used yet', function () {
+    ($this->openPackage)(1, 20000, autoRenew: true);
+    $id = prepayPackages($this, 2)->assertCreated()->json('prepayments.0.prepayment_id');
+
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/packages/prepayments/{$id}")->assertOk();
+
+    ($this->attend)(($this->lesson)(60));
+    $renewal = activeBlock($this);
+    expect(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('OPEN')
+        ->and($renewal->prepayment_id)->toBeNull();
+});
+
+it('pays ahead only on an open package billed when it starts, and only for whoever may take money', function () {
+    prepayPackages($this, 1)->assertUnprocessable(); // nothing open
+
+    ($this->openPackage)(1, 20000, timing: 'ON_COMPLETION', autoRenew: true);
+    prepayPackages($this, 1)->assertUnprocessable();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('package_prepayments')->count())->toBe(0);
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson('/api/packages/prepay', [
+        'students' => [['student_id' => $this->student, 'blocks' => 1]],
+        'payment_method' => 'CASH',
+    ])->assertForbidden();
+});
+
+it('on receipts: one receipt pays the running block and leaves the rest as credit each renewal takes', function () {
+    $this->asAcademy($this->academy);
+    DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+    app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['accounting']);
+    $this->clearTenantContext();
+
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+    prepayPackages($this, 1)->assertCreated();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('package_prepayments')->value('receipt_id'))->not->toBeNull()
+        ->and((int) DB::table('invoices')->where('id', $first['invoice_id'])->value('amount_paid_minor'))->toBe(20000);
+
+    ($this->attend)(($this->lesson)(60));
+    $renewal = activeBlock($this);
+    expect((int) DB::table('invoices')->where('id', $renewal->invoice_id)->value('amount_paid_minor'))->toBe(20000)
+        ->and($renewal->prepayment_id)->not->toBeNull()
+        ->and((int) DB::table('package_prepayments')->value('blocks_used'))->toBe(1);
+});
+
+// ─── A cancelled lesson: counts or not, and the teacher's share (Ahmed 2026-11-17) ──
+
+/** Cancel a lesson as the student's, charged to the package or not. */
+function cancelLesson($test, string $session, bool $charge): void
+{
+    Sanctum::actingAs($test->owner);
+    $test->postJson("/api/sessions/{$session}/cancel", ['cancelled_by' => 'student', 'charge_student' => $charge])->assertOk();
+}
+
+function setCounting($test, string $session, bool $counts, ?int $teacherPercent = null): TestResponse
+{
+    Sanctum::actingAs($test->owner);
+
+    return $test->postJson("/api/packages/lessons/{$session}/counting", array_filter(['counts' => $counts, 'teacher_percent' => $teacherPercent], fn ($v) => $v !== null));
+}
+
+it('sets a cancelled lesson to count on the open package, the teacher paid half of it', function () {
+    $package = ($this->openPackage)(4, 80000);
+    $cancelled = ($this->lesson)(60);
+    cancelLesson($this, $cancelled, charge: false);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/packages/lessons/{$cancelled}/counting?counts=1&teacher_percent=50")->assertOk()
+        ->assertJsonPath('student.mode', 'ADD')
+        ->assertJsonPath('student.package.sequence_no', 1)
+        ->assertJsonPath('teacher.percent_after', 50);
+
+    setCounting($this, $cancelled, true, 50)->assertOk();
+
+    $this->asAcademy($this->academy);
+    expect((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(60)
+        ->and(DB::table('lesson_package_credits')->where('session_id', $cancelled)->exists())->toBeTrue()
+        ->and((int) DB::table('sessions')->where('id', $cancelled)->value('teacher_pay_share_bp'))->toBe(5000)
+        ->and(DB::table('payout_line_items')->where('session_id', $cancelled)->exists())->toBeTrue();
+
+    // And back: not counted, the teacher not paid — the minutes and the salary line both come off.
+    setCounting($this, $cancelled, false, 0)->assertOk()->assertJsonPath('student.mode', 'RELEASE');
+    $this->asAcademy($this->academy);
+    expect((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(0)
+        ->and(DB::table('lesson_package_credits')->where('session_id', $cancelled)->exists())->toBeFalse()
+        ->and(DB::table('payout_line_items')->where('session_id', $cancelled)->exists())->toBeFalse();
+});
+
+it('takes a counted cancellation off a finished, paid package: the next package gives a lesson back', function () {
+    $first = ($this->openPackage)(2, 40000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/invoices/{$first['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    $cancelled = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    cancelLesson($this, $cancelled, charge: true);
+    $one = ($this->lesson)(60, '2026-06-03 10:00:00+00');
+    ($this->attend)($one); // block #1 full → #2 opens
+    $two = ($this->lesson)(60, '2026-06-04 10:00:00+00');
+    ($this->attend)($two); // on #2
+
+    $this->asAcademy($this->academy);
+    $second = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect((int) $second->sequence_no)->toBe(2)->and((int) $second->minutes_consumed)->toBe(60);
+
+    setCounting($this, $cancelled, false)->assertOk()
+        ->assertJsonPath('student.mode', 'FINISHED_PLAN')
+        ->assertJsonPath('student.lessons_moved_back.sequence_no', 2)
+        ->assertJsonPath('student.lessons_moved_back.lessons', 1);
+
+    $this->asAcademy($this->academy);
+    // #1 holds its two real lessons now; #2 has its hour back.
+    expect(($this->packageRow)($first['package_id'])->status)->toBe('COMPLETED')
+        ->and((string) DB::table('lesson_package_credits')->where('session_id', $two)->value('package_id'))->toBe($first['package_id'])
+        ->and((int) ($this->packageRow)((string) $second->id)->minutes_consumed)->toBe(0)
+        ->and(DB::table('lesson_package_credits')->where('session_id', $cancelled)->exists())->toBeFalse()
+        ->and((bool) DB::table('sessions')->where('id', $cancelled)->value('billed'))->toBeFalse();
+});
+
+it('re-opens a finished, paid package when the cancellation was what ended it, undoing the unused renewal', function () {
+    $first = ($this->openPackage)(1, 20000, autoRenew: true);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/invoices/{$first['invoice_id']}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    $cancelled = ($this->lesson)(60);
+    cancelLesson($this, $cancelled, charge: true); // the hour is gone → #2 renews
+    $this->asAcademy($this->academy);
+    $renewal = DB::table('lesson_packages')->where('student_id', $this->student)->where('status', 'ACTIVE')->first();
+    expect((int) $renewal->sequence_no)->toBe(2);
+
+    setCounting($this, $cancelled, false)->assertOk()
+        ->assertJsonPath('student.reopens', true)
+        ->assertJsonPath('student.renewal_undone', true);
+
+    $this->asAcademy($this->academy);
+    expect(($this->packageRow)($first['package_id'])->status)->toBe('ACTIVE')
+        ->and((int) ($this->packageRow)($first['package_id'])->minutes_consumed)->toBe(0)
+        ->and(($this->packageRow)((string) $renewal->id)->status)->toBe('CANCELLED')
+        ->and(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('VOID');
+});
+
+it('only changes cancelled or missed lessons, and only for someone who may move a cancellation\'s money', function () {
+    ($this->openPackage)(4, 80000);
+    $attended = ($this->lesson)(60);
+    ($this->attend)($attended);
+    setCounting($this, $attended, false)->assertUnprocessable();
+
+    $cancelled = ($this->lesson)(60, '2026-06-03 10:00:00+00');
+    cancelLesson($this, $cancelled, charge: false);
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/packages/lessons/{$cancelled}/counting", ['counts' => true])->assertForbidden();
+});
+
+it('corrects a sealed salary month in place when the teacher\'s share of a cancellation changes', function () {
+    ($this->openPackage)(4, 80000);
+    $cancelled = ($this->lesson)(60);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$cancelled}/cancel", ['cancelled_by' => 'student', 'charge_student' => true, 'pay_teacher' => true])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $line = DB::table('payout_line_items')->where('session_id', $cancelled)->first();
+    $sealedAt = '2026-07-03 08:00:00+00';
+    DB::table('payouts')->where('id', $line->payout_id)->update(['finalized_at' => $sealedAt]);
+    $totalBefore = (int) DB::table('payouts')->where('id', $line->payout_id)->value('total_minor');
+
+    setCounting($this, $cancelled, true, 0)->assertOk()->assertJsonPath('teacher.percent_after', 0);
+
+    $this->asAcademy($this->academy);
+    $payout = DB::table('payouts')->where('id', $line->payout_id)->first();
+    expect(DB::table('payout_line_items')->where('session_id', $cancelled)->exists())->toBeFalse()
+        ->and((int) $payout->total_minor)->toBe($totalBefore - (int) $line->amount_minor)
+        ->and($payout->finalized_at)->not->toBeNull()
+        // The student's side did not move: it still counts.
+        ->and(DB::table('lesson_package_credits')->where('session_id', $cancelled)->exists())->toBeTrue();
 });

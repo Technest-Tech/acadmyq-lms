@@ -901,7 +901,7 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
       await user.click((await screen.findAllByTestId("row-delete"))[0]!);
       await user.click(await screen.findByTestId("lesson-delete-confirm"));
 
-      await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("se1"));
+      await waitFor(() => expect(api.deleteSession).toHaveBeenCalledWith("se1", { keepMoney: false }));
       await waitFor(() => expect(screen.queryAllByTestId("row-delete")).toHaveLength(0));
     });
 

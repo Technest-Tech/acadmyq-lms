@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { FlaskConical, GraduationCap, Sparkles, UserRound } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -40,7 +41,7 @@ export function ConvertTrialFlow({
   const [payTeacher, setPayTeacher] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const when = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(
+  const when = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: academyTimeZone() }).format(
     new Date(trial.scheduled_at_utc),
   );
 

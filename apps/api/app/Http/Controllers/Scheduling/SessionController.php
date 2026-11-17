@@ -200,7 +200,7 @@ final class SessionController extends Controller
         }
         $this->assertActiveTeacher($teacherId);
 
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
+        $timezone = $this->academyTimezone($academyId); // the academy clock, whatever the device says
         $startUtc = $this->resolveInstant($data, $timezone);
         $duration = (int) $data['duration_minutes'];
 
@@ -277,7 +277,7 @@ final class SessionController extends Controller
             ]);
         }
 
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
+        $timezone = $this->academyTimezone($academyId); // the academy clock, whatever the device says
         $newStart = $this->resolveInstant($data, $timezone);
         $duration = (int) ($data['duration_minutes'] ?? $session->duration_minutes);
 
@@ -380,12 +380,28 @@ final class SessionController extends Controller
      * The money guards are the service's: a lesson on a CLOSED invoice or a FINALIZED payout is
      * refused, exactly as undoing its attendance would be. A moved lesson (RESCHEDULED) carries
      * no money and its replacement is a separate row, so it is only hidden.
+     *
+     * `?keep_money=1` is the way out when those guards refuse (a package closed and billed, a
+     * closed invoice, a finalized salary): the lesson only leaves the schedule. Nothing is
+     * reversed — its package lessons, bill line and salary line stay exactly as they are, since
+     * that money is already settled. The audit row records it was a schedule-only delete.
      */
-    public function destroy(AttendanceService $service, string $sessionId): JsonResponse
+    public function destroy(Request $request, AttendanceService $service, string $sessionId): JsonResponse
     {
         Gate::authorize('session.delete');
 
-        $this->deleteLesson($service, $this->findOwnedSession($sessionId));
+        $session = $this->findOwnedSession($sessionId);
+
+        if ($request->boolean('keep_money')) {
+            $service->hide($sessionId, $this->ctx()->userId);
+            Audit::log('session.deleted', 'session', $sessionId, $this->currentAcademyId(), $this->ctx()->userId, $this->ctx()->role,
+                before: ['status' => (string) $session->status, 'billed' => (bool) $session->billed, 'paid_to_teacher' => (bool) $session->paid_to_teacher],
+                after: ['keep_money' => true]);
+
+            return response()->json(['ok' => true, 'keep_money' => true]);
+        }
+
+        $this->deleteLesson($service, $session);
 
         return response()->json(['ok' => true]);
     }

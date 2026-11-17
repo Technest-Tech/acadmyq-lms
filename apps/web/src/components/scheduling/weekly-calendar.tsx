@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarDays, GraduationCap, Sparkles, Users, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -88,7 +89,7 @@ export function WeeklyCalendar({
   const locale = useLocale();
   const { can, session } = useAuth();
   const tz =
-    timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+    timeZone ?? academyTimeZone();
 
   const isTeacher = session?.role === "TEACHER";
 
@@ -642,6 +643,7 @@ export function WeeklyCalendar({
             }
             onLog={(id, name) => setLogStudent({ id, name })}
             onAddNew={() => setAddOpen(true)}
+            onClockChanged={() => void loadTimetables()}
           />
         </>
       )}
@@ -764,7 +766,6 @@ export function WeeklyCalendar({
         <AddTimetableModal
           students={students}
           teachers={teachers}
-          defaultTimezone={tz}
           onClose={() => setAddOpen(false)}
           onCreated={() => {
             setAddOpen(false);

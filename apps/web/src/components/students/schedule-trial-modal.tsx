@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { Calendar, Clock, GraduationCap, Zap } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
@@ -76,7 +77,7 @@ export function ScheduleTrialModal({
     setBusy(true);
     setError(null);
     try {
-      const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const timezone = academyTimeZone();
       await createSession({
         student_id: studentId,
         teacher_id: teacherId,

@@ -230,10 +230,11 @@ export type ClientRecord = ClientDetail["client"];
  *   subscription  what it holds (modules, trials) and pays — its account in the book
  *   features      the per-client switches, grouped by job, opt-in extras first
  *   connections   WhatsApp, the payment gateway, the domains
+ *   deleted       everything the client deleted, and restoring what can come back
  *   settings      identity, owner login, danger zone
  */
 /** `lms` exists only for a client that holds the course platform; `tools` only for one that runs lessons. */
-export type ClientTab = "overview" | "subscription" | "features" | "lms" | "connections" | "tools" | "settings";
+export type ClientTab = "overview" | "subscription" | "features" | "lms" | "connections" | "tools" | "deleted" | "settings";
 
 /** The eight-tab page's names, so a bookmark or an old link still lands in the right place. */
 export const LEGACY_CLIENT_TABS: Record<string, ClientTab> = {

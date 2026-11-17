@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BadgeCheck,
   BellRing,
+  CalendarCheck,
   CalendarClock,
   Check,
   Copy,
@@ -21,6 +22,7 @@ import { blockAmount, blockMinutes } from "@/components/packages/lesson-price-fi
 import { actionClass, nextTermsText, PackageActions, type PackageActionProps, upcomingHint } from "@/components/packages/package-card";
 import { PackageHistoryModal } from "@/components/packages/package-history-log";
 import { createFamilyPayLink, type LessonPackageRow, type PackagePurpose } from "@/lib/api";
+import { avatarTone, initials } from "@/lib/avatar";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -123,18 +125,6 @@ export function paymentMessage({
   ].join("\n");
 }
 
-function initials(name: string): string {
-  return (
-    name
-      .trim()
-      .split(/\s+/)
-      .slice(0, 2)
-      .map((w) => w[0] ?? "")
-      .join("")
-      .toUpperCase() || "?"
-  );
-}
-
 /** The colour a purpose wears: new money green, renewals blue, usage violet, problems amber/rose. */
 const PURPOSE_TONE: Record<PackagePurpose, string> = {
   NEW: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
@@ -160,6 +150,7 @@ export function FamilyDueGroup({
   canSendInvoice,
   actionProps,
   onMessageOpened,
+  onPrepay,
 }: {
   family: DueFamily;
   /** Due: a line per debt. Open: a fuller line per running block — balance, price, lessons, renewal. */
@@ -168,11 +159,17 @@ export function FamilyDueGroup({
   canSendInvoice: boolean;
   actionProps: (row: LessonPackageRow) => PackageActionProps;
   onMessageOpened: () => void;
+  /** Pay coming packages ahead for these children's running blocks (one payment). */
+  onPrepay?: (rows: LessonPackageRow[]) => void;
 }) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const invoiceUrl = useInvoiceUrl();
   const totals = owed(family.rows);
+  // Each child's running block that can be paid ahead (billed when it starts), one per child.
+  const prepayable = family.rows.filter(
+    (r, i, all) => r.status === "ACTIVE" && r.bill_timing === "ON_START" && all.findIndex((x) => x.student_id === r.student_id && x.status === "ACTIVE") === i,
+  );
   const payable = family.rows.filter((r) => r.invoice_token !== null && r.outstanding_minor > 0);
   const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
   // Two bills or more under a real family: one link pays them all.
@@ -228,24 +225,25 @@ export function FamilyDueGroup({
 
   return (
     <article
-      className={cn(
-        "bg-card mb-3 min-w-0 break-inside-avoid overflow-hidden rounded-2xl border shadow-sm",
-        view === "due" || totals.length > 0 ? "border-rose-200/70 dark:border-rose-900/50" : "border-emerald-200/70 dark:border-emerald-900/50",
-      )}
+      className="bg-card mb-3 min-w-0 break-inside-avoid overflow-hidden rounded-2xl border shadow-sm"
       data-testid={`due-family-${family.key}`}
     >
-      <header className="flex items-start gap-3 bg-gradient-to-br from-rose-500/[0.09] via-rose-500/[0.03] to-transparent px-4 py-3">
+      {/* Who owes, and how much in all — one line, so a one-child family stays a short card. */}
+      <header className="flex items-center gap-3 px-3.5 py-3">
         <span
-          className="flex size-9 shrink-0 items-center justify-center rounded-full bg-rose-600 text-xs font-bold text-white shadow-sm"
+          className={cn(
+            "flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm",
+            avatarTone(family.name),
+          )}
           aria-hidden
         >
           {initials(family.name)}
         </span>
         <div className="min-w-0 flex-1">
-          <h3 className="truncate text-sm font-bold" data-testid="due-family-name" title={family.name}>
+          <h3 className="truncate text-sm leading-tight font-semibold" data-testid="due-family-name" title={family.name}>
             {family.name}
           </h3>
-          <p className="text-muted-foreground truncate text-xs" title={family.children.join("، ")}>
+          <p className="text-muted-foreground mt-0.5 truncate text-xs" title={family.children.join("، ")}>
             {t("family.children", { count: family.children.length, names: family.children.join("، ") })}
           </p>
         </div>
@@ -262,7 +260,7 @@ export function FamilyDueGroup({
             totals.map((o) => (
               <p
                 key={o.currency}
-                className="text-base leading-tight font-extrabold text-rose-600 tabular-nums dark:text-rose-400"
+                className="text-base leading-tight font-bold text-rose-600 tabular-nums dark:text-rose-400"
                 data-testid="due-family-total"
               >
                 {money(o.amount_minor, o.currency)}
@@ -272,7 +270,7 @@ export function FamilyDueGroup({
         </div>
       </header>
 
-      <ul className="divide-y border-t">
+      <ul className="divide-border/60 divide-y border-t">
         {family.rows.map((row) => (
           view === "open" ? (
             <OpenRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
@@ -290,7 +288,7 @@ export function FamilyDueGroup({
       </ul>
 
       {canSendInvoice && payable.length > 0 && (
-        <div className="flex items-stretch border-t">
+        <div className="bg-muted/25 flex items-stretch border-t">
           <button
             type="button"
             onClick={() => void sendMessage()}
@@ -319,6 +317,17 @@ export function FamilyDueGroup({
           </button>
         </div>
       )}
+      {onPrepay && prepayable.length > 0 && (
+        <button
+          type="button"
+          onClick={() => onPrepay(prepayable)}
+          className="hover:bg-emerald-500/5 flex w-full items-center justify-center gap-1.5 border-t px-3 py-2 text-xs font-semibold text-emerald-700 transition-colors dark:text-emerald-300"
+          data-testid="family-prepay"
+        >
+          <CalendarCheck className="size-3.5" aria-hidden />
+          {prepayable.length > 1 ? t("prepay.familyButton", { count: prepayable.length }) : t("prepay.oneButton")}
+        </button>
+      )}
       {error && <p className="text-destructive border-t px-3 py-1.5 text-center text-[11px]">{t("family.linkFailed")}</p>}
     </article>
   );
@@ -331,6 +340,21 @@ export function FamilyDueGroup({
  */
 /** What the Due page puts outside the menu, or drops: early close and lesson sync are not for this page. */
 const DUE_HIDDEN = ["remind", "copyLink", "close", "sync"] as const;
+
+/** Paid ahead (PackagePrepayments): this block was settled from a prepayment, or blocks wait prepaid. */
+function PrepaidChip({ row }: { row: LessonPackageRow }) {
+  const t = useTranslations("packages.prepay");
+  const left = row.prepaid_blocks_left ?? 0;
+  if (!row.prepaid && left === 0) return null;
+  return (
+    <span
+      className="shrink-0 rounded bg-emerald-500/12 px-1.5 py-px text-[10px] font-bold text-emerald-700 dark:text-emerald-300"
+      data-testid="package-prepaid-chip"
+    >
+      {left > 0 ? t("chipLeft", { count: left }) : t("chip")}
+    </span>
+  );
+}
 
 function DueRow({
   row,
@@ -369,86 +393,82 @@ function DueRow({
   const days = Math.max(0, Math.floor((Date.now() - new Date(row.created_at).getTime()) / 86_400_000));
 
   return (
-    <li className="px-4 py-2.5" data-testid="due-package-row">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <button
-            type="button"
-            onClick={actions.onOpenDetail}
-            className="hover:text-primary block max-w-full truncate text-start text-sm font-semibold transition-colors"
-          >
-            {row.student_name}
-          </button>
-          <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px]">
-            <span
-              className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", PURPOSE_TONE[purpose])}
-              data-testid="due-package-purpose"
-            >
-              {purposeText(row, purpose, t)}
-            </span>
-            <span className="text-muted-foreground shrink-0 font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span>
-            <span className="text-muted-foreground truncate">{row.label}</span>
-            {row.subject && (
-              <span className="shrink-0 rounded bg-violet-500/10 px-1 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-300">
-                {row.subject.course ?? row.subject.teacher_name}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="shrink-0 text-end">
-          <p
-            className={cn(
-              "text-sm font-bold tabular-nums",
-              owes ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400",
-            )}
-          >
-            {owes
-              ? formatMoney({ amount: row.outstanding_minor, currency: row.currency }, locale)
-              : unbilled
-                ? t("family.notBilled")
-                : t("card.overdrawn", { over: blockMinutes(row.minutes_overdrawn, row.lesson_minutes, t, locale) })}
-          </p>
-          <p className="text-muted-foreground flex items-center justify-end gap-1 text-[10px]">
-            {row.reminders_sent > 0 && row.last_reminded_at !== null && (
-              <span
-                className="inline-flex items-center gap-0.5 text-sky-700 dark:text-sky-300"
-                title={t("card.reminders", {
-                  count: row.reminders_sent,
-                  n: formatNumber(row.reminders_sent, locale),
-                  date: formatDateTime(row.last_reminded_at, timezone, locale),
-                })}
-              >
-                <BellRing className="size-3" aria-hidden />
-                {formatNumber(row.reminders_sent, locale)} ·
-              </span>
-            )}
-            {new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day")}
-          </p>
-        </div>
-      </div>
-
-      <p className="text-muted-foreground mt-1.5 min-w-0 truncate text-[11px]" data-testid="due-package-usage">
-          {blockAmount(row.minutes_sold, row.lesson_minutes, t, locale)} · {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
-          {row.status === "ACTIVE" ? ` · ${formatNumber(row.percent_used, locale)}%` : ` · ${t(`status.${row.status}`)}`}
-          {row.gap !== null && (
-            <span className="ms-1 inline-flex items-center gap-0.5 font-semibold text-rose-600 dark:text-rose-400" title={t("card.gapTitle")}>
-              <AlertTriangle className="size-3" aria-hidden />
-            </span>
-          )}
-      </p>
-
-      {/* The three things done on this page every day sit outside: the package log, a reminder, and
-          the payment message copied ready to paste. The rest (mark paid first) behind "⋯". */}
-      <div className="mt-2 flex flex-wrap items-stretch gap-1.5">
+    <li className="px-3.5 py-2.5" data-testid="due-package-row">
+      {/* Who, and how much. */}
+      <div className="flex items-baseline justify-between gap-3">
         <button
           type="button"
-          onClick={() => setHistoryOpen(true)}
-          className={cn(actionClass(), "min-w-0 flex-1")}
-          data-testid="due-package-history"
+          onClick={actions.onOpenDetail}
+          className="hover:text-primary min-w-0 truncate text-start text-sm font-semibold transition-colors"
         >
-          <History className="size-3.5 shrink-0" aria-hidden />
-          <span className="truncate">{t("actions.history")}</span>
+          {row.student_name}
         </button>
+        <span
+          className={cn(
+            "shrink-0 text-sm font-bold tabular-nums",
+            owes ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400",
+          )}
+        >
+          {owes
+            ? formatMoney({ amount: row.outstanding_minor, currency: row.currency }, locale)
+            : unbilled
+              ? t("family.notBilled")
+              : t("card.overdrawn", { over: blockMinutes(row.minutes_overdrawn, row.lesson_minutes, t, locale) })}
+        </span>
+      </div>
+
+      {/* What the money is for, in words — and how long it has waited. */}
+      <div className="text-muted-foreground mt-1 flex min-w-0 items-center justify-between gap-3 text-xs">
+        <p className="min-w-0 truncate">
+          <span className={cn("rounded px-1.5 py-0.5 font-semibold", PURPOSE_TONE[purpose])} data-testid="due-package-purpose">
+            {purposeText(row, purpose, t)}
+          </span>
+          <span className="ms-1.5">
+            {row.label}
+            {row.subject && ` · ${row.subject.course ?? row.subject.teacher_name}`}
+          </span>
+        </p>
+        <span className="shrink-0">{new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day")}</span>
+      </div>
+
+      {/* How much of the package is already used: the bar, then the same thing in words. */}
+      <div className="mt-2">
+        <div className="bg-muted h-1 overflow-hidden rounded-full" aria-hidden>
+          <div
+            className={cn("h-full rounded-full", row.status === "ACTIVE" ? "bg-amber-500" : "bg-rose-500")}
+            style={{ width: `${Math.max(0, Math.min(100, row.percent_used))}%` }}
+          />
+        </div>
+        <div className="text-muted-foreground mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-[11px]">
+          <span data-testid="due-package-usage">
+            {blockAmount(row.minutes_sold, row.lesson_minutes, t, locale)} · {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
+            {row.status !== "ACTIVE" && ` · ${t(`status.${row.status}`)}`}
+          </span>
+          {row.reminders_sent > 0 && row.last_reminded_at !== null && (
+            <span
+              className="inline-flex items-center gap-1 font-medium text-sky-700 dark:text-sky-300"
+              title={t("card.reminders", {
+                count: row.reminders_sent,
+                n: formatNumber(row.reminders_sent, locale),
+                date: formatDateTime(row.last_reminded_at, timezone, locale),
+              })}
+            >
+              <BellRing className="size-3" aria-hidden />
+              {t("family.reminded", { count: row.reminders_sent, n: formatNumber(row.reminders_sent, locale) })}
+            </span>
+          )}
+        </div>
+        {row.gap !== null && (
+          <p className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
+            <AlertTriangle className="size-3 shrink-0" aria-hidden />
+            {t("family.gap")}
+          </p>
+        )}
+      </div>
+
+      {/* One line: remind keeps its word, the payment message and the package log are an icon each
+          (named on hover and to a screen reader), then the leading action and "⋯". */}
+      <div className="mt-2 flex items-stretch gap-1.5">
         {canSendInvoice && remindable && (
           <button
             type="button"
@@ -469,18 +489,25 @@ function DueRow({
           <button
             type="button"
             onClick={() => void copyMessage()}
-            className={cn(actionClass(), "min-w-0 flex-1")}
+            className={cn(actionClass(), "w-8 shrink-0 px-0")}
+            aria-label={copied ? t("actions.copied") : t("actions.copyMessage")}
+            title={copied ? t("actions.copied") : t("actions.copyMessage")}
             data-testid="due-package-copy"
           >
-            {copied ? (
-              <Check className="size-3.5 shrink-0 text-emerald-600" aria-hidden />
-            ) : (
-              <Copy className="size-3.5 shrink-0" aria-hidden />
-            )}
-            <span className="truncate">{copied ? t("actions.copied") : t("actions.copyMessage")}</span>
+            {copied ? <Check className="size-3.5 text-emerald-600" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
           </button>
         )}
-        <PackageActions {...actions} featuredCount={1} hide={DUE_HIDDEN} className="shrink-0" />
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          className={cn(actionClass(), "w-8 shrink-0 px-0")}
+          aria-label={t("actions.history")}
+          title={t("actions.history")}
+          data-testid="due-package-history"
+        >
+          <History className="size-3.5" aria-hidden />
+        </button>
+        <PackageActions {...actions} featuredCount={1} hide={DUE_HIDDEN} className="ms-auto shrink-0" />
       </div>
 
       <PackageHistoryModal
@@ -527,6 +554,7 @@ function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: 
             <span className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-bold", PURPOSE_TONE[purpose])}>
               {purposeText(row, purpose, t)}
             </span>
+            <PrepaidChip row={row} />
             <span className="text-muted-foreground font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span>
             <span className="text-muted-foreground truncate">{row.label}</span>
             {row.subject && (

@@ -18,7 +18,8 @@ vi.mock("@/lib/api", async (importActual) => ({
 
 import * as api from "@/lib/api";
 
-const TZ = "Africa/Cairo";
+// A zone that never changes its clocks, so the hours below hold in every season.
+const TZ = "Asia/Riyadh";
 const today = new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(
   new Date(),
 );
@@ -32,7 +33,7 @@ function feed() {
       student_id: "s1",
       teacher_id: "t1",
       schedule_id: "sch1",
-      scheduled_at_utc: `${today}T14:00:00Z`, // 17:00 Cairo
+      scheduled_at_utc: `${today}T14:00:00Z`, // 17:00 Riyadh
       duration_minutes: 30,
       status: "SCHEDULED" as const,
       status_reason: null,

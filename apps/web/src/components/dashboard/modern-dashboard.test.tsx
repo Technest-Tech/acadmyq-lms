@@ -63,6 +63,10 @@ vi.mock("@/lib/groups-api", () => ({
 }));
 vi.mock("@/components/dashboard/subscription-banner", () => ({ SubscriptionBanner: () => null }));
 vi.mock("@/components/quality/my-quality-panel", () => ({ MyQualityPanel: () => null }));
+// A teacher's own home has its own tests (teacher-dashboard.test.tsx).
+vi.mock("@/components/dashboard/teacher-dashboard", () => ({
+  TeacherDashboard: () => <div data-testid="teacher-dashboard" />,
+}));
 // The classic dashboard has its own tests; here it only has to be the one a classic academy gets.
 vi.mock("@/components/dashboard/academy-dashboard", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./academy-dashboard")>()),
@@ -197,8 +201,7 @@ describe("DashboardHome — the modern look for a Quran academy", () => {
     await counted(84);
   });
 
-  it("gives a teacher their own day and pay, not the academy's people and money", async () => {
-    api.listMyPayouts.mockResolvedValue({ rows: [] });
+  it("gives a teacher their own home in the modern look too, never the academy's people and money", async () => {
     render(
       withAuth(
         makeSession("TEACHER", {
@@ -209,11 +212,8 @@ describe("DashboardHome — the modern look for a Quran academy", () => {
         <DashboardHome />,
       ),
     );
-    await screen.findByTestId("modern-dashboard");
-    expect(await screen.findByText(t.kpi.earnings)).toBeInTheDocument();
-    expect(screen.queryByText(t.kpi.teachers)).toBeNull();
-    expect(screen.queryByText(t.kpi.due)).toBeNull();
-    expect(screen.queryByTestId("revenue-trend")).toBeNull();
+    expect(await screen.findByTestId("teacher-dashboard")).toBeInTheDocument();
+    expect(screen.queryByTestId("modern-dashboard")).toBeNull();
     expect(api.getInvoiceSummary).not.toHaveBeenCalled();
   });
 });

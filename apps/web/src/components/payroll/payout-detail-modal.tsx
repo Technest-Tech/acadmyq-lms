@@ -28,6 +28,7 @@ import { AdjustmentFormModal } from "@/components/payroll/adjustment-form-modal"
 import { TeacherRangeLessonsModal } from "@/components/payroll/teacher-range-lessons-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { LessonReportBody } from "@/components/reports/lesson-report-body";
 import { Modal } from "@/components/ui/modal";
 import {
   type AdjustmentType,
@@ -806,7 +807,6 @@ function LessonReportModal({
   onClose: () => void;
 }) {
   const t = useTranslations("payroll");
-  const locale = useLocale();
   const [report, setReport] = useState<SessionReportData | null>(null);
   const [fields, setFields] = useState<ReportField[]>([]);
   const [loading, setLoading] = useState(false);
@@ -818,7 +818,8 @@ function LessonReportModal({
     void getSession(sessionId)
       .then((res) => {
         setReport(res.report);
-        setFields(res.reportFields);
+        // Retired fields still label the answers this old report carries.
+        setFields([...res.reportFields, ...res.inactiveReportFields]);
       })
       .finally(() => setLoading(false));
   }, [sessionId]);
@@ -841,23 +842,9 @@ function LessonReportModal({
           {t("noReport")}
         </p>
       ) : (
-        <dl className="space-y-3">
-          {fields.map((f) => {
-            const v = values[f.key];
-            return (
-              <div key={f.id} className="bg-muted/20 rounded-xl border p-3">
-                <dt className="text-muted-foreground text-[11px] font-medium uppercase tracking-wide">
-                  {locale === "ar" ? f.label_ar : f.label_en}
-                </dt>
-                <dd className="mt-0.5 whitespace-pre-wrap text-sm">
-                  {v === null || v === undefined || v === ""
-                    ? "—"
-                    : String(v)}
-                </dd>
-              </div>
-            );
-          })}
-        </dl>
+        // The same body the reports log opens: the academy's fields AND the free text. This list
+        // used to print only the fields, so a free-text report (most teachers') read as all "—".
+        <LessonReportBody values={values} fields={fields} />
       )}
     </Modal>
   );

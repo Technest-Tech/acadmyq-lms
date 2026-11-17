@@ -143,7 +143,7 @@ final class ClassGroupLessonController extends Controller
         ]);
 
         $group = DB::table('class_groups')->where('id', $lesson->group_id)->first();
-        $tz = $data['timezone'] ?? (string) $group->timezone;
+        $tz = (string) $group->timezone; // the group's own clock, whatever the device says
         $start = ! empty($data['local_datetime'])
             ? TimeHelper::toUtc($data['local_datetime'].':00', $tz)
             : Carbon::parse($lesson->scheduled_at_utc)->utc();

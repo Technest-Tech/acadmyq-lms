@@ -1,5 +1,6 @@
 "use client";
 
+import { academyHm, academyNow, academyTimeZone } from "@/lib/academy-clock";
 import { CalendarPlus, Loader2, TriangleAlert } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
@@ -33,12 +34,9 @@ type ClassStatus = "SCHEDULED" | AttendanceOutcome;
 
 const CANCEL_STATUSES: ClassStatus[] = ["CANCELLED_BY_TEACHER", "CANCELLED_BY_STUDENT"];
 
-/** `YYYY-MM-DDTHH:mm` for the given day at the current wall-clock time. */
+/** `YYYY-MM-DDTHH:mm` for the given day at the current time on the academy's clock. */
 function defaultWhen(day: string): string {
-  const now = new Date();
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
-  return `${day}T${hh}:${mm}`;
+  return `${day}T${academyHm(academyNow())}`;
 }
 
 /**
@@ -70,7 +68,7 @@ export function CreateClassModal({
   const tSched = useTranslations("scheduling");
   const { session: auth, can } = useAuth();
   const isTeacher = auth?.role === "TEACHER";
-  const tz = timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const tz = timeZone ?? academyTimeZone();
 
   const [teacherId, setTeacherId] = useState("");
   const [studentId, setStudentId] = useState("");

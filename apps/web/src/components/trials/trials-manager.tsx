@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   CalendarClock,
   CalendarDays,
@@ -118,7 +119,7 @@ export function TrialsManager() {
   // Opens on the browser's today; the first answer carries the ACADEMY's today and the board
   // snaps to it if the two differ (an owner abroad, near midnight).
   const [selectedDay, setSelectedDay] = useState(() =>
-    dayIn(new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone),
+    dayIn(new Date(), academyTimeZone()),
   );
   const syncedToday = useRef(false);
   const [agenda, setAgenda] = useState<TrialAgenda | null>(null);
@@ -529,7 +530,7 @@ export function TrialsManager() {
         onClose={close}
         title={t("convert.title")}
         description={t("convert.description")}
-        size="md"
+        size="xl"
       >
         {modal.kind === "convert" && (
           <ConvertTrialFlow

@@ -462,7 +462,7 @@ final class LeadController extends Controller
             'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
 
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
+        $timezone = $this->academyTimezone($academyId); // the academy clock, whatever the device says
         $startUtc = $this->resolveInstant($data, $timezone);
         $duration = (int) $data['duration_minutes'];
 

@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  ArchiveRestore,
   ArrowLeft,
   LayoutDashboard,
   LibraryBig,
@@ -28,6 +29,7 @@ import { ClientLmsTab } from "@/components/clients/client-lms";
 import { ClientOverview } from "@/components/clients/client-overview";
 import { ClientDomainsCard } from "@/components/clients/client-domains-card";
 import { ClientSettingsTab } from "@/components/clients/client-settings";
+import { ClientDeletedTab } from "@/components/clients/client-deleted";
 import { ClientToolsTab } from "@/components/clients/client-tools";
 import { LEGACY_CLIENT_TABS, type ClientTab } from "@/components/clients/client-summary";
 import { ClientXpayCard } from "@/components/clients/client-xpay-card";
@@ -128,7 +130,8 @@ export function ClientScreen({ clientId }: { clientId: string }) {
   );
 
   const holdsLms = activeModules.has("LMS");
-  const hasTools = activeModules.has("MANAGEMENT") && can("platform.manage");
+  const canManage = can("platform.manage");
+  const hasTools = activeModules.has("MANAGEMENT") && canManage;
   const tabs = useMemo<SectionTab<ClientTab>[]>(
     () => [
       { key: "overview", label: t("tabs.overview"), icon: LayoutDashboard },
@@ -137,9 +140,10 @@ export function ClientScreen({ clientId }: { clientId: string }) {
       ...(holdsLms ? [{ key: "lms" as const, label: t("tabs.lms"), icon: LibraryBig }] : []),
       { key: "connections", label: t("tabs.connections"), icon: PlugZap },
       ...(hasTools ? [{ key: "tools" as const, label: t("tabs.tools"), icon: Wrench }] : []),
+      ...(canManage ? [{ key: "deleted" as const, label: t("tabs.deleted"), icon: ArchiveRestore }] : []),
       { key: "settings", label: t("tabs.settings"), icon: Settings2 },
     ],
-    [t, holdsLms, hasTools],
+    [t, holdsLms, hasTools, canManage],
   );
 
   // The open section lives on the URL. An old tab name maps onto its new home; anything else
@@ -330,6 +334,8 @@ export function ClientScreen({ clientId }: { clientId: string }) {
       )}
 
       {tab === "tools" && <ClientToolsTab clientId={clientId} />}
+
+      {tab === "deleted" && <ClientDeletedTab clientId={clientId} />}
 
       {tab === "settings" && (
         <TabSection

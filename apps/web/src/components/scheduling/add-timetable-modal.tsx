@@ -1,16 +1,16 @@
 "use client";
 
+import { ClockField } from "@/components/scheduling/clock-field";
 import {
   CalendarPlus,
   Clock,
-  Globe,
   GraduationCap,
   Plus,
   Trash2,
   User,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { studentOption } from "@/components/scheduling/student-options";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,7 @@ import {
 import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
+  getStudentSchedule,
   putStudentSchedule,
   type ScheduleSlot,
   type StudentRow,
@@ -38,15 +39,6 @@ const fieldClass =
 const DURATION_MIN = 1;
 const DURATION_MAX = 600;
 
-/** Region-relevant zones; mirrors the inline editor's curated list. */
-const TZ_CURATED = [
-  "Africa/Cairo", "Asia/Riyadh", "Asia/Dubai", "Asia/Kuwait", "Asia/Qatar",
-  "Asia/Bahrain", "Asia/Amman", "Asia/Baghdad", "Asia/Beirut", "Asia/Jerusalem",
-  "Africa/Khartoum", "Africa/Casablanca", "Africa/Tunis", "Africa/Algiers",
-  "Africa/Tripoli", "Europe/Istanbul", "Europe/London", "Europe/Paris",
-  "America/New_York", "UTC",
-];
-
 /**
  * The "new student timetable" form (§5.1) as a focused modal: pick a student and the teacher the
  * timetable is with, build their recurring weekly slots, choose a timezone, and PUT the schedule
@@ -60,20 +52,21 @@ const TZ_CURATED = [
 export function AddTimetableModal({
   students,
   teachers,
-  defaultTimezone,
   onClose,
   onCreated,
 }: {
   students: StudentRow[];
   teachers: TeacherRow[];
-  defaultTimezone: string;
   onClose: () => void;
   onCreated: () => void;
 }) {
   const t = useTranslations("scheduling");
   const [studentId, setStudentId] = useState("");
   const [teacherId, setTeacherId] = useState("");
-  const [timezone, setTimezone] = useState(defaultTimezone);
+  // "" = the academy's clock. Never the device's zone: a PC left on summer time used to tie the
+  // timetable to whatever it was set to (Harare, Riyadh), and the lessons went with it.
+  const [timezone, setTimezone] = useState("");
+  const [studentClock, setStudentClock] = useState<{ country: string | null; timezone: string | null }>({ country: null, timezone: null });
   const [slots, setSlots] = useState<ScheduleSlot[]>([
     { weekday: 1, start_time_local: "17:00", duration_minutes: 30 },
   ]);
@@ -96,11 +89,20 @@ export function AddTimetableModal({
     [t],
   );
 
-  const tzOptions = useMemo(() => {
-    const set = new Set(TZ_CURATED);
-    if (timezone) set.add(timezone);
-    return [...set].map((z) => ({ value: z, label: z.replace(/_/g, " ") }));
-  }, [timezone]);
+  // Where the picked student lives, so their own clock is one tap away.
+  useEffect(() => {
+    setStudentClock({ country: null, timezone: null });
+    if (!studentId) return;
+    let live = true;
+    getStudentSchedule(studentId)
+      .then((res) => live && setStudentClock({ country: res.student_country ?? null, timezone: res.student_timezone ?? null }))
+      .catch(() => {
+        // The clock field then simply offers no suggestion.
+      });
+    return () => {
+      live = false;
+    };
+  }, [studentId]);
 
   function update(i: number, patch: Partial<ScheduleSlot>) {
     setSlots((prev) => prev.map((s, idx) => (idx === i ? { ...s, ...patch } : s)));
@@ -349,20 +351,19 @@ export function AddTimetableModal({
           disabled={busy}
         />
 
-        {/* Timezone */}
-        <div className="space-y-1.5 sm:max-w-xs">
-          <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-            <Globe className="size-3.5" aria-hidden />
-            {t("timezone")}
-          </label>
-          <Combobox
-            options={tzOptions}
-            value={timezone}
-            onChange={setTimezone}
-            placeholder={t("timezonePlaceholder")}
-            searchPlaceholder={t("timetable.searchTimezone")}
-          />
-        </div>
+        {/* Which clock the timetable is tied to: the academy's, or the student's country */}
+        <ClockField
+          className="sm:max-w-md"
+          value={timezone}
+          slots={slots}
+          studentCountry={studentClock.country}
+          studentTimezone={studentClock.timezone}
+          disabled={busy}
+          onChange={(tz, next) => {
+            setTimezone(tz);
+            setSlots(next);
+          }}
+        />
 
         {/* Actions */}
         <div className="flex items-center justify-end gap-2 border-t pt-4">

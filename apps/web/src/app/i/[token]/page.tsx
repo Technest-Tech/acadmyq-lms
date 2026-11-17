@@ -73,6 +73,8 @@ interface PublicInvoiceDTO {
   sent_at: string | null;
   paid_at: string | null;
   payment_method: string | null;
+  /** The academy-local day (`Y-m-d`) a hand-made bill is to be paid by; null when none was set. */
+  due_on?: string | null;
   academy_name: string;
   payer_name: string;
   payer_whatsapp: string | null;
@@ -148,6 +150,18 @@ function formatDate(iso: string, locale: "en" | "ar"): string {
 
 function DateText({ iso }: { iso: string }) {
   return <T en={formatDate(iso, "en")} ar={formatDate(iso, "ar")} />;
+}
+
+/** A calendar day (`Y-m-d`) — read as that day, never shifted by the server's own zone. */
+function DayText({ day }: { day: string }) {
+  const fmt = (locale: "en" | "ar") =>
+    new Intl.DateTimeFormat(locale === "ar" ? "ar-u-nu-arab" : "en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(new Date(`${day}T00:00:00Z`));
+  return <T en={fmt("en")} ar={fmt("ar")} />;
 }
 
 /** Minutes → localized hours string (e.g. "1.5"), Arabic-Indic digits in 'ar'. */
@@ -640,6 +654,13 @@ export default async function PublicInvoicePage({ params }: PageProps) {
           >
             <Period year={invoice.period_year} month={invoice.period_month} />
           </DetailRow>
+          {invoice.due_on && invoice.status !== "VOID" && (
+            <DetailRow icon={CalendarDays} labelEn="Pay by" labelAr="يُدفع قبل">
+              <span className="font-semibold">
+                <DayText day={invoice.due_on} />
+              </span>
+            </DetailRow>
+          )}
           {invoice.sent_at && (
             <DetailRow
               icon={CalendarDays}

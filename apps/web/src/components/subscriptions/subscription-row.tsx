@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { AlertTriangle, BellRing, CalendarClock, Check, Copy, Eye, Link2, Loader2, MessageSquare, Pencil, RefreshCw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -68,7 +69,7 @@ export function LessonsBar({ row, className }: { row: SubscriptionRow; className
 export function SubscriptionRowCard({ row, canManage, canRemind, actions, compact = false }: { row: SubscriptionRow; canManage: boolean; canRemind: boolean; actions: RowActions; compact?: boolean }) {
   const t = useTranslations("subscriptions");
   const locale = useLocale();
-  const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const timezone = academyTimeZone();
   const money = (minor: number) => formatMoney({ amount: minor, currency: row.currency }, locale);
   const subject = subscriptionSubjectText(row);
   const open = row.status === "OPEN";

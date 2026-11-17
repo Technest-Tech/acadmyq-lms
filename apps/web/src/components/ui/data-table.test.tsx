@@ -139,6 +139,35 @@ describe("DataTable (Sprint 4 §6)", () => {
     );
   });
 
+  it("draws a grid of cards instead of a table, and sorts from the rail", async () => {
+    const fetcher = vi.fn(async () => page([{ id: "a", name: "Alpha", price: 5 }]));
+    const onRowClick = vi.fn();
+    renderTable(fetcher, "en", {
+      defaultSort: "-price",
+      onRowClick,
+      rowClassName: () => "is-late",
+      renderCard: (r) => <span data-testid="my-card">{r.name} costs {r.price}</span>,
+    });
+
+    const card = await screen.findByTestId("my-card");
+    expect(card).toHaveTextContent("Alpha costs 5");
+    // No table and no density toggle: the card is the whole record.
+    expect(screen.queryByTestId("dt-table")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("dt-cards")).not.toBeInTheDocument();
+    expect(card.closest("li")).toHaveClass("is-late");
+
+    // The columns name what can be sorted; the direction is its own button.
+    const sort = screen.getByTestId("dt-sort") as HTMLSelectElement;
+    expect(sort.value).toBe("price");
+    await userEvent.selectOptions(sort, "name");
+    await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "-name", page: 1 })));
+    await userEvent.click(screen.getByTestId("dt-sort-direction"));
+    await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith(expect.objectContaining({ sort: "name" })));
+
+    await userEvent.click(screen.getByTestId("my-card"));
+    expect(onRowClick).toHaveBeenCalledWith(expect.objectContaining({ id: "a" }));
+  });
+
   it("paginates server-side via the next control", async () => {
     const fetcher = vi.fn(async () =>
       page([{ id: "a", name: "A", price: 1 }], 100),

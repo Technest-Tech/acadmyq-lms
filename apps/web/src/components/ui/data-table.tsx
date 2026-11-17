@@ -2,6 +2,8 @@
 
 import {
   AlertCircle,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -99,6 +101,13 @@ export interface DataTableProps<T> {
   /** Extra classes for one row (and its mobile card), e.g. a red wash on a deactivated record. */
   rowClassName?: (row: T) => string | undefined;
   rowActions?: (row: T) => React.ReactNode;
+  /**
+   * Show the page as a grid of cards instead of a table, at every width: a list read one record
+   * at a time (a bill, say) rather than scanned down a column. The card draws everything itself,
+   * its own actions included, so `rowActions` is not used. Search, filters, paging and export stay;
+   * the columns still name what can be sorted, through a "sort by" control on the rail.
+   */
+  renderCard?: (row: T) => React.ReactNode;
   emptyMessage?: string;
   emptyAction?: React.ReactNode;
   /** Right-aligned toolbar content, e.g. a "New" button. */
@@ -150,6 +159,7 @@ export function DataTable<T>({
   pendingRowId = null,
   rowClassName,
   rowActions,
+  renderCard,
   emptyMessage,
   emptyAction,
   toolbar,
@@ -298,6 +308,11 @@ export function DataTable<T>({
 
   const cellPad = compact ? "px-3 py-2" : "px-4 py-3";
 
+  /** With no header row to click, a card grid sorts from the rail: by what, and which way. */
+  const sortable = renderCard ? columns.filter((c) => c.sortKey) : [];
+  const sortField = sort.replace(/^-/, "");
+  const sortDescending = sort.startsWith("-");
+
   function SortIndicator({ sortKey }: { sortKey: string }) {
     if (sort === sortKey)
       return <ChevronUp className="ms-1 inline size-3 shrink-0 text-primary" />;
@@ -387,6 +402,45 @@ export function DataTable<T>({
           )}
 
           <div className="ms-auto flex flex-wrap items-center justify-end gap-2">
+            {sortable.length > 0 && (
+              <div className="flex items-center gap-1">
+                <select
+                  aria-label={t("sortBy")}
+                  value={sortField}
+                  onChange={(e) => {
+                    setPage(1);
+                    setSort(sortDescending ? `-${e.target.value}` : e.target.value);
+                  }}
+                  className={cn(inputClass, "bg-card cursor-pointer pe-7 shadow-sm")}
+                  data-testid="dt-sort"
+                >
+                  {!sortable.some((c) => c.sortKey === sortField) && <option value={sortField}>{t("sortBy")}</option>}
+                  {sortable.map((c) => (
+                    <option key={c.key} value={c.sortKey}>
+                      {c.header}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPage(1);
+                    setSort(sortDescending ? sortField : `-${sortField}`);
+                  }}
+                  disabled={sortField === ""}
+                  title={sortDescending ? t("sortDescending") : t("sortAscending")}
+                  aria-label={sortDescending ? t("sortDescending") : t("sortAscending")}
+                  className="border-input bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 flex size-9 items-center justify-center rounded-lg border shadow-sm transition-colors disabled:opacity-50"
+                  data-testid="dt-sort-direction"
+                >
+                  {sortDescending ? (
+                    <ArrowDownWideNarrow className="size-4" aria-hidden />
+                  ) : (
+                    <ArrowUpNarrowWide className="size-4" aria-hidden />
+                  )}
+                </button>
+              </div>
+            )}
             {/* Density — the difference between reading ten rows and scanning fifty. A phone gets
                 the card list, which has no density to change, so the toggle is desktop-only. */}
             <button
@@ -395,7 +449,10 @@ export function DataTable<T>({
               title={compact ? t("comfortable") : t("compact")}
               aria-label={t("density")}
               aria-pressed={compact}
-              className="border-input bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 hidden size-9 items-center justify-center rounded-lg border shadow-sm transition-colors sm:flex"
+              className={cn(
+                "border-input bg-card text-muted-foreground hover:text-foreground hover:bg-muted/60 hidden size-9 items-center justify-center rounded-lg border shadow-sm transition-colors",
+                !renderCard && "sm:flex",
+              )}
               data-testid="dt-density"
             >
               {compact ? (
@@ -558,6 +615,38 @@ export function DataTable<T>({
             </button>
           )}
           {emptyAction && <div className="mt-4">{emptyAction}</div>}
+        </div>
+      ) : renderCard ? (
+        <div className="relative" data-testid="dt-card-grid-wrap">
+          {loading && (
+            <div
+              className="bg-card/55 pointer-events-none absolute inset-0 z-20 flex items-start justify-center rounded-xl backdrop-blur-[1px]"
+              aria-hidden
+            >
+              <span className="bg-card text-muted-foreground mt-16 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium shadow-sm">
+                <Loader2 className="size-3.5 animate-spin" />
+                {t("refreshing")}
+              </span>
+            </div>
+          )}
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4" data-testid="dt-card-grid">
+            {rows.map((row) => (
+              <li
+                key={getRowId(row)}
+                data-card={getRowId(row)}
+                aria-busy={pendingRowId === getRowId(row) || undefined}
+                className={cn(
+                  "bg-card flex min-w-0 flex-col rounded-2xl border text-sm shadow-sm transition-[box-shadow,border-color]",
+                  onRowClick && "hover:border-primary/40 cursor-pointer hover:shadow-md",
+                  rowClassName?.(row),
+                  pendingRowId === getRowId(row) && "ring-primary/30 ring-2",
+                )}
+                onClick={onRowClick ? () => onRowClick(row) : undefined}
+              >
+                {renderCard(row)}
+              </li>
+            ))}
+          </ul>
         </div>
       ) : (
         <>

@@ -1,5 +1,7 @@
 "use client";
 
+import { ClockChangeNotice, DeviceClockNotice } from "@/components/scheduling/clock-notices";
+import { academyDayStartIso, academyToday } from "@/lib/academy-clock";
 import {
   AlertTriangle,
   Award,
@@ -35,6 +37,7 @@ import {
   MessageCircle,
   Newspaper,
   NotebookPen,
+  NotebookText,
   PanelLeftClose,
   PanelLeftOpen,
   Layers,
@@ -141,6 +144,7 @@ type NavKey =
   | "lmsPayments"
   | "lmsSite"
   | "attendance"
+  | "lessonReports"
   | "supervision"
   | "studentReports"
   | "studentReportReviews"
@@ -231,6 +235,7 @@ const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
   schedule: "teaching",
   calendarCentre: "teaching",
   attendance: "teaching",
+  lessonReports: "teaching",
   // A centre's packages ARE its lesson subscriptions (the `*Centre` labels below).
   packagesDue: "teaching",
   packages: "teaching",
@@ -438,6 +443,15 @@ const NAV: ReadonlyArray<{
     icon: ClipboardCheck,
     permission: "session.read",
     href: "/attendance",
+    group: "people",
+  },
+  // سجل التقارير: every private lesson's report in one list. Teachers could only reach an old one
+  // through a salary statement; it sits right under the attendance it is written from.
+  {
+    key: "lessonReports",
+    icon: NotebookText,
+    permission: "session.read",
+    href: "/lesson-reports",
     group: "people",
   },
   // How promptly each supervisor followed the day's lessons and how promptly outcomes were
@@ -1120,13 +1134,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     let alive = true;
     const refresh = () => {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(end.getDate() + 1);
+      // The ACADEMY's day, whatever the device is set to.
+      const today = academyToday();
+      const next = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, Number(today.slice(8, 10)) + 1, 12))
+        .toISOString()
+        .slice(0, 10);
       getDaySessionCount({
-        from: start.toISOString(),
-        to: end.toISOString(),
+        from: academyDayStartIso(today),
+        to: academyDayStartIso(next),
       })
         .then((r) => alive && setAttnCount(r.count))
         .catch(() => {});
@@ -1443,6 +1458,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     )
       return false;
     if (item.key === "dashboard" && isPlatformAdmin) return false;
+    // A centre writes no lesson report unless it opted into the structured one (attendance-report.tsx).
+    if (item.key === "lessonReports" && centre && !(capabilities?.includes("lesson_report") ?? false)) return false;
     if (inEnteredAcademy && (item.group === "platform" || PLATFORM_ONLY_KEYS.has(item.key))) return false;
     // The Audit Log link is Super-Admin-only in the sidebar. Academy owners retain
     // audit.read (the page and API stay reachable) — this just keeps it out of the
@@ -2343,6 +2360,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               className="animate-page-enter relative mx-auto max-w-[1600px] p-4 md:p-6"
             >
               <OrnateRule className="ornament mb-4 md:mb-5" />
+              {/* The device's clock disagrees with the academy's; a clock change is about to move lessons. */}
+              <DeviceClockNotice className="mb-3" />
+              <ClockChangeNotice pathname={pathname} className="mb-3" />
               {children}
             </div>
           </main>

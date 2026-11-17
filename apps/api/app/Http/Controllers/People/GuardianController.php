@@ -9,6 +9,7 @@ use App\Http\Controllers\People\Concerns\InteractsWithPeople;
 use App\Services\ChargeCancellation;
 use App\Services\ClassGroups;
 use App\Services\FamilyCharges;
+use App\Services\LessonPackages;
 use App\Services\SessionGenerator;
 use App\Support\AcademySettings;
 use App\Support\Audit;
@@ -24,6 +25,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Guardians — the billing anchor (R-STU-1/2). A guardian owns 1..N students; their currency
@@ -378,6 +380,87 @@ final class GuardianController extends Controller
             'dues' => $canSee ? app(ChargeCancellation::class)->advanceDues($this->currentAcademyId(), $id)->all() : [],
             'can_cancel' => $canSee && Gate::allows('invoice.mark_paid'),
         ]);
+    }
+
+    /**
+     * POST /api/guardians/{id}/currency — move a family to another currency in one step (Ahmed
+     * 2026-11-17: "changing a client's currency should be easy and reach their open and due
+     * packages").
+     *
+     * `children` gives each child's new price in the new currency, on their own basis (the hourly
+     * rate for a package student). The family's currency changes; each listed child's subscription
+     * takes the new currency and price; a package student's unpaid packages and their bills move
+     * with it ({@see LessonPackages::repriceUnpaid()}), and a paid running block renews in the new
+     * currency. A child billed monthly changes forward-only, exactly as their own price form does.
+     * All of it or none of it: one transaction.
+     */
+    public function changeCurrency(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('guardian.update');
+
+        $data = $request->validate([
+            'currency' => ['required', 'string', 'size:3', 'alpha'],
+            'children' => ['present', 'array'],
+            'children.*.student_id' => ['required', 'uuid', 'distinct'],
+            'children.*.price_minor' => ['required', 'integer', 'min:0'],
+        ]);
+        $currency = strtoupper($data['currency']);
+
+        $guardian = DB::table('guardians')->where('id', $id)->first(['id', 'currency']);
+        if ($guardian === null) {
+            abort(404, 'Guardian not found.');
+        }
+
+        $plan = [];
+        foreach ($data['children'] as $row) {
+            $studentId = (string) $row['student_id'];
+            $inFamily = DB::table('students')->where('id', $studentId)->where('guardian_id', $id)->whereNull('deleted_at')->exists();
+            $sub = $inFamily
+                ? DB::table('subscriptions')->where('student_id', $studentId)->where('status', 'ACTIVE')->whereNull('deleted_at')->orderByDesc('created_at')->first()
+                : null;
+            if ($sub === null) {
+                throw ValidationException::withMessages([
+                    'children' => ['Each child must be in this family and have a subscription. / كل طالب يجب أن يكون من هذه الأسرة وله اشتراك.'],
+                ]);
+            }
+            $plan[] = ['student_id' => $studentId, 'price_minor' => (int) $row['price_minor'], 'sub' => $sub];
+        }
+
+        if ($plan !== []) {
+            Gate::authorize('student.set_price');
+        }
+        if (collect($plan)->contains(fn (array $p): bool => (string) $p['sub']->price_basis === LessonPackages::BASIS)) {
+            Gate::authorize('package.manage');
+        }
+
+        $results = DB::transaction(function () use ($id, $guardian, $currency, $plan): array {
+            $academyId = $this->currentAcademyId();
+            if (trim((string) $guardian->currency) !== $currency) {
+                DB::table('guardians')->where('id', $id)->update(['currency' => $currency, 'updated_at' => now()]);
+                Audit::log('guardian.update', 'guardian', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                    after: ['currency' => $currency], before: ['currency' => trim((string) $guardian->currency)]);
+            }
+
+            $results = [];
+            foreach ($plan as $p) {
+                $sub = $p['sub'];
+                $basis = (string) $sub->price_basis;
+                $price = $basis === 'FREE' ? 0 : $p['price_minor'];
+                $after = ['currency' => $currency, 'price_minor' => $price];
+                DB::table('subscriptions')->where('id', $sub->id)->update($after + ['updated_at' => now()]);
+                Audit::log('subscription.price_changed', 'subscription', (string) $sub->id, $academyId, $this->ctx()->userId, $this->ctx()->role,
+                    after: $after, before: ['currency' => trim((string) $sub->currency), 'price_minor' => (int) $sub->price_minor]);
+
+                $moved = $basis === LessonPackages::BASIS && $price > 0
+                    ? app(LessonPackages::class)->repriceUnpaid($p['student_id'], $price, $this->ctx()->userId, $this->ctx()->role, $currency)
+                    : [];
+                $results[] = ['student_id' => $p['student_id'], 'packages' => $moved];
+            }
+
+            return $results;
+        });
+
+        return response()->json(['ok' => true, 'currency' => $currency, 'children' => $results]);
     }
 
     /**

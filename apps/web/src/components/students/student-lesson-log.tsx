@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarClock, CalendarX2, ChevronDown, ChevronLeft, ChevronRight, GraduationCap } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState } from "react";
@@ -15,6 +16,7 @@ import {
   timeInTz,
   todayInTz,
 } from "@/components/scheduling/calendar/utils";
+import { LessonCountingAction } from "@/components/packages/lesson-counting-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import {
   ApiError,
@@ -70,26 +72,35 @@ export function StudentLessonLog({ studentId }: { studentId: string }) {
 
 function PackageLog({ packages }: { packages: LessonPackageRow[] }) {
   const t = useTranslations("students.lessonLog");
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = academyTimeZone();
   // The running block first (the list comes open-first, newest next).
   const [packageId, setPackageId] = useState(() => packages[0]!.id);
   const [log, setLog] = useState<PackageLessonLog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showOthers, setShowOthers] = useState(false);
+  // A cancellation's counting changed: read the block again, and say what was done.
+  const [reload, setReload] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+  const changed = (message: string) => {
+    setNotice(message);
+    setReload((n) => n + 1);
+  };
   const chosen = packages.find((p) => p.id === packageId) ?? packages[0]!;
+
+  // Another block: its own lists start folded.
+  useEffect(() => setShowOthers(false), [packageId]);
 
   useEffect(() => {
     let live = true;
     setLog(null);
     setError(null);
-    setShowOthers(false);
     void getPackageLessons(packageId)
       .then((res) => live && setLog(res))
       .catch((err) => live && setError(err instanceof ApiError ? err.message : String(err)));
     return () => {
       live = false;
     };
-  }, [packageId]);
+  }, [packageId, reload]);
 
   const counts = useMemo(() => {
     const lessons = log?.lessons ?? [];
@@ -147,6 +158,7 @@ function PackageLog({ packages }: { packages: LessonPackageRow[] }) {
       </div>
 
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
+      {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
 
       {log === null ? (
         !error && <Spinner label={t("loading")} />
@@ -155,7 +167,7 @@ function PackageLog({ packages }: { packages: LessonPackageRow[] }) {
       ) : (
         <ol className="bg-card divide-y overflow-hidden rounded-2xl border shadow-sm" data-testid="lesson-log-list">
           {log.lessons.map((lesson, i) => (
-            <LessonRow key={lesson.id} lesson={lesson} n={i + 1} tz={tz} />
+            <LessonRow key={lesson.id} lesson={lesson} n={i + 1} tz={tz} action={<LessonCountingAction lesson={lesson} onChanged={changed} />} />
           ))}
           {log.unscheduled > 0 && (
             <li
@@ -192,7 +204,7 @@ function PackageLog({ packages }: { packages: LessonPackageRow[] }) {
               <p className="text-muted-foreground text-[11px]">{t("notCountedHint")}</p>
               <ul className="bg-card divide-y overflow-hidden rounded-2xl border opacity-80 shadow-sm" data-testid="lesson-log-not-counted">
                 {log.not_counted.map((lesson) => (
-                  <LessonRow key={lesson.id} lesson={lesson} tz={tz} />
+                  <LessonRow key={lesson.id} lesson={lesson} tz={tz} action={<LessonCountingAction lesson={lesson} onChanged={changed} />} />
                 ))}
               </ul>
             </>
@@ -207,7 +219,7 @@ function PackageLog({ packages }: { packages: LessonPackageRow[] }) {
 function MonthLog({ studentId }: { studentId: string }) {
   const t = useTranslations("students.lessonLog");
   const locale = useLocale();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = academyTimeZone();
   const [month, setMonth] = useState(() => startOfMonth(todayInTz(tz)));
   const [lessons, setLessons] = useState<CalendarSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -273,7 +285,18 @@ function MonthLog({ studentId }: { studentId: string }) {
 }
 
 /** One lesson: its number on the block, day and time, teacher and length, and how it stands. */
-export function LessonRow({ lesson, n, tz }: { lesson: CalendarSession | PackageLesson; n?: number; tz: string }) {
+export function LessonRow({
+  lesson,
+  n,
+  tz,
+  action,
+}: {
+  lesson: CalendarSession | PackageLesson;
+  n?: number;
+  tz: string;
+  /** Something to do on this lesson, after its status (a cancellation's counting). */
+  action?: React.ReactNode;
+}) {
   const t = useTranslations("students.lessonLog");
   const tStatus = useTranslations("scheduling");
   const locale = useLocale();
@@ -327,6 +350,7 @@ export function LessonRow({ lesson, n, tz }: { lesson: CalendarSession | Package
       >
         {unmarked ? t("unmarked") : state === "UPCOMING" ? t("upcoming") : tStatus(`status.${lesson.status}`)}
       </span>
+      {action}
     </li>
   );
 }

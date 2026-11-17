@@ -191,6 +191,8 @@ export interface Session {
    * own identity.
    */
   academy: SessionAcademy | null;
+  /** The server's time when it answered, to catch a device clock set by hand. */
+  serverTime?: string;
 }
 
 export interface SessionAcademy {
@@ -201,6 +203,8 @@ export interface SessionAcademy {
   /** The defaults every new-person form opens on: ISO-2 country (dial code follows) and currency. */
   country?: string | null;
   defaultCurrency?: string;
+  /** The academy's clock: every lesson time is shown and typed on it (lib/academy-clock). */
+  timezone?: string;
   /**
    * The academy's public address (custom domain → `<handle>.<root>` → platform). Links we hand to
    * payers are built on it — see `useInvoiceUrl`.
@@ -3386,6 +3390,8 @@ export interface StudentInput {
     bill_timing?: PackageBillTiming;
     starts_on?: string;
     expires_on?: string | null;
+    /** Paid on a hand-made bill before the student was added: that bill becomes the package's. */
+    paid_invoice_id?: string;
   };
 }
 
@@ -3623,6 +3629,12 @@ export interface ScheduleSlot {
   duration_minutes: number;
   /** The subject its lessons are for, when the teacher teaches this student two. */
   course?: string | null;
+  /**
+   * The same slot read on the ACADEMY's clock today (reads only). Equal to its own day and time
+   * unless the timetable is tied to a student's country.
+   */
+  academy_weekday?: number;
+  academy_time?: string;
 }
 
 export interface Schedule {
@@ -3739,13 +3751,15 @@ export interface TimetableSummary {
   /** The course this teacher teaches the student, if one was named. */
   course?: string | null;
   timezone: string;
+  /** The country that clock belongs to (ISO-2), when it is a country's. */
+  timezone_country?: string | null;
   /** Local `Y-m-d` the timetable starts producing lessons. */
   start_date: string | null;
   slots: ScheduleSlot[];
 }
 
 /** Every active timetable in the academy (Owner/Super-Admin: all; Teacher: own students). */
-export function listTimetables(): Promise<{ timetables: TimetableSummary[] }> {
+export function listTimetables(): Promise<{ timetables: TimetableSummary[]; academy_timezone?: string }> {
   return apiFetch(`/api/timetables`);
 }
 
@@ -3764,6 +3778,10 @@ export function getStudentSchedule(
   lesson_minutes?: number | null;
   /** The subjects open under this teacher. With two or more, each slot says which it is. */
   subjects?: string[];
+  /** The academy's clock, and the student's own when they live in another country. */
+  academy_timezone?: string;
+  student_country?: string | null;
+  student_timezone?: string | null;
 }> {
   return apiFetch(`/api/students/${studentId}/schedule${teacherQuery(teacherId)}`);
 }
@@ -4167,8 +4185,10 @@ export function revertAttendance(sessionId: string): Promise<{
  * payout line are reversed and it disappears from every lesson list; a closed invoice or a
  * finalized payout refuses it, exactly as undoing its attendance would.
  */
-export function deleteSession(sessionId: string): Promise<{ ok: true }> {
-  return apiFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+/** `keepMoney`: take the lesson off the schedule only — its bill, package and salary stay as they are. */
+export function deleteSession(sessionId: string, opts: { keepMoney?: boolean } = {}): Promise<{ ok: true }> {
+  const query = opts.keepMoney ? "?keep_money=1" : "";
+  return apiFetch(`/api/sessions/${sessionId}${query}`, { method: "DELETE" });
 }
 
 export function putSessionReport(
@@ -4679,6 +4699,42 @@ export function getStudentReports(
   return apiFetch(`/api/students/${studentId}/reports${toQueryString(q)}`);
 }
 
+/** One lesson in the reports log (GET /api/session-reports). */
+export interface LessonReportLogRow {
+  id: string;
+  scheduled_at_utc: string;
+  duration_minutes: number;
+  status: SessionStatus;
+  student_id: string;
+  student_name: string | null;
+  teacher_id: string;
+  teacher_name: string | null;
+  /** null on the "missing" tab when nothing was ever saved. */
+  report_values: Record<string, unknown> | null;
+  /** When the report was first written. */
+  written_at: string | null;
+  /** Who saved it last, and whether that was the lesson's own teacher. */
+  written_by_name: string | null;
+  written_by_teacher: boolean;
+  whatsapp_sent_at: string | null;
+}
+
+export interface LessonReportLogResult extends ListResult<LessonReportLogRow> {
+  /** Both tabs under the same filters and search. */
+  counts: { written: number; missing: number };
+  /** Every report field the academy defined, retired ones included — labels for old answers. */
+  fields: ReportField[];
+}
+
+/**
+ * GET /api/session-reports — سجل التقارير. `filter.tab`: written (default) | missing; also
+ * `student_id`, `teacher_id` (ignored for a teacher), `from`/`to` (ISO instants); `search` reads
+ * the student's name and the report itself.
+ */
+export function listLessonReports(q: DataTableQuery = {}): Promise<LessonReportLogResult> {
+  return apiFetch(`/api/session-reports${toQueryString(q)}`);
+}
+
 // ── Invoicing dashboard (Sprint 7 §8) ────────────────────────────────────────
 
 /** Per-currency money roll-up so multi-currency academies are never summed across units. */
@@ -4759,11 +4815,39 @@ export type QuickBillInput = {
   amount_minor: number;
   currency: string;
   description: string;
+  /** The academy-local day (`Y-m-d`) the payer is asked to pay by; chased the day after it. */
+  due_on?: string | null;
 } & (
   | { student_id: string; guardian_id?: never; payer_name?: never }
   | { guardian_id: string; student_id?: never; payer_name?: never }
   | { payer_name: string; student_id?: never; guardian_id?: never }
 );
+
+/** A hand-made bill paid in full before its student was on file (`GET /api/packages/paid-bills`). */
+export interface PaidBill {
+  id: string;
+  payer_name: string;
+  /** Raised on the chosen family, not under a typed name. */
+  from_family: boolean;
+  description: string | null;
+  total_minor: number;
+  currency: string;
+  raised_on: string;
+}
+
+/** The paid bills a new student's first package may stand on, instead of raising a second bill. */
+export function listPaidBills(guardianId?: string): Promise<{ bills: PaidBill[] }> {
+  const query = guardianId ? `?guardian_id=${encodeURIComponent(guardianId)}` : "";
+  return apiFetch(`/api/packages/paid-bills${query}`);
+}
+
+/** Set (or clear, with null) a hand-made bill's pay-by date. */
+export function setInvoiceDueOn(invoiceId: string, dueOn: string | null): Promise<{ ok: true; due_on: string | null }> {
+  return apiFetch(`/api/invoices/${invoiceId}/due-on`, {
+    method: "PATCH",
+    body: JSON.stringify({ due_on: dueOn }),
+  });
+}
 
 /** Create a quick custom bill; answers with its pay link on the academy's own address. */
 export function createQuickBill(input: QuickBillInput): Promise<{ id: string; url: string }> {
@@ -5489,6 +5573,79 @@ export function getClientTools(clientId: string): Promise<{ tools: ClientTool[];
 
 export function runClientTool(clientId: string, tool: ClientToolKey, apply: boolean): Promise<ClientToolRun> {
   return apiFetch(`/api/admin/clients/${clientId}/tools/${tool}`, {
+    method: "POST",
+    body: JSON.stringify({ apply }),
+  });
+}
+
+/** What can come back from a client's deletes (Super Admin → client page → Deleted). */
+export type DeletedKind =
+  | "family"
+  | "student"
+  | "teacher"
+  | "staff"
+  | "trial"
+  | "lead"
+  | "group"
+  | "course"
+  | "post"
+  | "product";
+
+export interface DeletedItem {
+  kind: DeletedKind;
+  id: string;
+  label: string;
+  deleted_at: string | null;
+  /** The person who deleted it, from the audit trail; null when unknown. */
+  deleted_by: string | null;
+  detail: {
+    phone?: string | null;
+    children?: string[];
+    guardian?: string | null;
+    department?: string | null;
+    status?: string | null;
+    when?: string | null;
+  };
+}
+
+/** A permanent delete: only its audit row is left, so it is shown, never restored. */
+export interface DeletedLogEntry {
+  id: string;
+  action: string;
+  label: string | null;
+  amount_minor: number | null;
+  currency: string | null;
+  /** A deleted lesson's own date. */
+  when: string | null;
+  deleted_at: string;
+  deleted_by: string | null;
+}
+
+/** One line of a restore's report: `key` names what came back (or did not), with a name or a count. */
+export interface RestoreLine {
+  key: string;
+  label?: string | null;
+  n?: number;
+}
+
+export interface RestoreReport {
+  applied: boolean;
+  done: RestoreLine[];
+  skipped: RestoreLine[];
+}
+
+export function getClientDeleted(clientId: string): Promise<{ items: DeletedItem[]; log: DeletedLogEntry[] }> {
+  return apiFetch(`/api/admin/clients/${clientId}/deleted`);
+}
+
+/** `apply: false` runs the restore and rolls it back — the report is exactly what Apply would do. */
+export function restoreClientDeleted(
+  clientId: string,
+  kind: DeletedKind,
+  itemId: string,
+  apply: boolean,
+): Promise<RestoreReport> {
+  return apiFetch(`/api/admin/clients/${clientId}/deleted/${kind}/${itemId}/restore`, {
     method: "POST",
     body: JSON.stringify({ apply }),
   });
@@ -8680,6 +8837,12 @@ export interface LessonPackageRow {
   absorbed_overdraft_minutes: number;
   /** Opens the next package on the same terms when this one runs out. */
   auto_renew: boolean;
+  /** This block was paid ahead — settled from a prepayment when it opened. */
+  prepaid?: boolean;
+  /** How many coming blocks of this student are already paid for. */
+  prepaid_blocks_left?: number;
+  /** The newest prepayment with blocks still unused — what "take back" acts on. */
+  open_prepayment_id?: string | null;
   /** New terms parked for the next renewal (only what differs); null = it renews as it is. */
   next_terms?: PackageNextTerms | null;
   /** This package was opened by the renewal, not by hand. */
@@ -8839,6 +9002,68 @@ export interface PackageNextTerms {
   label?: string;
   minutes_total?: number;
   price_minor?: number;
+  /** The family moved to another currency: the renewal opens in it. */
+  currency?: string;
+}
+
+/** One student's part of a "pay ahead": how many coming packages, and the running one's bill too. */
+export interface PrepayStudentInput {
+  student_id: string;
+  blocks: number;
+  include_current: boolean;
+}
+
+export interface PrepayResult {
+  prepayments: {
+    prepayment_id: string;
+    student_id: string;
+    blocks: number;
+    block_price_minor: number;
+    amount_minor: number;
+    currency: string;
+    current_paid_minor: number;
+    current_currency: string | null;
+  }[];
+  totals: { currency: string; amount_minor: number }[];
+}
+
+/** Pay packages ahead for one student or a family — one payment (multipart: the proof is a file). */
+export function prepayPackages(input: {
+  students: PrepayStudentInput[];
+  payment_method: "CASH" | "BANK_TRANSFER" | "OTHER";
+  payment_reference?: string;
+  paid_on?: string;
+  note?: string;
+  proof?: File | null;
+}): Promise<PrepayResult> {
+  const body = new FormData();
+  input.students.forEach((s, i) => {
+    body.set(`students[${i}][student_id]`, s.student_id);
+    body.set(`students[${i}][blocks]`, String(s.blocks));
+    body.set(`students[${i}][include_current]`, s.include_current ? "1" : "0");
+  });
+  body.set("payment_method", input.payment_method);
+  if (input.payment_reference) body.set("payment_reference", input.payment_reference);
+  if (input.paid_on) body.set("paid_on", input.paid_on);
+  if (input.note) body.set("note", input.note);
+  if (input.proof) body.set("payment_proof", input.proof);
+  return apiFetch("/api/packages/prepay", { method: "POST", body });
+}
+
+/** Take back the prepaid blocks not used yet. */
+export function cancelPrepayment(prepaymentId: string): Promise<{ ok: true }> {
+  return apiFetch(`/api/packages/prepayments/${prepaymentId}`, { method: "DELETE" });
+}
+
+/** Move a family to another currency: each child's new price in it, on their own basis. */
+export function changeGuardianCurrency(
+  guardianId: string,
+  input: { currency: string; children: { student_id: string; price_minor: number }[] },
+): Promise<{ ok: true; currency: string; children: { student_id: string; packages: { id: string; sequence_no: number }[] }[] }> {
+  return apiFetch(`/api/guardians/${guardianId}/currency`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
 }
 
 /** Why a package's money is owed (App\Support\PackagePurpose). */
@@ -8901,6 +9126,10 @@ export type PackageLessonState = "COUNTED" | "UNMARKED" | "UPCOMING";
 
 export interface PackageLesson extends CalendarSession {
   package_state: PackageLessonState | null;
+  /** A cancellation that counts against the student's package (charged). */
+  counts?: boolean;
+  /** What the teacher is paid of it: null = nothing, else 25 / 50 / 100. */
+  teacher_pay_percent?: number | null;
   /**
    * Not on the calendar yet: the date its timetable gives it. The calendar holds the timetable to
    * the end of next month; a longer block's later lessons are read off the timetable, and land on
@@ -8922,6 +9151,44 @@ export interface PackageLessonLog {
 
 export function getPackageLessons(id: string): Promise<PackageLessonLog> {
   return apiFetch(`/api/packages/${id}/lessons`);
+}
+
+/** Cancellation statuses a lesson's counting can be changed on (PackageLessonCounting::STATUSES). */
+export const COUNTABLE_CANCEL_STATUSES = ["CANCELLED_BY_STUDENT", "CANCELLED_BY_TEACHER", "ABSENT_EXCUSED", "ABSENT_UNEXCUSED"] as const;
+
+/** What setting a cancelled lesson to count (or not) does — or did. */
+export interface LessonCountingEffect {
+  blocker?: string | null;
+  student: {
+    counts_before: boolean;
+    counts_after: boolean;
+    mode: "ADD" | "RELEASE" | "FINISHED_PLAN" | "UNBILL" | null;
+    package: { id: string; sequence_no: number; status: string; label: string } | null;
+    will_complete: boolean;
+    reopens: boolean;
+    renewal_undone: boolean;
+    lessons_moved_back: { sequence_no: number; lessons: number } | null;
+    stays_closed: string | null;
+  };
+  teacher: {
+    percent_before: number;
+    percent_after: number;
+    amount_before: number;
+    currency: string | null;
+    statement: { year: number; month: number; sealed: boolean } | null;
+    locked: boolean;
+  };
+}
+
+export function previewLessonCounting(sessionId: string, counts: boolean, teacherPercent: number): Promise<LessonCountingEffect> {
+  return apiFetch(`/api/packages/lessons/${sessionId}/counting?counts=${counts ? 1 : 0}&teacher_percent=${teacherPercent}`);
+}
+
+export function setLessonCounting(sessionId: string, counts: boolean, teacherPercent: number): Promise<LessonCountingEffect & { ok: true }> {
+  return apiFetch(`/api/packages/lessons/${sessionId}/counting`, {
+    method: "POST",
+    body: JSON.stringify({ counts, teacher_percent: teacherPercent }),
+  });
 }
 
 /**

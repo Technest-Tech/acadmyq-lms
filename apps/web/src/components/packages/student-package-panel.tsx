@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { Layers, Plus } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -34,7 +35,7 @@ export function StudentPackagePanel({
   const t = useTranslations("packages");
   const locale = useLocale();
   const { can } = useAuth();
-  const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC", []);
+  const timezone = useMemo(() => academyTimeZone(), []);
   const [rows, setRows] = useState<LessonPackageRow[] | null>(null);
   const [alert, setAlert] = useState<{ variant: "success" | "error"; message: string } | null>(null);
 

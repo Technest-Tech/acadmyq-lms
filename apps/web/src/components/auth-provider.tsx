@@ -1,5 +1,6 @@
 "use client";
 
+import { setAcademyClock } from "@/lib/academy-clock";
 import { useRouter } from "next/navigation";
 import {
   createContext,
@@ -76,9 +77,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const me = await readSession();
       // Before the session lands, so the first number the shell renders is already in its digits.
       setLatinDigits(me.academy?.profile === "CENTRE");
+      // And the clock every lesson time is read on, before any screen formats one.
+      setAcademyClock(me.academy?.timezone, me.serverTime);
       setSession(me);
     } catch {
       setLatinDigits(false);
+      setAcademyClock(null);
       setSession(null);
     } finally {
       setLoading(false);

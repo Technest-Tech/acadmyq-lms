@@ -1,14 +1,14 @@
 "use client";
 
+import { academyToday } from "@/lib/academy-clock";
 import { CalendarClock, TriangleAlert } from "lucide-react";
 import { useTranslations } from "next-intl";
 import type { ScheduleSlot } from "@/lib/api";
 
 /** Today as a local `Y-m-d`, matching the date input's own format. */
 export function todayLocal(): string {
-  const d = new Date();
-  const off = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+  // Today on the academy's clock, whatever the device is set to.
+  return academyToday();
 }
 
 /**

@@ -23,7 +23,7 @@ describe("student options", () => {
 
   it("tells two students of one name apart in the new-timetable picker, and finds one by its digits", async () => {
     const students = [student({ id: "s1", whatsapp_phone: "+201001112201" }), student({ id: "s2", guardian_phone: "+201005556677" })];
-    render(withAuth(makeSession("ACADEMY_OWNER"), <AddTimetableModal students={students} teachers={[]} defaultTimezone="Africa/Cairo" onClose={() => {}} onCreated={() => {}} />));
+    render(withAuth(makeSession("ACADEMY_OWNER"), <AddTimetableModal students={students} teachers={[]} onClose={() => {}} onCreated={() => {}} />));
 
     await userEvent.click(screen.getByText(arMessages.scheduling.timetables.selectStudent));
     expect(screen.getByText(/\+201001112201/)).toBeTruthy();

@@ -1,11 +1,12 @@
 "use client";
 
-import { ChevronDown, RefreshCw } from "lucide-react";
+import { CalendarCheck, ChevronDown, RefreshCw, Wallet } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { LessonCountFields, lessonCountOf } from "@/components/packages/lesson-count-fields";
 import { LessonPriceFields, majorText, totalFromLessonPrice } from "@/components/packages/lesson-price-fields";
 import { Combobox } from "@/components/ui/combobox";
+import { academyToday } from "@/lib/academy-clock";
 import type { PackageBillTiming } from "@/lib/api";
 import { useCapability, usePackagesInLessons } from "@/lib/capabilities";
 import { CURRENCIES } from "@/lib/countries";
@@ -78,9 +79,8 @@ export function usePackageTerms({
   const [labelWasEdited, setLabelWasEdited] = useState(false);
   const [currency, setCurrency] = useState(defaultCurrency);
   const [timing, setTiming] = useState<PackageBillTiming>("ON_START");
-  const [startsOn, setStartsOn] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
+  // Today on the academy's clock — the device's UTC date was yesterday until 2am in Cairo.
+  const [startsOn, setStartsOn] = useState(() => academyToday());
   const [expiresOn, setExpiresOn] = useState("");
   // On unless someone says otherwise: a block that runs out opens the next one by itself, so the
   // owner chases money rather than remembering to sell the next block.
@@ -215,21 +215,52 @@ export type PackageTerms = ReturnType<typeof usePackageTerms>;
  * `agreedCurrency` turns on the "not the student's currency" warning (only meaningful for a
  * student who already has one). `advancedExtra` renders inside the fold, for options that only
  * some screens have — carry-over needs an earlier package, which a brand-new student never has.
+ *
+ * `simple` (the new-student form, Ahmed 2026-11-17): no name field — the name writes itself — and
+ * no fold. The block is paid up front and starts today, said in one line; only "renew by itself"
+ * stays a choice.
  */
 export function PackageTermsFields({
   terms,
   agreedCurrency,
   advancedExtra,
   idPrefix = "pkg",
+  simple = false,
 }: {
   terms: PackageTerms;
   agreedCurrency?: string;
   advancedExtra?: ReactNode;
   idPrefix?: string;
+  simple?: boolean;
 }) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // The currency the total is agreed in. It is a field and not a caption: the price, the derived
+  // hourly rate, the invoice and every later overdraft are all snapshotted in THIS currency, and
+  // nothing downstream ever converts (§3.6). It sits beside the total — the two are one figure.
+  const currencyField = (
+    <div className="space-y-1.5">
+      <span className="text-sm font-medium">{t("form.currency")}</span>
+      <Combobox
+        options={CURRENCY_OPTIONS}
+        value={terms.currency}
+        onChange={terms.setCurrency}
+        placeholder={t("form.currencyPlaceholder")}
+        searchPlaceholder={t("form.searchCurrency")}
+        data-testid="package-currency"
+      />
+      {agreedCurrency !== undefined &&
+        agreedCurrency !== "" &&
+        terms.currency !== "" &&
+        terms.currency !== agreedCurrency && (
+          <p className="text-xs text-amber-600 dark:text-amber-400">
+            {t("form.currencyDiffers", { currency: agreedCurrency })}
+          </p>
+        )}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -263,6 +294,7 @@ export function PackageTermsFields({
           />
         </div>
         ) : (
+        <>
         <div className="space-y-1.5">
           <label htmlFor={`${idPrefix}-price`} className="text-sm font-medium">
             {t("form.price")}
@@ -278,6 +310,8 @@ export function PackageTermsFields({
             className={inputClass}
           />
         </div>
+        {currencyField}
+        </>
         )}
       </div>
 
@@ -293,28 +327,9 @@ export function PackageTermsFields({
         />
       )}
 
-      {/* The currency the total is agreed in. It is a field and not a caption: the price, the
-          derived hourly rate, the invoice and every later overdraft are all snapshotted in THIS
-          currency, and nothing downstream ever converts (§3.6). */}
-      <div className="space-y-1.5">
-        <span className="text-sm font-medium">{t("form.currency")}</span>
-        <Combobox
-          options={CURRENCY_OPTIONS}
-          value={terms.currency}
-          onChange={terms.setCurrency}
-          placeholder={t("form.currencyPlaceholder")}
-          searchPlaceholder={t("form.searchCurrency")}
-          data-testid="package-currency"
-        />
-        {agreedCurrency !== undefined &&
-          agreedCurrency !== "" &&
-          terms.currency !== "" &&
-          terms.currency !== agreedCurrency && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
-              {t("form.currencyDiffers", { currency: agreedCurrency })}
-            </p>
-          )}
-      </div>
+      {/* Per lesson (a centre) the total is worked out below the lesson's price, so the currency
+          keeps its own row there. */}
+      {terms.perLesson && currencyField}
 
       {/* The deal read back, in the units the parent will quote at you: the hours the lessons add
           up to, one lesson's price and the hour's. */}
@@ -333,6 +348,22 @@ export function PackageTermsFields({
         </p>
       )}
 
+      {simple ? (
+        <div className="space-y-2" data-testid="package-simple-terms">
+          <div className="flex flex-wrap gap-2">
+            <span className="bg-muted text-foreground inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium">
+              <Wallet className="text-primary size-3.5" aria-hidden />
+              {t("form.simplePaidUpfront")}
+            </span>
+            <span className="bg-muted text-foreground inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium">
+              <CalendarCheck className="text-primary size-3.5" aria-hidden />
+              {t("form.simpleStartsToday")}
+            </span>
+          </div>
+          <AutoRenewField checked={terms.autoRenew} onChange={terms.setAutoRenew} />
+        </div>
+      ) : (
+      <>
       <div className="space-y-1.5">
         <label htmlFor={`${idPrefix}-label`} className="text-sm font-medium">
           {t("form.label")}
@@ -453,6 +484,8 @@ export function PackageTermsFields({
           </div>
         )}
       </div>
+      </>
+      )}
     </div>
   );
 }

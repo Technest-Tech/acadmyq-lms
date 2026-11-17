@@ -130,14 +130,14 @@ describe("who sees which help", () => {
   it("gives the teacher their own version of a shared page", () => {
     expect(ids("students", teacher)).toEqual(["mine"]);
     expect(ids("students", owner)).not.toContain("mine");
-    expect(ids("dashboard", teacher)).toEqual(["overdue", "enter"]);
+    expect(ids("dashboard", teacher)).toEqual(["overdue", "enter", "reports"]);
     expect(ids("payroll", teacher)).toEqual(["mine"]);
     expect(ids("payroll", owner)).toEqual(["read", "adjust", "finalize", "transfer"]);
   });
 
   it("keeps a teacher out of pages they cannot open", () => {
     const topics = topicsFor(HELP_TOPICS, teacher).map((topic) => topic.id);
-    expect(topics).toEqual(["dashboard", "students", "calendar", "attendance", "groups", "payroll"]);
+    expect(topics).toEqual(["dashboard", "students", "calendar", "attendance", "lesson-reports", "groups", "payroll"]);
     // The calendar is read-only for a teacher, whatever lesson permissions they hold.
     expect(ids("calendar", teacher)).toEqual(["views"]);
   });

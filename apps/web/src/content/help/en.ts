@@ -38,6 +38,14 @@ const en: HelpContent = {
         ],
         note: "The time you press Enter is recorded and is what your punctuality is measured by. If the button does not work, ask the office to add your meeting link.",
       },
+      reports: {
+        title: "Where do I find my old reports?",
+        steps: [
+          "The [[My latest reports]] card shows what you wrote last. Press one to open it in full.",
+          "For all of them press [[Full reports log]], or open [[Reports log]] from the menu.",
+          "If an alert shows lessons without a report, press it to write them.",
+        ],
+      },
     },
     tips: ["Start your day here: what this page shows is what needs doing today."],
   },
@@ -395,6 +403,30 @@ const en: HelpContent = {
       "Choose [[Day]], [[Week]] or [[Month]] to see more than one day's lessons.",
       "A teacher cannot change the outcome of a lesson the office recorded, but can still write its report.",
     ],
+  },
+
+  "lesson-reports": {
+    title: "Reports log",
+    summary: "Every private lesson report in one place: find an old report, read it in full, edit it.",
+    tasks: {
+      find: {
+        title: "How do I find an old report?",
+        steps: [
+          "Open [[Reports log]] from the menu. Reports run newest first, grouped by month.",
+          "Type the student's name or a word from the report in the search, or pick the student and a period such as [[Last month]].",
+          "Press a report to open it in full. [[Older]] and [[Newer]] move you between lessons.",
+          "To correct something press [[Edit report]].",
+        ],
+        note: "A lesson whose bill is closed can no longer have its report edited.",
+      },
+      missing: {
+        title: "How do I see the lessons I haven't reported?",
+        steps: [
+          "Open the [[Lessons without a report]] tab. The number beside it is how many taught lessons still wait for a report.",
+          "Press [[Write report]] beside the lesson, write it and save.",
+        ],
+      },
+    },
   },
 
   groups: {

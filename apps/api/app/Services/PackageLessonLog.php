@@ -273,7 +273,7 @@ final class PackageLessonLog
             ->select([
                 'se.id', 'se.student_id', 'se.teacher_id', 'se.schedule_id',
                 'se.scheduled_at_utc', 'se.duration_minutes', 'se.status', 'se.status_reason',
-                'se.original_session_id',
+                'se.original_session_id', 'se.billed', 'se.paid_to_teacher', 'se.teacher_pay_share_bp',
                 'st.full_name as student_name', 'te.full_name as teacher_name',
             ])
             ->orderBy('se.scheduled_at_utc')->orderBy('se.id');
@@ -315,6 +315,12 @@ final class PackageLessonLog
             'student_name' => $r->student_name,
             'teacher_name' => $r->teacher_name,
             'package_state' => $state,
+            // How a cancellation stands (PackageLessonCounting): does it count against the block,
+            // and how much of it the teacher is paid (null = not paid; 25, 50 or 100).
+            'counts' => (bool) ($r->billed ?? false),
+            'teacher_pay_percent' => (bool) ($r->paid_to_teacher ?? false)
+                ? (isset($r->teacher_pay_share_bp) && $r->teacher_pay_share_bp !== null ? intdiv((int) $r->teacher_pay_share_bp, 100) : 100)
+                : null,
             // Not on the calendar yet: the date the timetable gives it (it lands there as the
             // calendar rolls forward, by the same rules).
             'planned' => (bool) ($r->planned ?? false),

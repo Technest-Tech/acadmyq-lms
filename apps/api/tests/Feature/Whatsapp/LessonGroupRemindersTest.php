@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 use App\Jobs\LessonReminderJob;
 use App\Services\ModuleBilling;
+use App\Services\Whatsapp\GroupAlertCatalog;
+use App\Services\Whatsapp\GroupAlertMessage;
 use App\Services\Whatsapp\GroupAlerts;
 use App\Services\Whatsapp\WhatsAppSender;
 use App\Support\FeatureCatalog;
@@ -209,7 +211,8 @@ it('reminds the student and the teacher group ahead of a lesson, then again at i
         ->and(array_column($sends, 'to'))->toEqualCanonicalizing(['111-1@g.us', '222-2@g.us'])
         ->and($sends[0]['text'])->toContain('Lesson reminder')
         ->and($sends[0]['text'])->toContain('3:30 PM')
-        ->and($sends[0]['text'])->toContain('Mona Teacher with Omar Pupil')
+        ->and($sends[0]['text'])->toContain('Student: *Omar Pupil*')
+        ->and($sends[0]['text'])->toContain('Teacher: *Mona Teacher*')
         ->and($sends[0]['text'])->toContain('in 30 min');
 
     // Nothing new in between: each stage goes out once.
@@ -394,9 +397,64 @@ it('writes the message in Arabic by default', function () {
 
     reminderSweep($this->academy, '2026-11-03 13:00:00+00');
 
-    expect(reminderSends()[0]['text'])->toContain('تذكير بموعد الحصة')
-        ->and(reminderSends()[0]['text'])->toContain('3:30 م')
-        ->and(reminderSends()[0]['text'])->toContain('بعد 30 دقيقة');
+    expect(reminderSends()[0]['text'])->toBe(implode("\n", [
+        '⏰ *تذكير: الحصة بعد 30 دقيقة*',
+        '',
+        '🕒 الموعد: *3:30 م*',
+        '👤 الطالب: *Omar Pupil*',
+        '🧑‍🏫 المعلم: *Mona Teacher*',
+    ]));
+});
+
+it('lists several lessons as separate blocks, each with its own time left', function () {
+    $text = (new GroupAlertMessage)->compose(
+        GroupAlertCatalog::LESSON_REMINDER,
+        [
+            ['kind' => 'LESSON', 'teacher' => 'منى', 'student' => 'عمر', 'starts_at' => '2026-11-03T13:30:00+00:00'],
+            ['kind' => 'TRIAL', 'teacher' => 'هدى', 'student' => 'سارة', 'starts_at' => '2026-11-03T14:30:00+00:00'],
+            ['kind' => 'CLASS', 'teacher' => 'منى', 'class' => 'English A', 'starts_at' => '2026-11-03T15:00:00+00:00'],
+        ],
+        'ar',
+        'Africa/Cairo',
+        GroupAlertCatalog::DEFAULT_SETTINGS,
+        CarbonImmutable::parse('2026-11-03 13:00:00+00'),
+    );
+
+    expect($text)->toBe(implode("\n", [
+        '⏰ *تذكير بمواعيد الحصص*',
+        '',
+        '🕒 الموعد: *3:30 م* (بعد 30 دقيقة)',
+        '👤 الطالب: *عمر*',
+        '🧑‍🏫 المعلم: *منى*',
+        '',
+        '🎯 حصة تجريبية',
+        '🕒 الموعد: *4:30 م* (بعد ساعة ونصف)',
+        '👤 الطالب: *سارة*',
+        '🧑‍🏫 المعلم: *هدى*',
+        '',
+        '🕒 الموعد: *5:00 م* (بعد ساعتين)',
+        '👥 المجموعة: *English A*',
+        '🧑‍🏫 المعلم: *منى*',
+    ]));
+});
+
+it('says the lesson is starting now, without a countdown', function () {
+    $text = (new GroupAlertMessage)->compose(
+        GroupAlertCatalog::LESSON_STARTING,
+        [['kind' => 'TRIAL', 'teacher' => 'هدى', 'student' => 'سارة', 'starts_at' => '2026-11-03T13:30:00+00:00']],
+        'ar',
+        'Africa/Cairo',
+        GroupAlertCatalog::DEFAULT_SETTINGS,
+        CarbonImmutable::parse('2026-11-03 13:30:20+00'),
+    );
+
+    expect($text)->toBe(implode("\n", [
+        '🔔 *حان موعد الحصة التجريبية الآن*',
+        '',
+        '🕒 الموعد: *3:30 م*',
+        '👤 الطالب: *سارة*',
+        '🧑‍🏫 المعلم: *هدى*',
+    ]));
 });
 
 it('announces a free trial to the teacher group, and never prints the prospect number', function () {
@@ -419,7 +477,9 @@ it('announces a free trial to the teacher group, and never prints the prospect n
 
     $sends = reminderSends();
     expect($sends)->toHaveCount(1)
-        ->and($sends[0]['text'])->toContain('Trial: Mona Teacher with Prospect Sara')
+        ->and($sends[0]['text'])->toContain('Trial lesson reminder: starts in 15 min')
+        ->and($sends[0]['text'])->toContain('Student: *Prospect Sara*')
+        ->and($sends[0]['text'])->toContain('Teacher: *Mona Teacher*')
         ->and($sends[0]['text'])->not->toContain('+201000000009');
 });
 
@@ -466,7 +526,7 @@ it('announces a group-class lesson to its teacher and to the students on its ros
 
     $sends = reminderSends();
     expect(array_column($sends, 'to'))->toEqualCanonicalizing(['111-1@g.us', '222-2@g.us'])
-        ->and($sends[0]['text'])->toContain('group English A');
+        ->and($sends[0]['text'])->toContain('Group: *English A*');
 });
 
 // ── The WhatsApp page: launch, channel, audience ─────────────────────────────
@@ -498,7 +558,8 @@ it('messages the family and the teacher privately when the academy chooses priva
 
     $sends = reminderSends();
     expect(array_column($sends, 'to'))->toEqualCanonicalizing(['+201000000001', '+201000000002'])
-        ->and($sends[0]['text'])->toContain('Mona Teacher with Omar Pupil')
+        ->and($sends[0]['text'])->toContain('Student: *Omar Pupil*')
+        ->and($sends[0]['text'])->toContain('Teacher: *Mona Teacher*')
         ->and($sends[0]['text'])->toContain('in 20 min');
 
     $rows = collect(reminderRows($this->academy));
@@ -541,7 +602,7 @@ it('sends a parent of two children in the same class one private message', funct
     $sends = reminderSends();
     expect($sends)->toHaveCount(1)
         ->and($sends[0]['to'])->toBe('+201000000009')
-        ->and($sends[0]['text'])->toContain('group English A');
+        ->and($sends[0]['text'])->toContain('Group: *English A*');
 });
 
 it('announces a class lesson in the class\'s own WhatsApp group', function () {

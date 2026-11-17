@@ -1,5 +1,6 @@
 "use client";
 
+import { academyDayStartIso, academyTimeZone, academyToday } from "@/lib/academy-clock";
 import { CalendarCheck2, CheckCircle2, ClipboardCheck, Link2Off, Users, Video } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -16,12 +17,14 @@ import { listBoardLessons, type BoardLesson } from "@/lib/groups-api";
 import { cn } from "@/lib/utils";
 import { useOnlineLessons } from "@/lib/capabilities";
 
-/** Today's local-day window as ISO instants — the API takes the browser's own day bounds. */
+/** Today's window as ISO instants: the ACADEMY's day, whatever the device is set to. */
 function todayWindow(): { from: string; to: string } {
-  const now = new Date();
-  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
-  return { from: start.toISOString(), to: end.toISOString() };
+  const today = academyToday();
+  // Through UTC noon so no clock change can push the next day across a date line.
+  const next = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, Number(today.slice(8, 10)) + 1, 12))
+    .toISOString()
+    .slice(0, 10);
+  return { from: academyDayStartIso(today), to: academyDayStartIso(next) };
 }
 
 /**
@@ -60,7 +63,7 @@ export function MyLessonsToday({ groups = false }: { groups?: boolean }) {
   }, [groups]);
 
   const timeFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
+    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }),
     [locale],
   );
 

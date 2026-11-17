@@ -1,7 +1,10 @@
 "use client";
 
 import {
+  CalendarDays,
+  CalendarPlus,
   CalendarRange,
+  GraduationCap,
   Layers,
   Phone,
   Plus,
@@ -9,6 +12,8 @@ import {
   UserCheck,
   UserPlus,
   Users,
+  Wallet,
+  X,
   Zap,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
@@ -19,6 +24,8 @@ import {
   usePackageTerms,
 } from "@/components/packages/package-terms";
 import { MonthlyTermsFields, useMonthlyTerms } from "@/components/students/monthly-terms";
+import { ClockField } from "@/components/scheduling/clock-field";
+import { todayLocal } from "@/components/scheduling/start-date-field";
 import { StudentSubscriptionFields, useStudentSubscriptionDraft } from "@/components/subscriptions/student-subscription-fields";
 import {
   TeacherLinksField,
@@ -35,6 +42,8 @@ import {
   type GuardianRow,
   listGuardians,
   listTeachers,
+  putStudentSchedule,
+  type ScheduleSlot,
   type TeacherRow,
 } from "@/lib/api";
 import { fetchRoster } from "@/lib/roster";
@@ -45,6 +54,7 @@ import { addGroupMembers, listGroups, type GroupRow } from "@/lib/groups-api";
 import { LevelSelect } from "@/components/levels/level-select";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { formatMoney } from "@/lib/money";
+import { PaidFirstPackageField, usePaidFirstPackage } from "@/components/packages/paid-first-package";
 import { cn } from "@/lib/utils";
 import { useLevelsOn, useLevelWord } from "@/lib/levels";
 
@@ -121,6 +131,45 @@ export function ChoiceCard({
   );
 }
 
+/**
+ * One part of the form — who the student is, who teaches them and when, how they pay — as its own
+ * card with a heading, so a long form reads as three short ones (Ahmed 2026-11-17).
+ */
+function FormSection({
+  icon: Icon,
+  title,
+  hint,
+  testId,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  hint?: string;
+  testId?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="bg-card space-y-4 rounded-2xl border p-4 sm:p-5" data-testid={testId}>
+      <header className="flex items-start gap-3">
+        <span className="bg-primary/10 text-primary flex size-9 shrink-0 items-center justify-center rounded-xl">
+          <Icon className="size-4" aria-hidden />
+        </span>
+        <div className="min-w-0 pt-0.5">
+          <h3 className="text-sm font-semibold">{title}</h3>
+          {hint && <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{hint}</p>}
+        </div>
+      </header>
+      {children}
+    </section>
+  );
+}
+
+/** The week as the desk reads it: Saturday first. */
+const WEEK_ORDER = [6, 0, 1, 2, 3, 4, 5];
+
+/** Backend bounds for a slot's length (ScheduleController: integer, min:1, max:600). */
+const SLOT_MINUTES_MAX = 600;
+
 const dialOptions: ComboboxOption[] = COUNTRIES.map((c) => ({
   value: c.code,
   label: c.name,
@@ -161,10 +210,12 @@ type Billing = "monthly" | "package" | "none" | "subscription";
 // ── Component ──────────────────────────────────────────────────────────────────
 
 /**
- * A single, general "create student" form. The student's teachers — one per course, as many as
- * they study with — can be set right here; each teacher's weekly timetable is still built
- * afterwards from the profile's Schedule tab. The price is set here too, because it decides
- * which lifecycle the student is even in.
+ * A single, general "create student" form, in three cards: the student, their teachers and
+ * weekly timetable, their billing. The student's teachers — one per course, as many as they study
+ * with — can be set right here, and one weekly timetable with them (one lesson per picked day;
+ * anything richer is the profile's Schedule tab). The price is set here too, because it decides
+ * which lifecycle the student is even in. Where a lesson package can be sold it is the default
+ * (Ahmed 2026-11-17), paid up front from today.
  *
  * `intent` decides which lifecycle the new student starts in, because the two ways people arrive
  * are genuinely different:
@@ -200,6 +251,7 @@ export function StudentForm({
   onCancel: () => void;
 }) {
   const t = useTranslations("students");
+  const tSched = useTranslations("scheduling");
   const tLevels = useTranslations("levels");
   const tSubs = useTranslations("subscriptions");
   const word = useLevelWord();
@@ -282,7 +334,7 @@ export function StudentForm({
   // A centre with groups starts on "no private subscription": a private block is only ever sold by
   // picking it. Starting on it sold one to every group-only student whose tile nobody touched (lingo).
   const billing: Billing =
-    billingPick ?? (groupsOnlyChoice ? "none" : subscriptionAvailable ? "subscription" : centre && packagesAvailable ? "package" : "monthly");
+    billingPick ?? (groupsOnlyChoice ? "none" : subscriptionAvailable ? "subscription" : packagesAvailable ? "package" : "monthly");
   const [groupOptions, setGroupOptions] = useState<GroupRow[] | null>(null);
   const [groupQuery, setGroupQuery] = useState("");
   // The student's level / grade (docs/centre-profile, Phase 2.1) — optional, from the academy's
@@ -323,6 +375,8 @@ export function StudentForm({
   const guardianCurrency =
     (addingParent ? parentCurrency : (guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ?? "")) || defaults.currency;
   const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
+  // Paid before being added: the package opens on that paid bill instead of raising a second one.
+  const paidFirst = usePaidFirstPackage(selfGuardian || addingParent ? "" : (fixedGuardianId ?? guardianId));
   // A centre's block: the subject is one of the teacher links above, or a new one.
   const subscriptionDraft = useStudentSubscriptionDraft(teacherLinks.map((l) => ({ teacher_id: l.teacher_id, course: l.course.trim() || null })));
 
@@ -338,6 +392,56 @@ export function StudentForm({
   const choosable = intent === undefined;
   const enrolling = mode === "enrolled";
   const showPackage = enrolling && canPrice;
+  // Monthly — neither a package, a centre's block, nor groups alone.
+  const monthlyOn = !onPackage && !onSubscription && !groupsOnly;
+
+  /**
+   * The weekly timetable, saved right after the student (Ahmed 2026-11-17) — optional, and only
+   * for an active student: a trial's single lesson is booked from the trials board. Each picked
+   * day is one weekly lesson; two lessons on one day, or per-subject slots, stay with the full
+   * editor on the profile's Schedule tab.
+   */
+  const showTimetable = enrolling && can("schedule.manage") && canPickTeachers && teachers.length > 0;
+  const [timetableOn, setTimetableOn] = useState(false);
+  const [timetablePick, setTimetablePick] = useState("");
+  const [timezone, setTimezone] = useState("");
+  const [slots, setSlots] = useState<ScheduleSlot[]>([]);
+  const [lengthEdited, setLengthEdited] = useState(false);
+  // The lesson the price is for: every day starts at that length until someone types another.
+  const lessonLength = showPackage && onPackage ? terms.unitMinutes : showPackage && monthlyOn ? monthly.unitMinutes : null;
+  useEffect(() => {
+    if (lengthEdited || lessonLength === null) return;
+    setSlots((prev) => prev.map((slot) => ({ ...slot, duration_minutes: lessonLength })));
+  }, [lessonLength, lengthEdited]);
+  // The first teacher chosen above, until another one is picked for the timetable.
+  const linkedTeacherIds = teacherLinks.map((l) => l.teacher_id).filter(Boolean);
+  const timetableTeacher = timetablePick || linkedTeacherIds[0] || "";
+  const timetableTeacherOptions = useMemo<ComboboxOption[]>(() => {
+    const course = new Map(teacherLinks.filter((l) => l.teacher_id).map((l) => [l.teacher_id, l.course.trim()]));
+    return [...teachers]
+      .sort((a, b) => Number(course.has(b.id)) - Number(course.has(a.id)))
+      .map((tch) => ({ value: tch.id, label: tch.full_name, sublabel: course.get(tch.id) || undefined }));
+  }, [teachers, teacherLinks]);
+  const orderedSlots = [...slots].sort((a, b) => WEEK_ORDER.indexOf(a.weekday) - WEEK_ORDER.indexOf(b.weekday));
+
+  function toggleDay(day: number) {
+    setSlots((prev) => {
+      if (prev.some((slot) => slot.weekday === day)) return prev.filter((slot) => slot.weekday !== day);
+      const last = prev.at(-1);
+      return [
+        ...prev,
+        {
+          weekday: day,
+          start_time_local: last?.start_time_local ?? "17:00",
+          duration_minutes: last?.duration_minutes ?? lessonLength ?? 30,
+        },
+      ];
+    });
+  }
+
+  function updateSlot(day: number, patch: Partial<ScheduleSlot>) {
+    setSlots((prev) => prev.map((slot) => (slot.weekday === day ? { ...slot, ...patch } : slot)));
+  }
 
   useEffect(() => {
     if (!fixedGuardianId) {
@@ -429,6 +533,10 @@ export function StudentForm({
       setError(t("form.packageTermsRequired"));
       return false;
     }
+    if (showPackage && onPackage && !paidFirst.valid) {
+      setError(t("form.paidFirstRequired"));
+      return false;
+    }
     if (showPackage && onSubscription && !subscriptionDraft.valid) {
       setError(tSubs("studentForm.termsRequired"));
       return false;
@@ -441,6 +549,20 @@ export function StudentForm({
     if (showPackage && !onPackage && !onSubscription && !groupsOnly && !monthly.valid) {
       setError(t("form.packageRequired"));
       return false;
+    }
+    if (showTimetable && timetableOn) {
+      if (!timetableTeacher) {
+        setError(t("form.timetableTeacherRequired"));
+        return false;
+      }
+      if (slots.length === 0) {
+        setError(t("form.timetableDaysRequired"));
+        return false;
+      }
+      if (slots.some((slot) => !Number.isInteger(slot.duration_minutes) || slot.duration_minutes < 1 || slot.duration_minutes > SLOT_MINUTES_MAX)) {
+        setError(t("form.timetableLengthInvalid"));
+        return false;
+      }
     }
     setError(null);
     return true;
@@ -476,7 +598,9 @@ export function StudentForm({
         ...(links.length > 0 ? { teachers: links } : {}),
         // The package path opens the package in the same request, which also creates the
         // student's package-billing subscription — so it sends no `subscription` of its own.
-        ...(showPackage && onPackage ? { package: terms.toPayload() } : {}),
+        ...(showPackage && onPackage
+          ? { package: { ...terms.toPayload(), ...(paidFirst.paidInvoiceId !== null ? { paid_invoice_id: paidFirst.paidInvoiceId } : {}) } }
+          : {}),
         // A centre's block travels as `subscription` too (docs/centre-profile/01 "API contract").
         ...(showPackage && onSubscription ? { subscription: subscriptionDraft.toPayload() } : {}),
         ...(showPackage && !onPackage && !onSubscription && !groupsOnly ? { subscription: monthly.toPayload() } : {}),
@@ -491,9 +615,37 @@ export function StudentForm({
           failed.push(groupOptions?.find((g) => g.id === pick.id)?.name ?? pick.id);
         }
       }
-      if (failed.length > 0) {
+      // The timetable: from today — or from a billing start still ahead. This form never writes
+      // lessons into the past; a back-dated timetable is the profile editor's deliberate step.
+      let timetableFailed: string | null = null;
+      if (showTimetable && timetableOn && slots.length > 0 && timetableTeacher) {
+        const today = todayLocal();
+        const billStart = showPackage && onPackage ? terms.startsOn : showPackage && monthlyOn ? monthly.startDate : "";
+        try {
+          await putStudentSchedule(res.studentId, {
+            teacher_id: timetableTeacher,
+            timezone: timezone || undefined,
+            start_date: billStart > today ? billStart : today,
+            slots: slots.map((slot) => ({
+              weekday: slot.weekday,
+              start_time_local: slot.start_time_local,
+              duration_minutes: slot.duration_minutes,
+            })),
+          });
+        } catch (err) {
+          timetableFailed = err instanceof ApiError ? err.message : String(err);
+        }
+      }
+      if (failed.length > 0 || timetableFailed !== null) {
         setCreatedId(res.studentId);
-        setError(t("form.groupJoinFailed", { names: failed.join("، ") }));
+        setError(
+          [
+            failed.length > 0 ? t("form.groupJoinFailed", { names: failed.join("، ") }) : null,
+            timetableFailed !== null ? t("form.timetableFailed", { reason: timetableFailed }) : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
         return;
       }
       onCreated(res.studentId, { packageOpened: Boolean(res.packageId ?? res.subscriptionId) });
@@ -504,8 +656,19 @@ export function StudentForm({
     }
   }
 
+  const packageCard = (
+    <ChoiceCard
+      icon={Layers}
+      title={centre ? t("form.billingSubscription") : t("form.billingPackage")}
+      hint={centre ? t("form.billingSubscriptionHint") : t("form.billingPackageHint")}
+      selected={billing === "package"}
+      onSelect={() => setBilling("package")}
+      testId="billing-package"
+    />
+  );
+
   return (
-    <div className="space-y-5" data-testid="student-form">
+    <div className="space-y-4" data-testid="student-form">
       {error && (
         <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />
       )}
@@ -560,245 +723,388 @@ export function StudentForm({
         </div>
       )}
 
-      <Field label={t("form.fullName")} required>
-        <div className="relative">
-          <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            aria-label={t("form.fullName")}
-            className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-            placeholder={t("form.fullNamePlaceholder")}
-            value={fullName}
-            onChange={(e) => setFullName(e.target.value)}
-            required
-          />
-        </div>
-      </Field>
-
-      {/* Who the student belongs to. Stated as a switch rather than a tick-box because the two
-          answers are equally ordinary — an adult booking for themselves is not "the exception". */}
-      <div className="space-y-1.5">
-        <span className="text-sm font-medium">{t("form.guardianMode")}</span>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <ChoiceCard
-            icon={Users}
-            title={t("form.guardianModeFamily")}
-            hint={t("form.guardianModeFamilyHint")}
-            selected={!selfGuardian}
-            onSelect={() => setSelfGuardian(false)}
-            testId="guardian-mode-family"
-          />
-          <ChoiceCard
-            icon={UserCheck}
-            title={t("form.guardianModeSingle")}
-            hint={t("form.guardianModeSingleHint")}
-            selected={selfGuardian}
-            onSelect={() => setSelfGuardian(true)}
-            testId="guardian-mode-single"
-          />
-        </div>
-      </div>
-
-      {selfGuardian ? (
-        <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-muted-foreground">
-          {t("form.selfGuardianHint")}
-        </p>
-      ) : (
-        !fixedGuardianId && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <label className="text-sm font-medium">
-                {addingParent ? t("form.newGuardian") : t("form.guardian")}
-                <span className="text-destructive ms-0.5">*</span>
-              </label>
-              {canCreateGuardian && (
-                <button
-                  type="button"
-                  onClick={() => setNewParent((v) => !v)}
-                  className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
-                  data-testid="guardian-new-toggle"
-                >
-                  {addingParent ? (
-                    <>
-                      <Users className="size-3.5" aria-hidden />
-                      {t("form.pickExistingGuardian")}
-                    </>
-                  ) : (
-                    <>
-                      <UserPlus className="size-3.5" aria-hidden />
-                      {t("form.addNewGuardian")}
-                    </>
-                  )}
-                </button>
-              )}
+      {/* ── 1 · The student ──────────────────────────────────────────────── */}
+      <FormSection icon={User} title={t("form.sectionStudent")} testId="section-student">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Field label={t("form.fullName")} required>
+            <div className="relative">
+              <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                aria-label={t("form.fullName")}
+                className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                placeholder={t("form.fullNamePlaceholder")}
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+              />
             </div>
+          </Field>
 
-            {addingParent ? (
-              <div
-                className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-3.5"
-                data-testid="new-guardian"
-              >
-                <p className="text-muted-foreground text-xs">{t("form.newGuardianHint")}</p>
-                <Field label={t("form.guardianName")} required>
-                  <div className="relative">
-                    <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      aria-label={t("form.guardianName")}
-                      className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
-                      placeholder={t("form.guardianNamePlaceholder")}
-                      value={parentName}
-                      onChange={(e) => setParentName(e.target.value)}
-                    />
-                  </div>
-                </Field>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Field label={t("form.guardianPhone")} required>
-                    <PhoneInput
-                      value={parentPhone}
-                      onChange={setParentPhone}
-                      ariaLabel={t("form.guardianPhone")}
-                      testId="new-guardian-phone"
-                    />
+          <Field label={t("form.country")}>
+            <Combobox
+              options={countryOptions}
+              value={country}
+              onChange={handleCountryChange}
+              placeholder={t("form.countryPlaceholder")}
+              searchPlaceholder={t("form.searchCountry")}
+            />
+          </Field>
+
+          {/* Level / grade — the academy's classification, from its own list (Settings) */}
+          {levelsOn && (
+            <Field label={tLevels("select.label", { word })}>
+              <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="student-level" />
+            </Field>
+          )}
+        </div>
+
+        {/* Who the student belongs to. Stated as a switch rather than a tick-box because the two
+            answers are equally ordinary — an adult booking for themselves is not "the exception". */}
+        <div className="space-y-1.5">
+          <span className="text-sm font-medium">{t("form.guardianMode")}</span>
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <ChoiceCard
+              icon={Users}
+              title={t("form.guardianModeFamily")}
+              hint={t("form.guardianModeFamilyHint")}
+              selected={!selfGuardian}
+              onSelect={() => setSelfGuardian(false)}
+              testId="guardian-mode-family"
+            />
+            <ChoiceCard
+              icon={UserCheck}
+              title={t("form.guardianModeSingle")}
+              hint={t("form.guardianModeSingleHint")}
+              selected={selfGuardian}
+              onSelect={() => setSelfGuardian(true)}
+              testId="guardian-mode-single"
+            />
+          </div>
+        </div>
+
+        {selfGuardian ? (
+          <p className="rounded-xl border border-primary/20 bg-primary/5 px-3.5 py-2.5 text-xs text-muted-foreground">
+            {t("form.selfGuardianHint")}
+          </p>
+        ) : (
+          !fixedGuardianId && (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-sm font-medium">
+                  {addingParent ? t("form.newGuardian") : t("form.guardian")}
+                  <span className="text-destructive ms-0.5">*</span>
+                </label>
+                {canCreateGuardian && (
+                  <button
+                    type="button"
+                    onClick={() => setNewParent((v) => !v)}
+                    className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+                    data-testid="guardian-new-toggle"
+                  >
+                    {addingParent ? (
+                      <>
+                        <Users className="size-3.5" aria-hidden />
+                        {t("form.pickExistingGuardian")}
+                      </>
+                    ) : (
+                      <>
+                        <UserPlus className="size-3.5" aria-hidden />
+                        {t("form.addNewGuardian")}
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {addingParent ? (
+                <div
+                  className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-3.5"
+                  data-testid="new-guardian"
+                >
+                  <p className="text-muted-foreground text-xs">{t("form.newGuardianHint")}</p>
+                  <Field label={t("form.guardianName")} required>
+                    <div className="relative">
+                      <User className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        aria-label={t("form.guardianName")}
+                        className={cn(inputBase, "py-2.5 ps-10 pe-3.5")}
+                        placeholder={t("form.guardianNamePlaceholder")}
+                        value={parentName}
+                        onChange={(e) => setParentName(e.target.value)}
+                      />
+                    </div>
                   </Field>
-                  <Field label={t("form.secondaryPhone")}>
-                    <PhoneInput
-                      value={parentOtherPhone}
-                      onChange={setParentOtherPhone}
-                      ariaLabel={t("form.guardianSecondaryPhone")}
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <Field label={t("form.guardianPhone")} required>
+                      <PhoneInput
+                        value={parentPhone}
+                        onChange={setParentPhone}
+                        ariaLabel={t("form.guardianPhone")}
+                        testId="new-guardian-phone"
+                      />
+                    </Field>
+                    <Field label={t("form.secondaryPhone")}>
+                      <PhoneInput
+                        value={parentOtherPhone}
+                        onChange={setParentOtherPhone}
+                        ariaLabel={t("form.guardianSecondaryPhone")}
+                      />
+                    </Field>
+                  </div>
+                  <Field label={t("subscription.currency")} hint={t("form.guardianCurrencyHint")}>
+                    <Combobox
+                      options={currencyOptions}
+                      value={parentCurrency}
+                      onChange={setParentCurrency}
+                      placeholder={t("form.currencyPlaceholder")}
+                      searchPlaceholder={t("form.searchCurrency")}
                     />
                   </Field>
                 </div>
-                <Field label={t("subscription.currency")} hint={t("form.guardianCurrencyHint")}>
-                  <Combobox
-                    options={currencyOptions}
-                    value={parentCurrency}
-                    onChange={setParentCurrency}
-                    placeholder={t("form.currencyPlaceholder")}
-                    searchPlaceholder={t("form.searchCurrency")}
-                  />
-                </Field>
+              ) : (
+                <Combobox
+                  options={guardians.map((g) => ({
+                    value: g.id,
+                    label: g.full_name,
+                    sublabel: g.whatsapp_phone,
+                  }))}
+                  value={guardianId}
+                  onChange={handleGuardianChange}
+                  placeholder={t("form.none")}
+                  searchPlaceholder={t("form.searchGuardian")}
+                  data-testid="guardian-select"
+                />
+              )}
+            </div>
+          )
+        )}
+
+        {!selfGuardian && !ownPhones && (
+          <button
+            type="button"
+            onClick={() => setOwnPhones(true)}
+            className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
+            data-testid="own-phones-toggle"
+          >
+            <Phone className="size-3.5" aria-hidden />
+            {t("form.ownPhones")}
+            <span className="text-muted-foreground font-normal">· {t("form.ownPhonesHint")}</span>
+          </button>
+        )}
+
+        {(selfGuardian || ownPhones) && (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <Field label={t("form.phone")} hint={t("form.phoneHint")}>
+              <div
+                dir="ltr"
+                className={cn(
+                  "border-input flex h-10 overflow-hidden rounded-xl border transition-all",
+                  "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
+                )}
+              >
+                <DialCodePicker
+                  options={dialOptions}
+                  value={dialCountry}
+                  onChange={setDialCountry}
+                  searchPlaceholder="Country or code…"
+                />
+                <input
+                  dir="ltr"
+                  type="tel"
+                  inputMode="numeric"
+                  aria-label={t("form.phone")}
+                  placeholder="512345678"
+                  value={localNumber}
+                  onChange={(e) => setLocalNumber(e.target.value.replace(/[^\d]/g, ""))}
+                  className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
+                />
               </div>
-            ) : (
-              <Combobox
-                options={guardians.map((g) => ({
-                  value: g.id,
-                  label: g.full_name,
-                  sublabel: g.whatsapp_phone,
-                }))}
-                value={guardianId}
-                onChange={handleGuardianChange}
-                placeholder={t("form.none")}
-                searchPlaceholder={t("form.searchGuardian")}
-                data-testid="guardian-select"
+            </Field>
+
+            <Field label={t("form.secondaryPhone")} hint={t("form.secondaryPhoneHint")}>
+              <PhoneInput
+                value={otherPhone}
+                onChange={setOtherPhone}
+                ariaLabel={t("form.secondaryPhone")}
+                testId="student-secondary-phone"
               />
-            )}
+            </Field>
           </div>
-        )
-      )}
+        )}
+      </FormSection>
 
-      {!selfGuardian && !ownPhones && (
-        <button
-          type="button"
-          onClick={() => setOwnPhones(true)}
-          className="text-primary inline-flex items-center gap-1 text-xs font-semibold underline-offset-4 hover:underline"
-          data-testid="own-phones-toggle"
-        >
-          <Phone className="size-3.5" aria-hidden />
-          {t("form.ownPhones")}
-          <span className="text-muted-foreground font-normal">· {t("form.ownPhonesHint")}</span>
-        </button>
-      )}
-
-      {(selfGuardian || ownPhones) && (
-        <>
-      <Field label={t("form.phone")} hint={t("form.phoneHint")}>
-        <div
-          dir="ltr"
-          className={cn(
-            "border-input flex h-10 overflow-hidden rounded-xl border transition-all",
-            "focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20",
-          )}
-        >
-          <DialCodePicker
-            options={dialOptions}
-            value={dialCountry}
-            onChange={setDialCountry}
-            searchPlaceholder="Country or code…"
-          />
-          <input
-            dir="ltr"
-            type="tel"
-            inputMode="numeric"
-            aria-label={t("form.phone")}
-            placeholder="512345678"
-            value={localNumber}
-            onChange={(e) => setLocalNumber(e.target.value.replace(/[^\d]/g, ""))}
-            className="flex-1 bg-transparent px-3 text-sm outline-none placeholder:text-muted-foreground"
-          />
-        </div>
-      </Field>
-
-      <Field label={t("form.secondaryPhone")} hint={t("form.secondaryPhoneHint")}>
-        <PhoneInput
-          value={otherPhone}
-          onChange={setOtherPhone}
-          ariaLabel={t("form.secondaryPhone")}
-          testId="student-secondary-phone"
-        />
-      </Field>
-        </>
-      )}
-
-      <Field label={t("form.country")}>
-        <Combobox
-          options={countryOptions}
-          value={country}
-          onChange={handleCountryChange}
-          placeholder={t("form.countryPlaceholder")}
-          searchPlaceholder={t("form.searchCountry")}
-        />
-      </Field>
-
-      {/* ── Level / grade — the academy's classification, from its own list (Settings) ── */}
-      {levelsOn && (
-        <Field label={tLevels("select.label", { word })}>
-          <LevelSelect value={levelId} onChange={setLevelId} withAddLink testId="student-level" />
-        </Field>
-      )}
-
-      {/* ── Teachers ────────────────────────────────────────────────────────
+      {/* ── 2 · Teachers and the weekly timetable ──────────────────────────
           A list, because a student may study different courses with different teachers. */}
       {canPickTeachers && teachers.length > 0 && (
-        <Field label={t("form.teachers")} hint={t("teacher.formHint")}>
+        <FormSection
+          icon={GraduationCap}
+          title={showTimetable ? t("form.sectionTeachers") : t("form.teachers")}
+          hint={t("teacher.formHint")}
+          testId="section-teachers"
+        >
           <TeacherLinksField
             value={teacherLinks}
             onChange={setTeacherLinks}
             teachers={teachers}
             disabled={busy}
           />
-        </Field>
+
+          {showTimetable &&
+            (!timetableOn ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setTimetableOn(true);
+                  if (slots.length === 0) toggleDay(WEEK_ORDER[0] ?? 6);
+                }}
+                className="group hover:border-primary/40 hover:bg-primary/5 hover:text-primary text-muted-foreground flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed px-3 py-3 text-sm font-semibold transition-colors"
+                data-testid="timetable-open"
+              >
+                <CalendarPlus className="size-4" aria-hidden />
+                {t("form.timetableAdd")}
+                <span className="hidden font-normal sm:inline">· {t("form.timetableAddHint")}</span>
+              </button>
+            ) : (
+              <div className="space-y-4 rounded-xl border bg-muted/20 p-3.5" data-testid="new-student-timetable">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="flex items-center gap-1.5 text-sm font-semibold">
+                      <CalendarDays className="text-primary size-4" aria-hidden />
+                      {t("form.timetableTitle")}
+                    </p>
+                    <p className="text-muted-foreground mt-0.5 text-xs">{t("form.timetableHint")}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setTimetableOn(false)}
+                    className="text-muted-foreground hover:text-destructive shrink-0 text-xs font-medium"
+                    data-testid="timetable-close"
+                  >
+                    {t("form.timetableRemove")}
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <Field label={t("form.timetableTeacher")} required>
+                    <Combobox
+                      options={timetableTeacherOptions}
+                      value={timetableTeacher}
+                      onChange={setTimetablePick}
+                      placeholder={tSched("timetables.selectTeacher")}
+                      searchPlaceholder={tSched("timetables.searchTeacher")}
+                      data-testid="timetable-teacher"
+                    />
+                  </Field>
+                  <div className="space-y-1.5">
+                    <span className="text-sm font-medium">{t("form.timetableDays")}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {WEEK_ORDER.map((day) => {
+                        const on = slots.some((slot) => slot.weekday === day);
+                        return (
+                          <button
+                            key={day}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => toggleDay(day)}
+                            data-testid={`timetable-day-${day}`}
+                            className={cn(
+                              "rounded-lg border px-2.5 py-1.5 text-xs font-semibold transition-colors",
+                              on
+                                ? "border-primary bg-primary text-primary-foreground"
+                                : "border-input bg-background text-muted-foreground hover:bg-muted/50",
+                            )}
+                          >
+                            {tSched(`weekday.${day}`)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {orderedSlots.length > 0 && (
+                  <ul className="bg-background divide-y rounded-xl border" data-testid="timetable-slots">
+                    {orderedSlots.map((slot) => (
+                      <li
+                        key={slot.weekday}
+                        className="grid grid-cols-[4.5rem_minmax(0,1fr)_minmax(0,1fr)_auto] items-center gap-2 px-3 py-2"
+                        data-testid={`timetable-slot-${slot.weekday}`}
+                      >
+                        <span className="text-sm font-medium">{tSched(`weekday.${slot.weekday}`)}</span>
+                        <input
+                          type="time"
+                          aria-label={`${tSched("startTime")} · ${tSched(`weekday.${slot.weekday}`)}`}
+                          className={cn(inputBase, "px-2.5 py-1.5")}
+                          value={slot.start_time_local}
+                          onChange={(e) => updateSlot(slot.weekday, { start_time_local: e.target.value })}
+                        />
+                        <div className="relative">
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min={1}
+                            max={SLOT_MINUTES_MAX}
+                            step={5}
+                            aria-label={`${tSched("duration")} · ${tSched(`weekday.${slot.weekday}`)}`}
+                            className={cn(inputBase, "py-1.5 ps-2.5 pe-12")}
+                            value={slot.duration_minutes || ""}
+                            onChange={(e) => {
+                              setLengthEdited(true);
+                              updateSlot(slot.weekday, { duration_minutes: Number(e.target.value) });
+                            }}
+                          />
+                          <span className="text-muted-foreground pointer-events-none absolute end-3 top-1/2 -translate-y-1/2 text-xs">
+                            {t("form.minutesShort")}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label={tSched("removeSlot")}
+                          onClick={() => toggleDay(slot.weekday)}
+                          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive flex size-8 items-center justify-center rounded-lg transition-colors"
+                        >
+                          <X className="size-4" aria-hidden />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                {/* Which clock the timetable keeps: the academy's, or the student's country. */}
+                <ClockField
+                  className="sm:max-w-md"
+                  value={timezone}
+                  slots={slots}
+                  studentCountry={country || null}
+                  studentTimezone={null}
+                  disabled={busy}
+                  onChange={(tz, next) => {
+                    setTimezone(tz);
+                    setSlots(next);
+                  }}
+                />
+                <p className="text-muted-foreground text-[11px]">{t("form.timetableStartsToday")}</p>
+              </div>
+            ))}
+        </FormSection>
       )}
 
-      {/* ── Billing ─────────────────────────────────────────────────────────
+      {/* ── 3 · Billing ─────────────────────────────────────────────────────
           Only for an active student, and only for whoever may name a price. A role without
           `student.set_price` still gets to create the learner; billing is added later by
           someone who may price, rather than the whole card being denied to them.
 
-          Monthly or package is the first question inside it, because it changes what every field
+          Package or monthly is the first question inside it, because it changes what every field
           below means. Picking package shows the very same fields as the packages screen and opens
           the package in this save — there is no second step on another page. */}
       {enrolling &&
         (canPrice ? (
-          <div
-            className="space-y-3 rounded-xl border border-primary/20 bg-primary/[0.04] p-3.5"
-            data-testid="billing-details"
+          <FormSection
+            icon={Wallet}
+            title={t("form.billingTitle")}
+            hint={onSubscription ? tSubs("studentForm.intro") : onPackage ? t("form.billingPackageIntro") : groupsOnly ? t("form.groupsOnlyIntro") : t("form.packageHint")}
+            testId="billing-details"
           >
-            <div>
-              <p className="text-sm font-semibold">{t("form.billingTitle")}</p>
-              <p className="text-muted-foreground mt-0.5 text-xs">
-                {onSubscription ? tSubs("studentForm.intro") : onPackage ? t("form.billingPackageIntro") : groupsOnly ? t("form.groupsOnlyIntro") : t("form.packageHint")}
-              </p>
-            </div>
-
             {groupsOn && (
               <div className="space-y-2 rounded-xl border bg-background/60 p-3" data-testid="group-subs">
                 <div>
@@ -911,7 +1217,9 @@ export function StudentForm({
             ) : (packagesAvailable || groupsOnlyChoice) && (
               <div className="space-y-1.5">
                 {groupsOnlyChoice && <p className="text-sm font-semibold">{t("form.privateTitle")}</p>}
+                {/* A Quran academy sells packages first (Ahmed 2026-11-17): the package card leads. */}
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {!centre && packagesAvailable && packageCard}
                   <ChoiceCard
                     icon={CalendarRange}
                     title={groupsOnlyChoice ? t("form.noPrivate") : t("form.billingMonthly")}
@@ -921,14 +1229,7 @@ export function StudentForm({
                     testId="billing-monthly"
                   />
                   {packagesAvailable ? (
-                    <ChoiceCard
-                      icon={Layers}
-                      title={centre ? t("form.billingSubscription") : t("form.billingPackage")}
-                      hint={centre ? t("form.billingSubscriptionHint") : t("form.billingPackageHint")}
-                      selected={billing === "package"}
-                      onSelect={() => setBilling("package")}
-                      testId="billing-package"
-                    />
+                    centre && packageCard
                   ) : (
                     <ChoiceCard
                       icon={Layers}
@@ -952,11 +1253,14 @@ export function StudentForm({
                 idPrefix="new-student-sub"
               />
             ) : onPackage ? (
-              <PackageTermsFields terms={terms} idPrefix="new-student-pkg" />
+              <>
+                <PackageTermsFields terms={terms} idPrefix="new-student-pkg" simple />
+                <PaidFirstPackageField state={paidFirst} priceMinor={terms.priceMinor} idPrefix="new-student-pkg" />
+              </>
             ) : groupsOnly ? null : (
               <MonthlyTermsFields terms={monthly} idPrefix="new-student-monthly" />
             )}
-          </div>
+          </FormSection>
         ) : (
           <p className="rounded-xl border border-dashed px-3.5 py-2.5 text-xs text-muted-foreground">
             {t("form.packageNoRights")}

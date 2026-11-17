@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   Check,
   Copy,
@@ -15,13 +16,14 @@ import { useAuth } from "@/components/auth-provider";
 import { MethodBadge, dayLabel } from "@/components/accounting/accounting-ui";
 import { ReceiptDetailModal } from "@/components/accounting/receipt-detail-modal";
 import { DeleteInvoiceModal } from "@/components/invoices/delete-invoice-modal";
+import { DueDateChip, DueDateField } from "@/components/invoices/due-date";
 import { MarkPaidModal } from "@/components/invoices/mark-paid-modal";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import type { ReceiptMethod } from "@/lib/accounting-api";
-import { ApiError, apiFetch } from "@/lib/api";
+import { ApiError, apiFetch, setInvoiceDueOn } from "@/lib/api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +44,9 @@ export interface InvoiceLineItem {
 
 export interface InvoiceDetail {
   id: string;
+  kind?: "AUTO" | "MANUAL";
+  /** The academy-local day a hand-made bill is to be paid by, if one was set. */
+  due_on?: string | null;
   payer_name: string;
   payer_type: "GUARDIAN" | "STUDENT";
   payer_phone: string | null;
@@ -370,6 +375,9 @@ export function InvoiceDetailModal({
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [receipts, setReceipts] = useState<InvoiceReceipt[] | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
+  // Changing the pay-by date in place: null = not editing, else the draft ("" clears it).
+  const [dueDraft, setDueDraft] = useState<string | null>(null);
+  const [dueSaving, setDueSaving] = useState(false);
   const tAcc = useTranslations("accounting");
 
   // WhatsApp send-link state
@@ -398,6 +406,7 @@ export function InvoiceDetailModal({
     if (invoiceId) {
       setInvoice(null);
       setLineItems([]);
+      setDueDraft(null);
       void load(invoiceId);
     }
   }, [invoiceId, load]);
@@ -558,14 +567,64 @@ export function InvoiceDetailModal({
                 )}
                 <p className="text-muted-foreground mt-1 text-xs">
                   {t("createdOn", {
-                    date: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(
+                    date: new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short", timeZone: academyTimeZone() }).format(
                       new Date(invoice.created_at),
                     ),
                   })}
                 </p>
+                {invoice.kind === "MANUAL" && invoice.status !== "VOID" && (
+                  <div className="mt-2 space-y-2" data-testid="invoice-detail-due">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-muted-foreground text-xs">{t("due.label")}:</span>
+                      <DueDateChip dueOn={invoice.due_on} settled={balanceDue === 0} />
+                      {can("invoice.create") && dueDraft === null && (
+                        <button
+                          type="button"
+                          onClick={() => setDueDraft(invoice.due_on ?? "")}
+                          className="text-primary text-xs font-semibold underline-offset-4 hover:underline"
+                          data-testid="invoice-due-edit"
+                        >
+                          {invoice.due_on ? t("due.change") : t("due.set")}
+                        </button>
+                      )}
+                    </div>
+                    {dueDraft !== null && (
+                      <div className="bg-background space-y-2 rounded-lg border p-3">
+                        <DueDateField value={dueDraft} onChange={setDueDraft} disabled={dueSaving} idPrefix="invoice-due" />
+                        <div className="flex justify-end gap-2">
+                          <Button type="button" size="sm" variant="ghost" disabled={dueSaving} onClick={() => setDueDraft(null)}>
+                            {t("due.cancel")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={dueSaving}
+                            data-testid="invoice-due-save"
+                            onClick={async () => {
+                              setDueSaving(true);
+                              try {
+                                const res = await setInvoiceDueOn(invoice.id, dueDraft === "" ? null : dueDraft);
+                                setInvoice((prev) => (prev ? { ...prev, due_on: res.due_on } : prev));
+                                setDueDraft(null);
+                                void load(invoice.id);
+                              } catch (err) {
+                                setError(err instanceof ApiError ? err.message : String(err));
+                              } finally {
+                                setDueSaving(false);
+                              }
+                            }}
+                          >
+                            {dueSaving && <Loader2 className="size-3.5 animate-spin" aria-hidden />}
+                            {t("due.save")}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
                 {invoice.needs_follow_up && (
                   <p className="mt-1 text-xs font-semibold text-red-600 dark:text-red-400" data-testid="invoice-detail-follow-up">
-                    {t("followUpDetail")}
+                    {invoice.due_on ? t("due.followUpDetail") : t("followUpDetail")}
                   </p>
                 )}
               </div>

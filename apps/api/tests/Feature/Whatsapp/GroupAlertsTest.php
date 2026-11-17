@@ -290,8 +290,9 @@ it('announces a free trial at its start time, with the prospect\'s number', func
     expect($sent)->toHaveCount(1);
     expect($sent[0]->data()['text'])
         ->toContain('Trial lesson starting now')
-        ->toContain('Mona Teacher with Sara Lead')
-        ->toContain('+201112223334')
+        ->toContain('Student: *Sara Lead*')
+        ->toContain('Teacher: *Mona Teacher*')
+        ->toContain('Phone: +201112223334')
         ->toContain('/trials');
     expect(groupAlerts($this->academy, 'TRIAL_STARTED')->pluck('subject_key')->all())->toBe([$starting]);
 });
@@ -493,7 +494,10 @@ it('reminds the accounting group about an unpaid invoice every N days until it i
     expect(sentMessages())->toHaveCount(1);
     expect(sentMessages()[0]->data()['text'])
         ->toContain('Invoice still unpaid')
-        ->toContain('Hassan Family — 1,000 EGP due — invoice 8/2026 — 2 day(s) late — +201001112223')
+        ->toContain('Name: *Hassan Family*')
+        ->toContain('Due: *1,000 EGP*')
+        ->toContain('Invoice 8/2026 · 2 days late')
+        ->toContain('Phone: +201001112223')
         ->toContain('/i/'.$token)
         ->not->toContain('50 EGP')
         ->not->toContain('70 EGP');
@@ -508,14 +512,14 @@ it('reminds the accounting group about an unpaid invoice every N days until it i
     Carbon::setTestNow('2026-09-05 08:00:00');
     sweepGroups($this->academy);
     expect(sentMessages())->toHaveCount(2);
-    expect(sentMessages()[1]->data()['text'])->toContain('4 day(s) late');
+    expect(sentMessages()[1]->data()['text'])->toContain('4 days late');
 
     // Paid in part: still reminded, with what is left.
     $this->asAcademy($this->academy);
     DB::table('invoices')->where('id', $late)->update(['status' => 'PARTIALLY_PAID', 'amount_paid_minor' => 40000]);
     Carbon::setTestNow('2026-09-07 08:00:00');
     sweepGroups($this->academy);
-    expect(sentMessages()[2]->data()['text'])->toContain('600 EGP due of 1,000 EGP');
+    expect(sentMessages()[2]->data()['text'])->toContain('Due: *600 EGP* of 1,000 EGP');
 
     // The rest is paid: the reminders stop (decided by the money owed, not the status label).
     $this->asAcademy($this->academy);

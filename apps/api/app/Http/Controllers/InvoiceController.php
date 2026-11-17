@@ -34,16 +34,18 @@ final class InvoiceController extends Controller
     public const FOLLOW_UP_HOURS = 24;
 
     /**
-     * The bill needs chasing: a hand-made one (quick, itemized or advance) still owing money
-     * {@see FOLLOW_UP_HOURS} after it was raised. A package's own bill is MANUAL too, but the
-     * due-packages page and its badge already chase those, so they are left out here rather than
-     * counted twice. Its one binding is {@see followUpCutoff()}.
+     * The bill needs chasing: a hand-made one (quick, itemized or advance) still owing money the
+     * day after its pay-by date (`due_on`) — or, without one, {@see FOLLOW_UP_HOURS} after it was
+     * raised. A package's own bill is MANUAL too, but the due-packages page and its badge already
+     * chase those, so they are left out here rather than counted twice. Its two bindings are
+     * {@see followUpBindings()}: the academy's today, then the raised-before cutoff.
      */
     private const FOLLOW_UP_SQL = <<<'SQL'
         (inv.kind = 'MANUAL'
          and inv.status in ('OPEN', 'CLOSED', 'PARTIALLY_PAID')
          and inv.total_minor > inv.amount_paid_minor
-         and inv.created_at < cast(? as timestamptz)
+         and (case when inv.due_on is not null then inv.due_on < cast(? as date)
+                   else inv.created_at < cast(? as timestamptz) end)
          and not exists (select 1 from lesson_packages lp where lp.invoice_id = inv.id)
          and not exists (select 1 from lesson_packages lp where lp.overdraft_invoice_id = inv.id)
          and not exists (select 1 from centre_subscriptions cs where cs.invoice_id = inv.id))
@@ -90,6 +92,20 @@ final class InvoiceController extends Controller
         return now()->subHours(self::FOLLOW_UP_HOURS)->toIso8601String();
     }
 
+    /**
+     * {@see FOLLOW_UP_SQL}'s bindings: today on the academy's clock (a pay-by date is an academy
+     * day — never the database's own zone), then the cutoff for bills without one.
+     *
+     * @return array{0:string,1:string}
+     */
+    private static function followUpBindings(): array
+    {
+        $academyId = app(AuthContext::class)->academyId;
+        $tz = $academyId !== null ? (string) (DB::table('academies')->where('id', $academyId)->value('timezone') ?: 'UTC') : 'UTC';
+
+        return [now($tz)->toDateString(), self::followUpCutoff()];
+    }
+
     // -------------------------------------------------------------------------
     // GET /api/invoices
     // -------------------------------------------------------------------------
@@ -126,11 +142,15 @@ final class InvoiceController extends Controller
                 'inv.paid_at',
                 'inv.public_token',
                 'inv.created_at',
+                'inv.due_on',
                 DB::raw('coalesce(g.full_name, sg.full_name) as guardian_name'),
                 DB::raw(self::CHILDREN_SQL.' as children'),
                 DB::raw(self::DELETABLE_SQL.' as can_delete'),
+                // What a hand-made bill is for — its first line — and how many lines it has.
+                DB::raw('(select li.description from invoice_line_items li where li.invoice_id = inv.id order by li.created_at, li.id limit 1) as description'),
+                DB::raw('(select count(*) from invoice_line_items li where li.invoice_id = inv.id) as line_count'),
             ])
-            ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', [self::followUpCutoff()]);
+            ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', self::followUpBindings());
 
         // A bill is most often looked up by a child's name ("Yusuf's bill"), which a column search
         // cannot reach when the bill is the family's — so this replaces DataTable's own search.
@@ -170,8 +190,19 @@ final class InvoiceController extends Controller
                 'kind' => fn ($q, $v) => $q->where('inv.kind', $v),
                 'follow_up' => function ($q, $v): void {
                     if ((string) $v === '1') {
-                        $q->whereRaw(self::FOLLOW_UP_SQL, [self::followUpCutoff()]);
+                        $q->whereRaw(self::FOLLOW_UP_SQL, self::followUpBindings());
                     }
+                },
+                // A hand-made bill by its pay-by date: still owing past it, owing with it ahead, or none set.
+                'due' => function ($q, $v): void {
+                    $today = self::followUpBindings()[0];
+                    $owing = "inv.status in ('OPEN', 'CLOSED', 'PARTIALLY_PAID') and inv.total_minor > inv.amount_paid_minor";
+                    match ((string) $v) {
+                        'overdue' => $q->whereNotNull('inv.due_on')->where('inv.due_on', '<', $today)->whereRaw($owing),
+                        'upcoming' => $q->whereNotNull('inv.due_on')->where('inv.due_on', '>=', $today)->whereRaw($owing),
+                        'none' => $q->whereNull('inv.due_on'),
+                        default => null,
+                    };
                 },
                 'period_year' => fn ($q, $v) => $q->where('inv.period_year', (int) $v),
                 'period_month' => fn ($q, $v) => $q->where('inv.period_month', (int) $v),
@@ -191,6 +222,7 @@ final class InvoiceController extends Controller
                 'total_minor' => 'inv.total_minor',
                 'status' => 'inv.status',
                 'created_at' => 'inv.created_at',
+                'due_on' => DB::raw('inv.due_on'),
             ],
             'defaultSort' => '-period',
             'idColumn' => 'inv.id',
@@ -201,6 +233,7 @@ final class InvoiceController extends Controller
                 $r->children = json_decode((string) $r->children, true) ?: [];
                 $r->needs_follow_up = (bool) $r->needs_follow_up;
                 $r->can_delete = (bool) $r->can_delete;
+                $r->line_count = (int) $r->line_count;
 
                 return $r;
             }),
@@ -224,7 +257,7 @@ final class InvoiceController extends Controller
         Gate::authorize('invoice.read');
 
         return response()->json([
-            'count' => DB::table('invoices as inv')->whereRaw(self::FOLLOW_UP_SQL, [self::followUpCutoff()])->count(),
+            'count' => DB::table('invoices as inv')->whereRaw(self::FOLLOW_UP_SQL, self::followUpBindings())->count(),
             'grace_hours' => self::FOLLOW_UP_HOURS,
         ]);
     }
@@ -333,6 +366,8 @@ final class InvoiceController extends Controller
             'amount_minor' => ['required', 'integer', 'min:1'],
             'currency' => ['required', 'string', 'size:3'],
             'description' => ['required', 'string', 'max:500'],
+            // The day the payer is asked to pay by (academy-local); chased the day after it.
+            'due_on' => ['nullable', 'date_format:Y-m-d'],
         ]);
 
         $ctx = app(AuthContext::class);
@@ -379,6 +414,7 @@ final class InvoiceController extends Controller
             (string) $ctx->userId,
             $ctx->role,
             $payerName,
+            $validated['due_on'] ?? null,
         );
 
         $token = (string) DB::table('invoices')->where('id', $invoiceId)->value('public_token');
@@ -387,6 +423,43 @@ final class InvoiceController extends Controller
             'id' => $invoiceId,
             'url' => AcademyUrl::invoice($academyId, $token),
         ], 201);
+    }
+
+    // -------------------------------------------------------------------------
+    // PATCH /api/invoices/{id}/due-on  — set or clear a hand-made bill's pay-by date
+    // -------------------------------------------------------------------------
+
+    /**
+     * Move (or clear) the day a hand-made bill is to be paid by. Only a MANUAL bill — an automatic
+     * month is due when its month closes — and not a VOID one. It is not money, so it may change
+     * on a closed or part-paid bill too; the follow-up alert re-reads it at once.
+     */
+    public function setDueOn(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('invoice.create');
+
+        $validated = $request->validate([
+            'due_on' => ['present', 'nullable', 'date_format:Y-m-d'],
+        ]);
+
+        $invoice = DB::table('invoices')->where('id', $id)->first(['id', 'academy_id', 'kind', 'status', 'due_on']);
+        if ($invoice === null) {
+            abort(404);
+        }
+        if ((string) $invoice->kind !== 'MANUAL' || (string) $invoice->status === 'VOID') {
+            throw ValidationException::withMessages([
+                'due_on' => ['Only a hand-made bill that is not void takes a pay-by date. / يمكن تحديد موعد الدفع للفواتير اليدوية غير الملغاة فقط.'],
+            ]);
+        }
+
+        $dueOn = $validated['due_on'] ?? null;
+        DB::table('invoices')->where('id', $id)->update(['due_on' => $dueOn, 'updated_at' => now()]);
+
+        $ctx = app(AuthContext::class);
+        Audit::log('invoice.due_on_changed', 'invoice', $id, (string) $invoice->academy_id, (string) $ctx->userId, $ctx->role,
+            before: ['due_on' => $invoice->due_on], after: ['due_on' => $dueOn]);
+
+        return response()->json(['ok' => true, 'due_on' => $dueOn]);
     }
 
     // -------------------------------------------------------------------------
@@ -598,6 +671,7 @@ final class InvoiceController extends Controller
                 'inv.sent_at',
                 'inv.sent_channel',
                 'inv.created_at',
+                'inv.due_on',
                 DB::raw('coalesce(g.full_name, s.full_name, inv.payer_name) as payer_name'),
                 DB::raw("case when inv.guardian_id is not null then 'GUARDIAN' else 'STUDENT' end as payer_type"),
                 DB::raw('coalesce(g.whatsapp_phone, s.whatsapp_phone) as payer_phone'),
@@ -605,7 +679,7 @@ final class InvoiceController extends Controller
                 DB::raw(self::CHILDREN_SQL.' as children'),
                 DB::raw(self::DELETABLE_SQL.' as can_delete'),
             ])
-            ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', [self::followUpCutoff()])
+            ->selectRaw(self::FOLLOW_UP_SQL.' as needs_follow_up', self::followUpBindings())
             ->first();
 
         if ($invoice === null) {

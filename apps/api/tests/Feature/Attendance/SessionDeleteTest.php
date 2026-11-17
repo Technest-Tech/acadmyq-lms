@@ -2,11 +2,13 @@
 
 declare(strict_types=1);
 
+use App\Http\Controllers\Scheduling\SessionController;
 use App\Services\SessionGenerator;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Laravel\Sanctum\Sanctum;
 use Tests\Concerns\CreatesAuthUsers;
 use Tests\Concerns\CreatesSchedules;
@@ -111,6 +113,36 @@ it('refuses a lesson whose invoice is already closed, changing nothing', functio
     expect(($this->money)($session))->toBe([1, 1]);
 });
 
+it('takes a refused lesson off the schedule only when asked to keep the money', function () {
+    $session = ($this->lesson)();
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $invoiceId = DB::table('invoice_line_items')->where('session_id', $session)->value('invoice_id');
+    DB::table('invoices')->where('id', $invoiceId)->update(['status' => 'CLOSED', 'closed_at' => now()]);
+
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/sessions/{$session}")->assertStatus(422);
+    $this->deleteJson("/api/sessions/{$session}?keep_money=1")->assertOk()->assertJson(['keep_money' => true]);
+
+    // Gone from the schedule; the closed bill and the salary untouched.
+    $row = ($this->row)($session);
+    expect($row->hidden_at)->not->toBeNull()
+        ->and($row->status)->toBe('ATTENDED')
+        ->and((bool) $row->billed)->toBeTrue()
+        ->and((bool) $row->paid_to_teacher)->toBeTrue();
+    expect(($this->money)($session))->toBe([1, 1]);
+
+    $this->asAcademy($this->academy);
+    $audit = DB::table('audit_log')->where('action', 'session.deleted')->where('entity_id', $session)->first();
+    expect($audit)->not->toBeNull()->and(json_decode((string) $audit->after, true))->toBe(['keep_money' => true]);
+
+    Sanctum::actingAs($this->owner);
+    $ids = collect($this->getJson('/api/sessions/day?from=2026-06-01T00:00:00Z&to=2026-06-02T00:00:00Z')->assertOk()->json('sessions'))->pluck('id');
+    expect($ids)->not->toContain($session);
+});
+
 it('only hides a moved lesson, leaving its replacement alone', function () {
     $session = ($this->lesson)();
     Sanctum::actingAs($this->owner);
@@ -139,7 +171,7 @@ it('deletes a backlog of held-up lessons in one go, each the way one delete does
     $b = $this->createSession($this->academy, $this->student, $this->teacher, ['scheduled_at_utc' => '2026-06-02 15:00:00+00', 'status' => 'SCHEDULED']);
     $this->asAcademy($this->academy);
     DB::table('session_cancellation_requests')->insert([
-        'id' => (string) Illuminate\Support\Str::uuid(), 'academy_id' => $this->academy, 'session_id' => $b,
+        'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'session_id' => $b,
         'teacher_id' => $this->teacher, 'cancel_type' => 'teacher', 'reason' => 'sick', 'status' => 'PENDING',
     ]);
     $this->clearTenantContext();
@@ -166,7 +198,7 @@ it('leaves recorded lessons, trial lessons and unknown ids alone, and says why',
     $recorded = $this->createSession($this->academy, $this->student, $this->teacher, ['scheduled_at_utc' => '2026-06-03 15:00:00+00', 'status' => 'SCHEDULED']);
     $trialStudent = $this->createStudent($this->academy, null, ['status' => 'TRIAL']);
     $trial = $this->createSession($this->academy, $trialStudent, $this->teacher, ['scheduled_at_utc' => '2026-06-04 15:00:00+00', 'status' => 'SCHEDULED']);
-    $unknown = (string) Illuminate\Support\Str::uuid();
+    $unknown = (string) Str::uuid();
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/sessions/{$recorded}/attendance", ['status' => 'ATTENDED'])->assertOk();
 
@@ -212,8 +244,8 @@ it('keeps bulk delete to people who may delete lessons, and to a bounded list', 
     expect(($this->row)($session)->hidden_at)->toBeNull();
 
     Sanctum::actingAs($this->owner);
-    $tooMany = collect(range(1, App\Http\Controllers\Scheduling\SessionController::BULK_DELETE_MAX + 1))
-        ->map(fn () => (string) Illuminate\Support\Str::uuid())->all();
+    $tooMany = collect(range(1, SessionController::BULK_DELETE_MAX + 1))
+        ->map(fn () => (string) Str::uuid())->all();
     $this->postJson('/api/sessions/bulk-delete', ['session_ids' => $tooMany])->assertUnprocessable();
     $this->postJson('/api/sessions/bulk-delete', ['session_ids' => []])->assertUnprocessable();
 });

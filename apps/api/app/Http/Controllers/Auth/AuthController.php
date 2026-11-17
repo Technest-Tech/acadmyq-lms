@@ -175,6 +175,9 @@ final class AuthController extends Controller
                 ? null
                 : Entitlement::resolve($ctx->academyId)['capabilities'],
             'academy' => $this->academyIdentity($ctx->academyId),
+            // The server's own clock. A device whose clock was set by hand is an hour out on every
+            // "now" and "today" it works out; the web measures the gap against this.
+            'serverTime' => now()->utc()->toIso8601String(),
         ]);
     }
 
@@ -197,7 +200,7 @@ final class AuthController extends Controller
 
         $academy = DB::table('academies')
             ->where('id', $academyId)
-            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'country', 'default_currency', 'level_label', 'levels_enabled']);
+            ->first(['name', 'brand_display_name', 'brand_logo_url', 'subdomain', 'country', 'default_currency', 'level_label', 'levels_enabled', 'timezone']);
 
         if ($academy === null) {
             return null;
@@ -215,6 +218,8 @@ final class AuthController extends Controller
             // currency — so nothing is typed twice per student.
             'country' => ($academy->country ?? null) ?: null,
             'defaultCurrency' => (string) ($academy->default_currency ?? ''),
+            // The ONE clock every lesson time is shown and typed on, whatever the device is set to.
+            'timezone' => (string) ($academy->timezone ?? 'UTC'),
             // The academy's own handle, so the shell can tell whether the host the browser is on is
             // this academy's address. One session covers every `*.<root>` host, so without it a
             // signed-in user can sit on another client's subdomain looking at their OWN data under

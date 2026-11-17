@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 use App\Services\LessonPackages;
 use App\Services\ModuleBilling;
+use App\Services\Payroll;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -450,7 +451,7 @@ it('gives lessons already marked the new length: the teacher\'s line follows on 
     }
     expect(($this->package)($old)->status)->toBe('COMPLETED');
     $this->asAcademy($this->academy);
-    app(\App\Services\Payroll::class)->finalizePeriodPayouts($this->academy, 2026, 5, $this->owner->id, 'ACADEMY_OWNER');
+    app(Payroll::class)->finalizePeriodPayouts($this->academy, 2026, 5, $this->owner->id, 'ACADEMY_OWNER');
     $this->clearTenantContext();
 
     // June: a running block counted in lessons, one attended 45, one cancellation with no money on it.
@@ -497,4 +498,33 @@ it('gives lessons already marked the new length: the teacher\'s line follows on 
     expect((int) DB::table('lesson_packages')->where('id', $old)->value('minutes_consumed'))->toBe(135)
         ->and(DB::table('lesson_packages')->where('id', $old)->value('status'))->toBe('COMPLETED')
         ->and((int) DB::table('lesson_packages')->where('id', $id)->value('minutes_consumed'))->toBe(80);
+});
+
+it('takes a counted cancellation off a finished block counted in lessons: the next block gives one lesson back', function () {
+    ($this->switchOn)();
+    // Two lessons of 40, paid; renews by itself.
+    $first = ($this->open)(['minutes_total' => 80, 'lesson_minutes' => 40, 'label' => '2 × 40', 'auto_renew' => true]);
+    $this->asAcademy($this->academy);
+    $bill = (string) DB::table('lesson_packages')->where('id', $first)->value('invoice_id');
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/invoices/{$bill}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+
+    $cancelled = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-06-02 15:00:00+00', 'duration_minutes' => 40, 'status' => 'SCHEDULED',
+    ]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$cancelled}/cancel", ['cancelled_by' => 'student', 'charge_student' => true])->assertOk();
+    ($this->attend)(40, '2026-06-03 15:00:00+00');   // #1 full → #2 renews
+    $later = ($this->attend)(40, '2026-06-04 15:00:00+00');   // on #2
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/lessons/{$cancelled}/counting", ['counts' => false])->assertOk()
+        ->assertJsonPath('student.mode', 'FINISHED_PLAN')
+        ->assertJsonPath('student.lessons_moved_back.lessons', 1);
+
+    $this->asAcademy($this->academy);
+    expect((string) DB::table('lesson_package_credits')->where('session_id', $later)->value('package_id'))->toBe($first);
+    $second = DB::table('lesson_packages')->where('student_id', $this->student)->where('sequence_no', 2)->first();
+    expect((int) $second->minutes_consumed)->toBe(0)->and($second->status)->toBe('ACTIVE');
 });

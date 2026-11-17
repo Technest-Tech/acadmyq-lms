@@ -8,11 +8,19 @@ use App\Http\Controllers\AcademyProfileController;
 use App\Http\Controllers\AcademyRoleController;
 use App\Http\Controllers\AcademySettingsController;
 use App\Http\Controllers\AcademyWhatsAppController;
+use App\Http\Controllers\Accounting\AccountingController;
+use App\Http\Controllers\Accounting\DiscountPresetController;
+use App\Http\Controllers\Accounting\FamilyAccountController;
+use App\Http\Controllers\Accounting\ReceiptController;
+use App\Http\Controllers\Accounting\RenewalPolicyController;
+use App\Http\Controllers\Accounting\SettlementController;
+use App\Http\Controllers\Accounting\TreasuryController;
 use App\Http\Controllers\Admin\AcademyAutomationController;
 use App\Http\Controllers\Admin\AcademyController;
 use App\Http\Controllers\Admin\AcademyLogoController;
 use App\Http\Controllers\Admin\AcademySubscriptionController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\Admin\ClientDeletedController;
 use App\Http\Controllers\Admin\ClientDomainController;
 use App\Http\Controllers\Admin\ClientPaymentController;
 use App\Http\Controllers\Admin\ClientToolController;
@@ -35,53 +43,51 @@ use App\Http\Controllers\Admin\VideoOversightController;
 use App\Http\Controllers\Admin\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
-use App\Http\Controllers\ClientErrorController;
 use App\Http\Controllers\Auth\AuthController;
 use App\Http\Controllers\Centre\CentreSubscriptionController;
 use App\Http\Controllers\Centre\GroupDefaultsController;
 use App\Http\Controllers\Centre\HolidayController;
 use App\Http\Controllers\CentreDashboardController;
 use App\Http\Controllers\CertificateTemplateController;
+use App\Http\Controllers\ClientErrorController;
 use App\Http\Controllers\Crm\LeadController;
 use App\Http\Controllers\Enrolment\EnrolmentFormController;
 use App\Http\Controllers\Enrolment\EnrolmentRequestController;
 use App\Http\Controllers\EntitlementController;
 use App\Http\Controllers\ExchangeRateController;
+use App\Http\Controllers\FamilyXpayController;
 use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
 use App\Http\Controllers\Groups\CourseTermController;
 use App\Http\Controllers\Groups\GroupAbsenceAlertController;
+use App\Http\Controllers\Groups\GroupAccountsController;
+use App\Http\Controllers\Groups\GroupAssessmentController;
 use App\Http\Controllers\Groups\GroupBoardController;
+use App\Http\Controllers\Groups\GroupTermReportController;
 use App\Http\Controllers\Groups\GroupWaitlistController;
 use App\Http\Controllers\Groups\SubstituteController;
 use App\Http\Controllers\HelpController;
 use App\Http\Controllers\InvoiceController;
-use App\Http\Controllers\Accounting\AccountingController;
-use App\Http\Controllers\Accounting\DiscountPresetController;
-use App\Http\Controllers\Accounting\FamilyAccountController;
-use App\Http\Controllers\Accounting\ReceiptController;
-use App\Http\Controllers\Accounting\RenewalPolicyController;
-use App\Http\Controllers\Accounting\SettlementController;
-use App\Http\Controllers\Accounting\TreasuryController;
-use App\Http\Controllers\Groups\GroupAccountsController;
-use App\Http\Controllers\Groups\GroupAssessmentController;
-use App\Http\Controllers\Groups\GroupTermReportController;
 use App\Http\Controllers\Learner\AuthController as LearnerAuthController;
+use App\Http\Controllers\Learner\BlogController as LearnerBlogController;
+use App\Http\Controllers\Learner\BookingController as LearnerBookingController;
 use App\Http\Controllers\Learner\CatalogController as LearnerCatalogController;
 use App\Http\Controllers\Learner\CheckoutController as LearnerCheckoutController;
 use App\Http\Controllers\Learner\NotificationController as LearnerNotificationController;
 use App\Http\Controllers\Learner\PasswordResetController as LearnerPasswordResetController;
 use App\Http\Controllers\Learner\PlayerController as LearnerPlayerController;
-use App\Http\Controllers\Learner\BlogController as LearnerBlogController;
-use App\Http\Controllers\Learner\BookingController as LearnerBookingController;
 use App\Http\Controllers\Learner\ProductController as LearnerProductController;
 use App\Http\Controllers\Learner\QuizController as LearnerQuizController;
 use App\Http\Controllers\Learner\RedemptionController as LearnerRedemptionController;
 use App\Http\Controllers\Learner\SiteController as LearnerSiteController;
 use App\Http\Controllers\LessonPackageController;
+use App\Http\Controllers\LessonReminderController;
+use App\Http\Controllers\LessonReportController;
 use App\Http\Controllers\Levels\LevelController;
 use App\Http\Controllers\Levels\StudentLevelController;
-use App\Http\Controllers\Rooms\RoomController;
+use App\Http\Controllers\Lms\BlogPostController as LmsBlogPostController;
+use App\Http\Controllers\Lms\BookingFormController as LmsBookingFormController;
+use App\Http\Controllers\Lms\BookingRequestController as LmsBookingRequestController;
 use App\Http\Controllers\Lms\CodeController;
 use App\Http\Controllers\Lms\CourseController;
 use App\Http\Controllers\Lms\DashboardController as LmsDashboardController;
@@ -91,9 +97,6 @@ use App\Http\Controllers\Lms\MediaController;
 use App\Http\Controllers\Lms\MediaDeliveryController;
 use App\Http\Controllers\Lms\OrderController as LmsOrderController;
 use App\Http\Controllers\Lms\PaymentMethodController as LmsPaymentMethodController;
-use App\Http\Controllers\Lms\BlogPostController as LmsBlogPostController;
-use App\Http\Controllers\Lms\BookingFormController as LmsBookingFormController;
-use App\Http\Controllers\Lms\BookingRequestController as LmsBookingRequestController;
 use App\Http\Controllers\Lms\ProductController as LmsProductController;
 use App\Http\Controllers\Lms\QuizController;
 use App\Http\Controllers\Lms\SectionController;
@@ -101,11 +104,10 @@ use App\Http\Controllers\Lms\SiteProfileController as LmsSiteProfileController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\PaymentSettingsController;
 use App\Http\Controllers\PayoutController;
-use App\Http\Controllers\PayrollLessonController;
 use App\Http\Controllers\PaypalOrderController;
-use App\Http\Controllers\People\GuardianController;
-use App\Http\Controllers\FamilyXpayController;
+use App\Http\Controllers\PayrollLessonController;
 use App\Http\Controllers\People\FamilyPayController;
+use App\Http\Controllers\People\GuardianController;
 use App\Http\Controllers\People\GuardianPortalController;
 use App\Http\Controllers\People\StaffController;
 use App\Http\Controllers\People\StudentController;
@@ -121,13 +123,13 @@ use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\QualityRubricController;
 use App\Http\Controllers\Quality\TeacherAdjustmentController;
 use App\Http\Controllers\Quality\TeacherInsightsController;
-use App\Http\Controllers\LessonReminderController;
-use App\Http\Controllers\LessonReportController;
 use App\Http\Controllers\ReportCardTemplateController;
 use App\Http\Controllers\ReportFieldController;
+use App\Http\Controllers\Rooms\RoomController;
 use App\Http\Controllers\Scheduling\AttendanceController;
 use App\Http\Controllers\Scheduling\CalendarController;
 use App\Http\Controllers\Scheduling\CancellationRequestController;
+use App\Http\Controllers\Scheduling\ClockController;
 use App\Http\Controllers\Scheduling\GenerateSessionsController;
 use App\Http\Controllers\Scheduling\ScheduleController;
 use App\Http\Controllers\Scheduling\SessionController;
@@ -660,6 +662,11 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/admin/clients/{id}/tools', [ClientToolController::class, 'index'])->whereUuid('id');
     Route::post('/admin/clients/{id}/tools/{tool}', [ClientToolController::class, 'run'])->whereUuid('id');
 
+    // Deleted (Super Admin, platform.manage): everything this client deleted, and restoring what can
+    // come back — a preview runs the restore and rolls it back. See App\Support\ClientDeleted.
+    Route::get('/admin/clients/{id}/deleted', [ClientDeletedController::class, 'index'])->whereUuid('id');
+    Route::post('/admin/clients/{id}/deleted/{kind}/{item}/restore', [ClientDeletedController::class, 'restore'])->whereUuid(['id', 'item']);
+
     // System health (Super Admin, platform.manage): is the machine running (cron, queue, scheduled
     // jobs, WhatsApp gateway), which clients need stepping in for, and retry / dismiss a dead job.
     Route::get('/admin/system/health', [SystemHealthController::class, 'health']);
@@ -765,6 +772,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // A family paused for a while, and the way back (docs/groups/01-ACCOUNTING.md).
     Route::get('/guardians/{id}/advance-dues', [GuardianController::class, 'advanceDues'])->whereUuid('id');
     Route::get('/guardians/{id}/removal-dues', [GuardianController::class, 'removalDues'])->whereUuid('id');
+    Route::post('/guardians/{id}/currency', [GuardianController::class, 'changeCurrency'])->whereUuid('id');
     Route::post('/guardians/{id}/suspend', [GuardianController::class, 'suspend']);
     Route::post('/guardians/{id}/resume', [GuardianController::class, 'resume']);
     // The family's private page link (`/p/{token}`): read, make / replace, switch off, WhatsApp it.
@@ -943,6 +951,12 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::get('/students/{id}/schedule', [ScheduleController::class, 'show']);
     Route::put('/students/{id}/schedule', [ScheduleController::class, 'put']);
     Route::delete('/students/{id}/schedule', [ScheduleController::class, 'destroy']);
+
+    // Clocks: the academy's, the ones its students live on, and what a change of time in any
+    // country does to the lessons. `anchor` ties timetables to a student's own clock in bulk.
+    Route::get('/clock/zones', [ClockController::class, 'zones']);
+    Route::get('/clock/changes', [ClockController::class, 'changes']);
+    Route::post('/clock/anchor', [ClockController::class, 'anchor']);
 
     Route::post('/sessions', [SessionController::class, 'store']);
     Route::post('/sessions/{id}/reschedule', [SessionController::class, 'reschedule']);
@@ -1339,6 +1353,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::put('/sessions/{id}/report', [SessionReportController::class, 'put']);
     Route::post('/sessions/{id}/report/whatsapp-sent', [SessionReportController::class, 'whatsappSent']);
     Route::get('/students/{id}/reports', [SessionReportController::class, 'archive']);
+    // The reports log (سجل التقارير): every private lesson's report across the caller's students.
+    Route::get('/session-reports', [SessionReportController::class, 'log']);
 
     // Notifications & teacher-cancellation approvals (owner-only Notifications page, two tabs). A
     // TEACHER raises a cancellation REQUEST (session.cancel_request); the OWNER approves/rejects
@@ -1384,6 +1400,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/invoices/close', [InvoiceController::class, 'close']);
         Route::get('/invoices/{id}', [InvoiceController::class, 'show']);
         Route::delete('/invoices/{id}', [InvoiceController::class, 'destroy']);
+        Route::patch('/invoices/{id}/due-on', [InvoiceController::class, 'setDueOn'])->whereUuid('id');
         Route::post('/invoices/{id}/mark-paid', [InvoiceController::class, 'markPaid']);
         Route::get('/invoices/{id}/payment-proof', [InvoiceController::class, 'paymentProof']);
         Route::post('/invoices/{id}/send-link', [InvoiceController::class, 'sendLink']);
@@ -1466,32 +1483,38 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         // Literal segments (`summary`, `students`) are declared before `{id}` so they are never
         // captured as a package ID.
         Route::middleware('entitled:packages')->group(function () {
-        Route::get('/packages', [LessonPackageController::class, 'index']);
-        Route::get('/packages/summary', [LessonPackageController::class, 'summary']);
-        Route::get('/packages/students', [LessonPackageController::class, 'students']);
-        // The family's one payment link (`/f/{token}`), made the first time it is sent.
-        Route::post('/packages/family/{guardianId}/pay-link', [FamilyPayController::class, 'issue']);
-        Route::post('/packages', [LessonPackageController::class, 'store']);
-        Route::get('/packages/{id}', [LessonPackageController::class, 'show']);
-        Route::patch('/packages/{id}', [LessonPackageController::class, 'update']);
-        Route::post('/packages/{id}/top-up', [LessonPackageController::class, 'topUp'])->whereUuid('id');
-        Route::post('/packages/{id}/sync-lessons', [LessonPackageController::class, 'syncLessons']);
-        Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
-        Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);
-        // What becomes of a prepaid block's unused money: the family's credit, paid back, or kept.
-        Route::get('/packages/{id}/settlement', [SettlementController::class, 'show'])->whereUuid('id');
-        Route::post('/packages/{id}/settle', [SettlementController::class, 'settle'])->whereUuid('id');
-        Route::post('/packages/{id}/bill-overdraft', [LessonPackageController::class, 'billOverdraft']);
-        Route::post('/packages/{id}/remind', [LessonPackageController::class, 'remind']);
+            Route::get('/packages', [LessonPackageController::class, 'index']);
+            Route::get('/packages/summary', [LessonPackageController::class, 'summary']);
+            Route::get('/packages/students', [LessonPackageController::class, 'students']);
+            // Bills paid before a student was on file, for "the first package is already paid".
+            Route::get('/packages/paid-bills', [LessonPackageController::class, 'paidBills']);
+            // The family's one payment link (`/f/{token}`), made the first time it is sent.
+            Route::post('/packages/family/{guardianId}/pay-link', [FamilyPayController::class, 'issue']);
+            Route::post('/packages/prepay', [LessonPackageController::class, 'prepay']);
+            Route::get('/packages/lessons/{sessionId}/counting', [LessonPackageController::class, 'countingPreview'])->whereUuid('sessionId');
+            Route::post('/packages/lessons/{sessionId}/counting', [LessonPackageController::class, 'setCounting'])->whereUuid('sessionId');
+            Route::delete('/packages/prepayments/{id}', [LessonPackageController::class, 'cancelPrepayment'])->whereUuid('id');
+            Route::post('/packages', [LessonPackageController::class, 'store']);
+            Route::get('/packages/{id}', [LessonPackageController::class, 'show']);
+            Route::patch('/packages/{id}', [LessonPackageController::class, 'update']);
+            Route::post('/packages/{id}/top-up', [LessonPackageController::class, 'topUp'])->whereUuid('id');
+            Route::post('/packages/{id}/sync-lessons', [LessonPackageController::class, 'syncLessons']);
+            Route::post('/packages/{id}/close', [LessonPackageController::class, 'close']);
+            Route::post('/packages/{id}/cancel', [LessonPackageController::class, 'cancel']);
+            // What becomes of a prepaid block's unused money: the family's credit, paid back, or kept.
+            Route::get('/packages/{id}/settlement', [SettlementController::class, 'show'])->whereUuid('id');
+            Route::post('/packages/{id}/settle', [SettlementController::class, 'settle'])->whereUuid('id');
+            Route::post('/packages/{id}/bill-overdraft', [LessonPackageController::class, 'billOverdraft']);
+            Route::post('/packages/{id}/remind', [LessonPackageController::class, 'remind']);
 
-        // The ledger by hand: the owner adding, correcting and removing individual lessons on a
-        // package. `lessons` here means the credit rows — the lessons that ate this block — and
-        // adding one can CREATE the underlying attended session, so these are package.manage.
-        Route::get('/packages/{id}/available-lessons', [LessonPackageController::class, 'availableLessons']);
-        Route::get('/packages/{id}/lessons', [LessonPackageController::class, 'lessons'])->whereUuid('id');
-        Route::post('/packages/{id}/lessons', [LessonPackageController::class, 'addLesson']);
-        Route::patch('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'updateLesson']);
-        Route::delete('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'removeLesson']);
+            // The ledger by hand: the owner adding, correcting and removing individual lessons on a
+            // package. `lessons` here means the credit rows — the lessons that ate this block — and
+            // adding one can CREATE the underlying attended session, so these are package.manage.
+            Route::get('/packages/{id}/available-lessons', [LessonPackageController::class, 'availableLessons']);
+            Route::get('/packages/{id}/lessons', [LessonPackageController::class, 'lessons'])->whereUuid('id');
+            Route::post('/packages/{id}/lessons', [LessonPackageController::class, 'addLesson']);
+            Route::patch('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'updateLesson']);
+            Route::delete('/packages/{id}/lessons/{creditId}', [LessonPackageController::class, 'removeLesson']);
         });
     });
 
@@ -1540,27 +1563,27 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         // Switchable per client on top of payroll (entitled:teacher_quality): an academy can pay
         // teachers without grading them.
         Route::middleware('entitled:teacher_quality')->group(function () {
-        Route::get('/quality/rubric', [QualityRubricController::class, 'index']);
-        Route::post('/quality/rubric/categories', [QualityRubricController::class, 'storeCategory']);
-        Route::patch('/quality/rubric/categories/{id}', [QualityRubricController::class, 'updateCategory']);
-        Route::delete('/quality/rubric/categories/{id}', [QualityRubricController::class, 'destroyCategory']);
-        Route::post('/quality/rubric/criteria', [QualityRubricController::class, 'storeCriterion']);
-        Route::patch('/quality/rubric/criteria/{id}', [QualityRubricController::class, 'updateCriterion']);
-        Route::delete('/quality/rubric/criteria/{id}', [QualityRubricController::class, 'destroyCriterion']);
+            Route::get('/quality/rubric', [QualityRubricController::class, 'index']);
+            Route::post('/quality/rubric/categories', [QualityRubricController::class, 'storeCategory']);
+            Route::patch('/quality/rubric/categories/{id}', [QualityRubricController::class, 'updateCategory']);
+            Route::delete('/quality/rubric/categories/{id}', [QualityRubricController::class, 'destroyCategory']);
+            Route::post('/quality/rubric/criteria', [QualityRubricController::class, 'storeCriterion']);
+            Route::patch('/quality/rubric/criteria/{id}', [QualityRubricController::class, 'updateCriterion']);
+            Route::delete('/quality/rubric/criteria/{id}', [QualityRubricController::class, 'destroyCriterion']);
 
-        Route::get('/quality/reports/summary', [QualityReportController::class, 'summary']);
-        Route::get('/quality/reports', [QualityReportController::class, 'index']);
-        Route::post('/quality/reports', [QualityReportController::class, 'store']);
-        Route::get('/quality/reports/{id}', [QualityReportController::class, 'show']);
-        Route::delete('/quality/reports/{id}', [QualityReportController::class, 'destroy']);
-        Route::get('/quality/teachers/{id}/sessions', [QualityReportController::class, 'teacherSessions']);
+            Route::get('/quality/reports/summary', [QualityReportController::class, 'summary']);
+            Route::get('/quality/reports', [QualityReportController::class, 'index']);
+            Route::post('/quality/reports', [QualityReportController::class, 'store']);
+            Route::get('/quality/reports/{id}', [QualityReportController::class, 'show']);
+            Route::delete('/quality/reports/{id}', [QualityReportController::class, 'destroy']);
+            Route::get('/quality/teachers/{id}/sessions', [QualityReportController::class, 'teacherSessions']);
 
-        Route::put('/quality/settings', [TeacherAdjustmentController::class, 'updateSettings']);
+            Route::put('/quality/settings', [TeacherAdjustmentController::class, 'updateSettings']);
 
-        // The teacher's own window onto everything above. Self-scoped in the controllers (RLS pins
-        // the academy, not the person) — a pay document has to be readable by whoever it pays.
-        Route::get('/me/quality-reports', [QualityReportController::class, 'mine']);
-        Route::get('/me/quality-reports/{id}', [QualityReportController::class, 'mineShow']);
+            // The teacher's own window onto everything above. Self-scoped in the controllers (RLS pins
+            // the academy, not the person) — a pay document has to be readable by whoever it pays.
+            Route::get('/me/quality-reports', [QualityReportController::class, 'mine']);
+            Route::get('/me/quality-reports/{id}', [QualityReportController::class, 'mineShow']);
         });
 
         // Discounts & Awards: the deductions and rewards on a teacher's statements. A centre keeps

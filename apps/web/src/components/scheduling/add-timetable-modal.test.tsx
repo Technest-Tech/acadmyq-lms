@@ -13,7 +13,7 @@ async function pickStudent(row: StudentRow) {
   render(
     withAuth(
       makeSession("ACADEMY_OWNER"),
-      <AddTimetableModal students={[row]} teachers={[]} defaultTimezone="Africa/Cairo" onClose={() => {}} onCreated={() => {}} />,
+      <AddTimetableModal students={[row]} teachers={[]} onClose={() => {}} onCreated={() => {}} />,
     ),
   );
   await userEvent.click(screen.getByText(arMessages.scheduling.timetables.selectStudent));

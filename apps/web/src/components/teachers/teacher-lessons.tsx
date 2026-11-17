@@ -1,5 +1,6 @@
 "use client";
 
+import { academyDay, academyTimeZone, academyToday } from "@/lib/academy-clock";
 import {
   AlertTriangle,
   CalendarClock,
@@ -35,17 +36,14 @@ import { cn } from "@/lib/utils";
 
 type View = "all" | "upcoming" | "recorded" | "pending";
 
+/** Today on the academy's clock, whatever the device is set to. */
 function todayStr(): string {
-  const d = new Date();
-  const off = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+  return academyToday();
 }
 
-/** The local calendar date (Y-m-d) an instant falls on, in the browser's timezone. */
+/** The calendar date (Y-m-d) an instant falls on, on the academy's clock. */
 function localDay(utcIso: string): string {
-  const d = new Date(utcIso);
-  const off = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+  return academyDay(utcIso);
 }
 
 /** Which of the four cuts a lesson belongs to, besides "all". */
@@ -140,7 +138,7 @@ export function TeacherLessons({ teacherId }: { teacherId: string }) {
     [locale],
   );
   const timeFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
+    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }),
     [locale],
   );
   const whenFmt = useMemo(
@@ -150,8 +148,7 @@ export function TeacherLessons({ teacherId }: { teacherId: string }) {
         day: "numeric",
         month: "short",
         hour: "2-digit",
-        minute: "2-digit",
-      }),
+        minute: "2-digit", timeZone: academyTimeZone() }),
     [locale],
   );
 
@@ -423,11 +420,11 @@ export function DeleteLessonDialog({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function confirm() {
+  async function confirm(keepMoney = false) {
     setBusy(true);
     setError(null);
     try {
-      await deleteSession(session.id);
+      await deleteSession(session.id, { keepMoney });
       onDeleted();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -484,6 +481,22 @@ export function DeleteLessonDialog({
           >
             {error}
           </p>
+        )}
+        {error !== null && (
+          <div className="space-y-2 rounded-xl border p-3">
+            <p className="text-xs leading-relaxed">{t("deleteKeepMoneyHint")}</p>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => void confirm(true)}
+              data-testid="lesson-delete-keep-money"
+            >
+              <Trash2 className="size-3.5" aria-hidden />
+              {t("deleteKeepMoney")}
+            </Button>
+          </div>
         )}
       </div>
     </Modal>

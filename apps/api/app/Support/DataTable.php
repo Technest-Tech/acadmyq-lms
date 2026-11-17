@@ -66,7 +66,18 @@ final class DataTable
     /** Free-text ILIKE across the allowlisted searchable columns, as one OR group. */
     private static function applySearch(Builder $query, Request $request, array $searchable): void
     {
-        $term = trim((string) $request->query('search', ''));
+        self::search($query, (string) $request->query('search', ''), $searchable);
+    }
+
+    /**
+     * The same search on a term the caller already holds — for a screen that needs it applied
+     * before the page is cut (counts per tab that must agree with the list under them).
+     *
+     * @param  list<string>  $searchable  column expressions from the caller's own code, never input
+     */
+    public static function search(Builder $query, string $term, array $searchable): void
+    {
+        $term = trim($term);
         if ($term === '' || $searchable === []) {
             return;
         }

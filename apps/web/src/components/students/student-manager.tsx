@@ -297,7 +297,7 @@ export function StudentManager() {
         onClose={() => setModal({ kind: "closed" })}
         title={t("new")}
         description={t("newModal.description")}
-        size="md"
+        size="xl"
       >
         <StudentForm
           onCancel={() => setModal({ kind: "closed" })}

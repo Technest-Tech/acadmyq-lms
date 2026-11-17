@@ -3,6 +3,7 @@
 import { CheckCircle2, ExternalLink, Link2, Loader2, MessageSquare, Send, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
+import { DueDateField } from "@/components/invoices/due-date";
 import { CopyButton, waLink } from "@/components/invoices/invoice-detail-modal";
 import { useInvoiceUrl } from "@/components/invoices/use-invoice-url";
 import { AlertBanner } from "@/components/ui/alert";
@@ -101,6 +102,8 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
   const defaults = useAcademyDefaults();
   const [currency, setCurrency] = useState(defaults.currency || "EGP");
   const [description, setDescription] = useState("");
+  // The pay-by date ("" = none): the bill is then chased the day after it, not a day after raising.
+  const [dueOn, setDueOn] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -204,6 +207,7 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
     setAmount("");
     setCurrency(defaultCurrency);
     setDescription("");
+    setDueOn("");
     setError(null);
     setCreated(null);
     setSendResult(null);
@@ -229,7 +233,7 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
     setSubmitting(true);
     setError(null);
     try {
-      const base = { amount_minor: amountMinor, currency, description: description.trim() };
+      const base = { amount_minor: amountMinor, currency, description: description.trim(), ...(dueOn ? { due_on: dueOn } : {}) };
       const res = await createQuickBill(
         mode === "student"
           ? { ...base, student_id: studentId }
@@ -547,6 +551,8 @@ export function QuickBillModal({ open, onClose, onCreated, onView }: QuickBillMo
             data-testid="quick-description"
           />
         </div>
+
+        <DueDateField value={dueOn} onChange={setDueOn} disabled={submitting} idPrefix="quick-due" />
 
         {amountMinor > 0 && (
           <div className="flex items-center justify-between border-t pt-3">

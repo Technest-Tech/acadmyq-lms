@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { Layers, Loader2, Pencil, Plus, Receipt, RotateCcw, Square, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -602,7 +603,7 @@ function JoinGroupModal({
                 {lessons !== null && lessons.length === 0 && <option value="">{t("subscriptions.trialNoLessons")}</option>}
                 {(lessons ?? []).map((l) => (
                   <option key={l.id} value={l.id}>
-                    {dayLabel(l.occurrence_local_date, locale)} · {new Date(l.scheduled_at_utc).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit" })}
+                    {dayLabel(l.occurrence_local_date, locale)} · {new Date(l.scheduled_at_utc).toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() })}
                   </option>
                 ))}
               </select>

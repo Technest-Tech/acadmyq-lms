@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { AlertTriangle, BadgeDollarSign, CircleDollarSign, GraduationCap, Receipt, Scale, UsersRound, Wallet } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
@@ -28,7 +29,7 @@ export function PaymentsBoard() {
   const t = useTranslations("groups");
   const locale = useLocale();
   const look = useModernLook();
-  const [month, setMonth] = useState(() => todayIn(Intl.DateTimeFormat().resolvedOptions().timeZone).slice(0, 7));
+  const [month, setMonth] = useState(() => todayIn(academyTimeZone()).slice(0, 7));
   const [data, setData] = useState<GroupPayments | null>(null);
   const [error, setError] = useState<string | null>(null);
 

@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import {
   BadgeDollarSign,
   CalendarDays,
@@ -198,7 +199,7 @@ export function ModernDashboard() {
   const currency = session?.academy?.defaultCurrency || invoices?.money[0]?.currency || "EGP";
   const money = (minor: number, cur = currency) => formatMoney({ amount: minor, currency: cur }, locale, { trimZeroDecimals: true });
   const timeOf = (iso: string) =>
-    new Intl.DateTimeFormat(numeralLocale(locale), { hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+    new Intl.DateTimeFormat(numeralLocale(locale), { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }).format(new Date(iso));
 
   // ── Today, out of the week the calendar already sent ──
   const today = useMemo(() => {
@@ -515,7 +516,7 @@ export function ModernDashboard() {
                 ? [1, 2].map((k) => <div key={k} className="bg-muted h-14 animate-pulse rounded-xl" />)
                 : trialLessons.slice(0, 6).map((s) => {
                     const at = new Date(s.scheduled_at_utc);
-                    const day = at.toLocaleDateString(numeralLocale(locale), { weekday: "short" });
+                    const day = at.toLocaleDateString(numeralLocale(locale), { weekday: "short", timeZone: academyTimeZone() });
                     const state =
                       s.status === "ATTENDED"
                         ? { text: t("trials.attended"), cls: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" }

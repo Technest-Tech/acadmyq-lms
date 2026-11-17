@@ -1,9 +1,11 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarClock, ChevronDown, Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
 import { blockAmount } from "@/components/packages/lesson-price-fields";
+import { LessonCountingAction } from "@/components/packages/lesson-counting-modal";
 import { LessonRow } from "@/components/students/student-lesson-log";
 import { Modal } from "@/components/ui/modal";
 import {
@@ -96,7 +98,7 @@ function PackageHistoryList({ studentId }: { studentId: string }) {
 function HistoryItem({ row, open, onToggle }: { row: LessonPackageRow; open: boolean; onToggle: () => void }) {
   const t = useTranslations("packages");
   const locale = useLocale();
-  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const tz = academyTimeZone();
   const [log, setLog] = useState<PackageLessonLog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const active = row.status === "ACTIVE";
@@ -192,7 +194,13 @@ function HistoryItem({ row, open, onToggle }: { row: LessonPackageRow; open: boo
           ) : (
             <ol className="divide-y" data-testid="package-history-lessons">
               {log.lessons.map((lesson, i) => (
-                <LessonRow key={lesson.id} lesson={lesson} n={i + 1} tz={tz} />
+                <LessonRow
+                  key={lesson.id}
+                  lesson={lesson}
+                  n={i + 1}
+                  tz={tz}
+                  action={<LessonCountingAction lesson={lesson} onChanged={() => setLog(null)} />}
+                />
               ))}
               {log.unscheduled > 0 && (
                 <li className="text-muted-foreground flex items-center gap-3 px-3 py-3 text-xs sm:px-4">
@@ -206,6 +214,24 @@ function HistoryItem({ row, open, onToggle }: { row: LessonPackageRow; open: boo
                 </li>
               )}
             </ol>
+          )}
+          {/* The lessons in its time it never counted — a cancellation can be set to count here. */}
+          {log !== null && log.not_counted.length > 0 && (
+            <div className="border-t" data-testid="package-history-not-counted">
+              <p className="text-muted-foreground px-3 pt-2.5 text-[11px] font-semibold sm:px-4">
+                {t("history.notCounted", { count: log.not_counted.length })}
+              </p>
+              <ul className="divide-y opacity-90">
+                {log.not_counted.map((lesson) => (
+                  <LessonRow
+                    key={lesson.id}
+                    lesson={lesson}
+                    tz={tz}
+                    action={<LessonCountingAction lesson={lesson} onChanged={() => setLog(null)} />}
+                  />
+                ))}
+              </ul>
+            </div>
           )}
         </div>
       )}

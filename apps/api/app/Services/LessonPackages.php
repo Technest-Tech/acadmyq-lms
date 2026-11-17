@@ -10,6 +10,7 @@ use App\Support\Entitlement;
 use App\Support\LessonCount;
 use App\Support\PublicInvoiceToken;
 use App\Support\StudentStatus;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -862,9 +863,13 @@ final class LessonPackages
      * minutes that are on a bill or that the next block cannot hold. A chain is left alone: with a
      * finished block in between, this one stays finished and the freed minutes go unused.
      *
+     * `$wholeLessons` — a whole lesson leaves the block (a cancellation set to not count,
+     * PackageLessonCounting), so lessons come back from the next block even where blocks count
+     * lessons. A length correction does not pass it: there a length moves only the teacher's pay.
+     *
      * @return array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object, moves:list<array{credit_id:string, session_id:?string, minutes:int, overdrawn:int}>, moved_from:?object, consumed_after:int, overdrawn_after:int}
      */
-    public function finishedBlockPlan(object $package, int $consumedAfter, int $overdrawnAfter): array
+    public function finishedBlockPlan(object $package, int $consumedAfter, int $overdrawnAfter, bool $wholeLessons = false): array
     {
         $plan = [
             'blocker' => null, 'reopens' => false, 'renewal' => null, 'own_bill' => null, 'stays_closed' => null, 'absorbs_into' => null,
@@ -908,7 +913,7 @@ final class LessonPackages
             return $plan;
         }
 
-        if ($later->isNotEmpty() && ($next === null || self::countsLessons($next))) {
+        if ($later->isNotEmpty() && ($next === null || (! $wholeLessons && self::countsLessons($next)))) {
             return ['stays_closed' => 'NEXT_BLOCK_RUNNING'] + $plan;
         }
 
@@ -1461,6 +1466,10 @@ final class LessonPackages
      * `auto_renew` (default true) is whether THIS package opens the next one when it runs out
      * ({@see renew()}); `opened_automatically` and `sync` are set only by that renewal.
      *
+     * `paid_invoice_id`: the family already paid for this block on a hand-made bill, raised before
+     * the student was on file. That bill BECOMES the package's bill ({@see adoptPaidBill()}) and no
+     * second one is raised — so the block is never listed as due, and the money is counted once.
+     *
      * @param  array{student_id:string,label:string,minutes_total:int,price_minor:int,currency?:?string,bill_timing?:?string,starts_on?:?string,expires_on?:?string,carry_over?:bool,auto_renew?:bool,opened_automatically?:bool,sync?:bool}  $data
      * @return array{package_id:string, invoice_id:?string, carried_over_minutes:int, imported_lessons:int, skipped_locked_lessons:int, switched_to_package_billing:bool}
      */
@@ -1535,6 +1544,15 @@ final class LessonPackages
         $currency = strtoupper((string) ($data['currency'] ?? $this->studentCurrency($studentId, $academy)));
         $billTiming = (string) ($data['bill_timing'] ?? $academy->package_bill_timing ?? 'ON_START');
         $startsOn = (string) ($data['starts_on'] ?? Carbon::now($academy->timezone ?: 'UTC')->toDateString());
+
+        // Paid before the student existed: the bill is there from the first day, which is what
+        // ON_START means — whatever the academy's usual timing, nothing more is billed at the end.
+        $paidBill = ($data['paid_invoice_id'] ?? null) !== null && $data['paid_invoice_id'] !== ''
+            ? $this->adoptablePaidBill($academyId, (string) $data['paid_invoice_id'], $studentId, $currency)
+            : null;
+        if ($paidBill !== null) {
+            $billTiming = 'ON_START';
+        }
 
         $previous = $this->latestClosedFor($studentId, $teacherId, $course);
 
@@ -1642,7 +1660,14 @@ final class LessonPackages
         }
 
         $invoiceId = null;
-        if ($billTiming === 'ON_START') {
+        if ($paidBill !== null) {
+            $invoiceId = $this->adoptPaidBill($paidBill, $academy, $studentId, $packageId, $actorUserId, $actorRole);
+
+            DB::table('lesson_packages')->where('id', $packageId)->update([
+                'invoice_id' => $invoiceId,
+                'updated_at' => now(),
+            ]);
+        } elseif ($billTiming === 'ON_START') {
             $lines = [[
                 'description' => $this->packageLineDescription($data['label'], $minutesTotal, $carried, isset($data['lesson_minutes']) ? (int) $data['lesson_minutes'] : null),
                 'amount_minor' => $priceMinor,
@@ -1692,6 +1717,7 @@ final class LessonPackages
                 'currency' => $currency,
                 'bill_timing' => $billTiming,
                 'invoice_id' => $invoiceId,
+                'paid_before_enrolment' => $paidBill !== null,
                 'opened_automatically' => (bool) ($data['opened_automatically'] ?? false),
             ],
         );
@@ -2015,7 +2041,11 @@ final class LessonPackages
             // New terms on this block are the terms the renewal copies — anything parked for "the
             // next one" is superseded by them.
             $termsMoved = array_intersect_key($after, array_flip(['label', 'minutes_total', 'lesson_minutes', 'price_minor'])) !== [];
-            DB::table('lesson_packages')->where('id', $packageId)->update($after + ['updated_at' => now()] + ($termsMoved ? ['next_terms' => null] : []));
+            // Edited terms replace what was parked for the renewal — except a currency move, which
+            // the family made and an edit of this block's size or price does not undo.
+            $parkedCurrency = $package->next_terms !== null ? (((array) json_decode((string) $package->next_terms, true))['currency'] ?? null) : null;
+            DB::table('lesson_packages')->where('id', $packageId)->update($after + ['updated_at' => now()]
+                + ($termsMoved ? ['next_terms' => $parkedCurrency !== null ? json_encode(['currency' => $parkedCurrency]) : null] : []));
             if ($recount) {
                 $this->recountLessons($packageId, (int) $lessonMinutes);
             }
@@ -2164,21 +2194,34 @@ final class LessonPackages
      *
      * Only what {@see unpaidForReprice()} allows: nothing paid on it, a bill that is its alone.
      *
-     * @return list<array{id:string, sequence_no:int, before_minor:int, after_minor:int}>
+     * `$currency` — the student's money moved to another currency (Ahmed 2026-11-17: "a client's
+     * currency change must reach their open and due packages"). Each unpaid block then takes the
+     * new currency with its new price, and its bill — OPEN or CLOSED alike, since a bill's lines
+     * carry their currency too — is voided and raised again in the new currency, every line scaled
+     * by new ÷ old price. A running block that is already paid keeps its money, and is told to
+     * renew in the new currency at the new rate ({@see moveRenewalCurrency()}).
+     *
+     * @return list<array{id:string, sequence_no:int, before_minor:int, after_minor:int, currency?:string}>
      */
-    public function repriceUnpaid(string $studentId, int $hourlyRate, ?string $actorUserId, ?string $actorRole): array
+    public function repriceUnpaid(string $studentId, int $hourlyRate, ?string $actorUserId, ?string $actorRole, ?string $currency = null): array
     {
+        $currency = $currency !== null ? strtoupper(trim($currency)) : null;
         $done = [];
         foreach ($this->unpaidForReprice($studentId)['packages'] as $candidate) {
             $package = DB::table('lesson_packages')->where('id', $candidate['id'])->first();
-            if ($package === null || (int) $package->hourly_rate_minor === $hourlyRate) {
+            if ($package === null) {
+                continue;
+            }
+            $moving = $currency !== null && $currency !== trim((string) $package->currency);
+            if (! $moving && (int) $package->hourly_rate_minor === $hourlyRate) {
                 continue;
             }
 
             $oldPrice = (int) $package->price_minor;
             $newPrice = (int) round($hourlyRate * (int) $package->minutes_total / 60);
+            $newCurrency = $moving ? $currency : trim((string) $package->currency);
 
-            DB::transaction(function () use ($package, $hourlyRate, $oldPrice, $newPrice, $actorUserId, $actorRole): void {
+            DB::transaction(function () use ($package, $hourlyRate, $oldPrice, $newPrice, $newCurrency, $moving, $actorUserId, $actorRole): void {
                 $invoiceId = $package->invoice_id !== null ? (string) $package->invoice_id : null;
                 $newInvoiceId = $invoiceId;
 
@@ -2187,7 +2230,7 @@ final class LessonPackages
                     $lines = DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->orderBy('created_at')->get();
                     $scale = static fn (?int $minor): ?int => $minor === null ? null : (int) round($minor * $newPrice / $oldPrice);
 
-                    if ((string) $invoice->status === 'OPEN') {
+                    if ((string) $invoice->status === 'OPEN' && ! $moving) {
                         foreach ($lines as $line) {
                             $list = $scale($line->list_amount_minor !== null ? (int) $line->list_amount_minor : null);
                             $discount = (int) $scale((int) $line->discount_minor);
@@ -2206,7 +2249,7 @@ final class LessonPackages
                         $newInvoiceId = $this->raiseInvoice(
                             (string) $package->academy_id,
                             (string) $package->student_id,
-                            (string) $package->currency,
+                            $newCurrency,
                             $lines->map(fn ($line) => [
                                 'description' => (string) $line->description,
                                 'amount_minor' => (int) $scale((int) ($line->list_amount_minor ?? $line->amount_minor)),
@@ -2220,22 +2263,57 @@ final class LessonPackages
                     }
                 }
 
+                // Terms parked for its renewal were priced in the old currency: re-priced at the new rate.
+                $next = $package->next_terms !== null ? (array) json_decode((string) $package->next_terms, true) : [];
+                if ($moving && isset($next['price_minor'])) {
+                    $next['price_minor'] = (int) round($hourlyRate * (int) ($next['minutes_total'] ?? $package->minutes_total) / 60);
+                    unset($next['currency']);
+                }
+
                 DB::table('lesson_packages')->where('id', $package->id)->update([
                     'price_minor' => $newPrice,
                     'hourly_rate_minor' => $hourlyRate,
+                    'currency' => $newCurrency,
                     'invoice_id' => $newInvoiceId,
                     'updated_at' => now(),
-                ]);
+                ] + ($moving ? ['next_terms' => $next === [] ? null : json_encode($next)] : []));
 
                 Audit::log('lesson_package.repriced', 'lesson_package', (string) $package->id, (string) $package->academy_id, $actorUserId, $actorRole,
-                    after: ['price_minor' => $newPrice, 'hourly_rate_minor' => $hourlyRate, 'invoice_id' => $newInvoiceId],
-                    before: ['price_minor' => $oldPrice, 'hourly_rate_minor' => (int) $package->hourly_rate_minor, 'invoice_id' => $package->invoice_id]);
+                    after: ['price_minor' => $newPrice, 'hourly_rate_minor' => $hourlyRate, 'currency' => $newCurrency, 'invoice_id' => $newInvoiceId],
+                    before: ['price_minor' => $oldPrice, 'hourly_rate_minor' => (int) $package->hourly_rate_minor, 'currency' => trim((string) $package->currency), 'invoice_id' => $package->invoice_id]);
             });
 
-            $done[] = ['id' => (string) $package->id, 'sequence_no' => (int) $package->sequence_no, 'before_minor' => $oldPrice, 'after_minor' => $newPrice];
+            $done[] = ['id' => (string) $package->id, 'sequence_no' => (int) $package->sequence_no, 'before_minor' => $oldPrice, 'after_minor' => $newPrice]
+                + ($moving ? ['currency' => $newCurrency] : []);
+        }
+
+        if ($currency !== null) {
+            $this->moveRenewalCurrency($studentId, $currency, $hourlyRate, $actorUserId, $actorRole);
         }
 
         return $done;
+    }
+
+    /**
+     * A running block still in the old currency — paid, so its own money stays as it is — renews in
+     * the new one: the currency and the price at the new rate are parked for its renewal
+     * ({@see setNextTerms()}, read by {@see renew()}).
+     */
+    private function moveRenewalCurrency(string $studentId, string $currency, int $hourlyRate, ?string $actorUserId, ?string $actorRole): void
+    {
+        $running = DB::table('lesson_packages')
+            ->where('student_id', $studentId)
+            ->where('status', 'ACTIVE')
+            ->whereRaw('trim(currency) <> ?', [$currency])
+            ->get();
+
+        foreach ($running as $package) {
+            $next = $package->next_terms !== null ? (array) json_decode((string) $package->next_terms, true) : [];
+            $this->setNextTerms((string) $package->id, [
+                'currency' => $currency,
+                'price_minor' => (int) round($hourlyRate * (int) ($next['minutes_total'] ?? $package->minutes_total) / 60),
+            ], $actorUserId, $actorRole);
+        }
     }
 
     /**
@@ -2243,7 +2321,7 @@ final class LessonPackages
      * differs from it, and read by {@see renew()}. Merged over anything already parked, so two edits
      * in a row both count; terms equal to the running block's drop out (and none left = null).
      *
-     * @param  array{label?:string, minutes_total?:int, price_minor?:int}  $terms
+     * @param  array{label?:string, minutes_total?:int, price_minor?:int, currency?:string}  $terms
      * @return ?array<string,mixed> what is parked now
      */
     private function setNextTerms(string $packageId, array $terms, ?string $actorUserId, ?string $actorRole): ?array
@@ -2608,7 +2686,7 @@ final class LessonPackages
             $lessonMinutes = $this->detectLessonLength($finished);
         }
 
-        return $this->open([
+        $renewedId = $this->open([
             'student_id' => (string) $finished->student_id,
             // The same subject: a Maths block renews as Maths.
             'teacher_id' => $finished->teacher_id !== null ? (string) $finished->teacher_id : null,
@@ -2617,7 +2695,8 @@ final class LessonPackages
             'minutes_total' => (int) ($next['minutes_total'] ?? $finished->minutes_total),
             'lesson_minutes' => $lessonMinutes,
             'price_minor' => (int) ($next['price_minor'] ?? $finished->price_minor),
-            'currency' => (string) $finished->currency,
+            // A family that moved to another currency renews in it (moveRenewalCurrency).
+            'currency' => (string) ($next['currency'] ?? trim((string) $finished->currency)),
             'bill_timing' => (string) $finished->bill_timing,
             'starts_on' => $startsOn,
             'expires_on' => $expiresOn,
@@ -2626,6 +2705,11 @@ final class LessonPackages
             'opened_automatically' => true,
             'sync' => false,
         ], $actorUserId, $actorRole)['package_id'];
+
+        // Paid ahead (PackagePrepayments): the renewal opens already paid, so it is never due.
+        app(PackagePrepayments::class)->settle($renewedId, $actorUserId, $actorRole);
+
+        return $renewedId;
     }
 
     /**
@@ -2667,6 +2751,10 @@ final class LessonPackages
             'overdraft_absorbed_by' => null,
             'updated_at' => now(),
         ]);
+
+        // A renewal paid from a prepayment hands its block back, and its bill becomes unpaid again so
+        // it is voided below like any other.
+        app(PackagePrepayments::class)->giveBack($package, $actorUserId, $actorRole);
 
         // A curriculum centre's bill is voided even once its month closed: a subscription deleted
         // must not leave its charge on the family (every other academy as it always was, unless the
@@ -2929,6 +3017,102 @@ final class LessonPackages
             'outstanding_minor' => (int) $outstanding,
             'currency' => (string) $unpaid->first()->currency,
         ]);
+    }
+
+    /**
+     * The hand-made bills a first package may stand on: raised by hand before the student was on
+     * file (a typed name, or the student's own family), paid in full, and nobody else's — not a
+     * lesson's, a group's, a subscription's or another package's bill.
+     *
+     * @return Builder rows of `invoices` aliased `inv`
+     */
+    public function paidBillsToAdopt(string $academyId, ?string $guardianId)
+    {
+        return DB::table('invoices as inv')
+            ->where('inv.academy_id', $academyId)
+            ->where('inv.kind', 'MANUAL')
+            ->where('inv.status', '!=', 'VOID')
+            ->where('inv.total_minor', '>', 0)
+            ->whereColumn('inv.amount_paid_minor', '>=', 'inv.total_minor')
+            ->whereNull('inv.student_id')
+            ->where(fn ($q) => $q
+                ->where(fn ($typed) => $typed->whereNull('inv.guardian_id')->whereNotNull('inv.payer_name'))
+                ->when($guardianId !== null, fn ($own) => $own->orWhere('inv.guardian_id', $guardianId)))
+            ->whereNotExists(fn ($e) => $e->selectRaw('1')->from('invoice_line_items as dl')
+                ->whereColumn('dl.invoice_id', 'inv.id')
+                ->where(fn ($l) => $l->whereNotNull('dl.session_id')->orWhereNotNull('dl.student_id')
+                    ->orWhereNotNull('dl.class_group_id')->orWhereNotNull('dl.class_group_lesson_id')
+                    ->orWhereNotNull('dl.group_cycle')->orWhereNotNull('dl.cancelled_at')))
+            ->whereNotExists(fn ($e) => $e->selectRaw('1')->from('lesson_packages as lp')
+                ->where(fn ($l) => $l->whereColumn('lp.invoice_id', 'inv.id')->orWhereColumn('lp.overdraft_invoice_id', 'inv.id')))
+            ->whereNotExists(fn ($e) => $e->selectRaw('1')->from('centre_subscriptions as cs')->whereColumn('cs.invoice_id', 'inv.id'));
+    }
+
+    /** The paid bill named for a new package, or a 422 saying why it cannot be the one. */
+    private function adoptablePaidBill(string $academyId, string $invoiceId, string $studentId, string $currency): object
+    {
+        $guardianId = DB::table('students')->where('id', $studentId)->value('guardian_id');
+        $bill = $this->paidBillsToAdopt($academyId, $guardianId !== null ? (string) $guardianId : null)
+            ->where('inv.id', $invoiceId)
+            ->first(['inv.id', 'inv.guardian_id', 'inv.payer_name', 'inv.currency', 'inv.total_minor']);
+
+        if ($bill === null) {
+            throw ValidationException::withMessages([
+                'package.paid_invoice_id' => ['Choose a hand-made bill that is paid in full and not tied to anyone else. / اختر فاتورة يدوية مدفوعة بالكامل وغير مرتبطة بطالب آخر.'],
+            ]);
+        }
+        if (strtoupper((string) $bill->currency) !== $currency) {
+            throw ValidationException::withMessages([
+                'package.paid_invoice_id' => ["That bill was paid in {$bill->currency}, not {$currency}. / هذه الفاتورة مدفوعة بعملة {$bill->currency} وليست {$currency}."],
+            ]);
+        }
+
+        return $bill;
+    }
+
+    /**
+     * Make a bill paid before enrolment the package's own bill. A bill under a typed name moves to
+     * whoever the student's bills go to, and the receipts that paid only it move with it, so the
+     * family's account shows the charge and its payment together. Totals are never touched.
+     */
+    private function adoptPaidBill(object $bill, object $academy, string $studentId, string $packageId, ?string $actorUserId, ?string $actorRole): string
+    {
+        $invoiceId = (string) $bill->id;
+        $academyId = (string) $academy->id;
+
+        if ($bill->guardian_id === null) {
+            [$guardianId, $payerStudentId] = Ledger::enabledFor($academyId)
+                ? app(Invoicing::class)->payerOf($academy, $studentId)
+                : [null, $studentId];
+
+            DB::table('invoices')->where('id', $invoiceId)->update([
+                'guardian_id' => $guardianId,
+                'student_id' => $payerStudentId,
+                'payer_name' => null,
+                'updated_at' => now(),
+            ]);
+
+            DB::table('receipts as r')
+                ->whereNull('r.guardian_id')->whereNull('r.student_id')
+                ->whereExists(fn ($e) => $e->selectRaw('1')->from('receipt_allocations as ra')
+                    ->whereColumn('ra.receipt_id', 'r.id')->where('ra.invoice_id', $invoiceId))
+                ->whereNotExists(fn ($e) => $e->selectRaw('1')->from('receipt_allocations as other')
+                    ->whereColumn('other.receipt_id', 'r.id')->where('other.invoice_id', '!=', $invoiceId))
+                ->update([
+                    'guardian_id' => $guardianId,
+                    'student_id' => $payerStudentId,
+                    'payer_name' => null,
+                    'updated_at' => now(),
+                ]);
+        }
+
+        DB::table('invoice_line_items')->where('invoice_id', $invoiceId)->whereNull('student_id')->update(['student_id' => $studentId]);
+
+        Audit::log('invoice.adopted_by_package', 'invoice', $invoiceId, $academyId, $actorUserId, $actorRole,
+            before: ['payer_name' => $bill->payer_name, 'guardian_id' => $bill->guardian_id],
+            after: ['student_id' => $studentId, 'package_id' => $packageId]);
+
+        return $invoiceId;
     }
 
     /**

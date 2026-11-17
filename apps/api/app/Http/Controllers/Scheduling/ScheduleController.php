@@ -6,8 +6,10 @@ namespace App\Http\Controllers\Scheduling;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\ScheduleAnchor;
 use App\Services\SessionGenerator;
 use App\Support\Audit;
+use App\Support\CountryClocks;
 use App\Support\StudentTeachers;
 use App\Support\TimeHelper;
 use Illuminate\Http\JsonResponse;
@@ -77,6 +79,8 @@ final class ScheduleController extends Controller
         }
 
         $schedules = $query->get();
+        $academyTz = $this->academyTimezone($this->currentAcademyId());
+        $zoneOf = $schedules->pluck('timezone', 'schedule_id')->all();
 
         // One pass for every schedule's slots, grouped in PHP — avoids an N+1 per timetable.
         $slotsBySchedule = [];
@@ -92,6 +96,7 @@ final class ScheduleController extends Controller
                     'weekday' => (int) $slot->weekday,
                     'start_time_local' => (string) $slot->start_time_local,
                     'duration_minutes' => (int) $slot->duration_minutes,
+                    ...$this->onAcademyClock((int) $slot->weekday, (string) $slot->start_time_local, (string) ($zoneOf[$slot->schedule_id] ?? $academyTz), $academyTz),
                 ];
             }
         }
@@ -104,11 +109,14 @@ final class ScheduleController extends Controller
             'teacher_name' => $s->teacher_name,
             'course' => $s->course,
             'timezone' => (string) $s->timezone,
+            // The country that clock belongs to, so the card can say "Saudi Arabia", not a zone name.
+            'timezone_country' => CountryClocks::countryOf((string) $s->timezone),
             'start_date' => $s->start_date !== null ? Carbon::parse($s->start_date)->format('Y-m-d') : null,
             'slots' => $slotsBySchedule[(string) $s->schedule_id] ?? [],
         ])->values();
 
-        return response()->json(['timetables' => $timetables]);
+        // `academy_timezone` is the clock the `academy_*` fields of every slot are read on.
+        return response()->json(['timetables' => $timetables, 'academy_timezone' => $academyTz]);
     }
 
     /** GET /api/students/{id}/schedule?teacher_id= — one teacher's active timetable + slots (or null). */
@@ -119,19 +127,29 @@ final class ScheduleController extends Controller
 
         $schedule = $this->activeSchedule($studentId, $this->teacherParam($request));
         $lessonMinutes = $this->pricedLessonMinutes($studentId);
+        $clock = $this->studentClock($studentId);
         if ($schedule === null) {
-            return response()->json(['schedule' => null, 'slots' => [], 'lesson_minutes' => $lessonMinutes]);
+            return response()->json(['schedule' => null, 'slots' => [], 'lesson_minutes' => $lessonMinutes, ...$clock]);
         }
 
         $slots = DB::table('schedule_slots')
             ->where('schedule_id', $schedule->id)
             ->orderBy('weekday')->orderBy('start_time_local')
-            ->get(['id', 'weekday', 'start_time_local', 'duration_minutes', 'course']);
+            ->get(['id', 'weekday', 'start_time_local', 'duration_minutes', 'course'])
+            ->map(fn ($slot) => [
+                'id' => (string) $slot->id,
+                'weekday' => (int) $slot->weekday,
+                'start_time_local' => (string) $slot->start_time_local,
+                'duration_minutes' => (int) $slot->duration_minutes,
+                'course' => $slot->course,
+                ...$this->onAcademyClock((int) $slot->weekday, (string) $slot->start_time_local, (string) $schedule->timezone, $clock['academy_timezone']),
+            ]);
 
         return response()->json([
             'schedule' => $schedule,
             'slots' => $slots,
             'lesson_minutes' => $lessonMinutes,
+            ...$clock,
             // With two subjects open under this teacher, each slot says which one it is.
             'subjects' => DB::table('lesson_packages')
                 ->where('student_id', $studentId)->where('teacher_id', $schedule->teacher_id)->where('status', 'ACTIVE')
@@ -265,6 +283,46 @@ final class ScheduleController extends Controller
     }
 
     // ── internals ────────────────────────────────────────────────────────────
+
+    /**
+     * A slot's day and time as the academy reads them today. The same as its own when the timetable
+     * is tied to the academy's clock; an hour or more apart when it is tied to a student's country.
+     *
+     * @return array{academy_weekday:int, academy_time:string}
+     */
+    private function onAcademyClock(int $weekday, string $time, string $timezone, string $academyTz): array
+    {
+        if ($timezone === $academyTz) {
+            return ['academy_weekday' => $weekday, 'academy_time' => substr($time, 0, 5)];
+        }
+        $at = ScheduleAnchor::onClock($weekday, $time, $timezone, $academyTz);
+
+        return ['academy_weekday' => $at['weekday'], 'academy_time' => $at['time']];
+    }
+
+    /**
+     * The clocks a student's timetable can be tied to: the academy's, and the one the student lives
+     * on when their country is on file and is not the academy's.
+     *
+     * @return array{academy_timezone:string, student_country:?string, student_timezone:?string}
+     */
+    private function studentClock(string $studentId): array
+    {
+        $academyTz = $this->academyTimezone($this->currentAcademyId());
+        $row = DB::table('students as st')
+            ->leftJoin('guardians as gd', 'gd.id', '=', 'st.guardian_id')
+            ->where('st.id', $studentId)
+            ->first(['st.country as student_country', 'gd.country as guardian_country']);
+        $country = CountryClocks::code($row?->student_country) ?? CountryClocks::code($row?->guardian_country);
+        $academyCountry = CountryClocks::code((string) DB::table('academies')->where('id', $this->currentAcademyId())->value('country'))
+            ?? CountryClocks::countryOf($academyTz);
+
+        return [
+            'academy_timezone' => $academyTz,
+            'student_country' => $country,
+            'student_timezone' => $country !== null && $country !== $academyCountry ? CountryClocks::usual($country) : null,
+        ];
+    }
 
     /**
      * A new timetable: materialise over the rolling window (current month → end of next month,

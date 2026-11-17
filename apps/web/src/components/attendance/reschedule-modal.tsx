@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarClock, Clock, Loader2, RotateCcw, TriangleAlert } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
@@ -48,7 +49,7 @@ export function RescheduleModal({
   const t = useTranslations("attendance");
   const tSched = useTranslations("scheduling");
   const locale = useLocale();
-  const tz = timeZone ?? Intl.DateTimeFormat().resolvedOptions().timeZone ?? "UTC";
+  const tz = timeZone ?? academyTimeZone();
 
   const [when, setWhen] = useState("");
   const [reason, setReason] = useState("");

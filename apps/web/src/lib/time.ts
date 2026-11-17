@@ -1,3 +1,4 @@
+import { academyTimeZone } from "@/lib/academy-clock";
 import { numeralLocale } from "@/lib/numerals";
 
 /**
@@ -19,13 +20,13 @@ export function formatDateTime(
 /** Render a wall-clock "HH:mm" (24h) as a locale-aware 12-hour time, e.g. "4:30 PM". */
 export function formatHm12(hm: string, locale: string): string {
   const [h, m] = hm.split(":").map(Number);
-  const d = new Date();
-  d.setHours(h ?? 0, m ?? 0, 0, 0);
+  // Through UTC on a fixed day: the device's own zone (and its clock changes) never touch it.
   return new Intl.DateTimeFormat(bcp47(locale), {
     hour: "numeric",
     minute: "2-digit",
     hour12: true,
-  }).format(d);
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(2000, 0, 1, h ?? 0, m ?? 0)));
 }
 
 /**
@@ -98,8 +99,7 @@ export function formatRelativeTime(iso: string, locale: string): string {
 export function formatLocalDateTime(iso: string, locale: string): string {
   return new Intl.DateTimeFormat(bcp47(locale), {
     dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(iso));
+    timeStyle: "short", timeZone: academyTimeZone() }).format(new Date(iso));
 }
 
 /**

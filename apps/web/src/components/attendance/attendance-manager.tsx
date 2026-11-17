@@ -1,5 +1,6 @@
 "use client";
 
+import { academyDay, academyDayStartIso, academyTimeZone, academyToday } from "@/lib/academy-clock";
 import { SESSION_STATUS } from "@academiq/contracts";
 import {
   AlarmClock,
@@ -93,23 +94,20 @@ function isRangeMode(v: string | null): v is RangeMode {
 /** Which of the page's two worklists is open: the picked period, or the held-up backlog. */
 type Section = "period" | "overdue";
 
+/** Today on the academy's clock, whatever the device is set to. */
 function todayStr(): string {
-  const d = new Date();
-  const off = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+  return academyToday();
 }
 
-/** The local calendar date (Y-m-d) an instant falls on, in the browser's timezone. */
+/** The calendar date (Y-m-d) an instant falls on, on the academy's clock. */
 function localDay(utcIso: string): string {
-  const d = new Date(utcIso);
-  const off = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+  return academyDay(utcIso);
 }
 
 /**
  * The half-open window the list covers, from the anchor day and the range mode. The instants are
- * built from LOCAL midnight, so "the 3rd" means the viewer's 3rd — exactly as the single-day
- * view always did.
+ * built from midnight on the ACADEMY's clock, so "the 3rd" is the academy's 3rd on every device
+ * (a PC left on summer time used to ask for a day that began an hour early).
  */
 function periodBounds(
   anchor: string,
@@ -132,8 +130,8 @@ function periodBounds(
     // The last day INSIDE the window — what a label reads to, and what "does this period
     // contain today?" is measured against.
     lastDay: addDays(endExclusive, -1),
-    from: new Date(`${firstDay}T00:00:00`).toISOString(),
-    to: new Date(`${endExclusive}T00:00:00`).toISOString(),
+    from: academyDayStartIso(firstDay),
+    to: academyDayStartIso(endExclusive),
   };
 }
 
@@ -347,7 +345,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
   const [overdueFilters, setOverdueFilters] = useState<OverdueFilters>(EMPTY_OVERDUE_FILTERS);
 
   const timeFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
+    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }),
     [locale],
   );
 
@@ -503,6 +501,7 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
         weekday: "short",
         day: "numeric",
         month: "short",
+        timeZone: academyTimeZone(),
       }),
     [locale],
   );

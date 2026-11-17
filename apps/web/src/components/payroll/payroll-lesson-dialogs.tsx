@@ -1,5 +1,6 @@
 "use client";
 
+import { academyToday } from "@/lib/academy-clock";
 import { Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -260,10 +261,7 @@ export function AddLessonDialog({
   onDone: (added: PayrollAddedLesson) => void;
 }) {
   const t = useTranslations("payroll");
-  const today = useMemo(() => {
-    const d = new Date();
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-  }, []);
+  const today = useMemo(() => academyToday(), []);
   const lastDay = to < today ? to : today;
 
   const [studentId, setStudentId] = useState<string | null>(null);

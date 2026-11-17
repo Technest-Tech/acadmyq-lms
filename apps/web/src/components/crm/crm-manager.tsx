@@ -437,7 +437,7 @@ export function CrmManager() {
         onClose={() => setModal({ kind: "closed" })}
         title={t("convert.title")}
         description={t("convert.description")}
-        size="md"
+        size="xl"
       >
         {modal.kind === "convert" && (
           <ConvertLeadFlow

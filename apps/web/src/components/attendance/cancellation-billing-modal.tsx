@@ -19,11 +19,11 @@ export interface CancellationBillingValues {
 }
 
 /** What the teacher is paid for the lesson: nothing, a quarter, a half or all of it. */
-type TeacherShare = 0 | TeacherPayPercent;
+export type TeacherShare = 0 | TeacherPayPercent;
 const TEACHER_SHARES: TeacherShare[] = [0, 25, 50, 100];
 
 /** A four-way segmented control: nothing / a quarter / a half / the whole lesson. */
-function TeacherShareChoice({
+export function TeacherShareChoice({
   value,
   onChange,
   disabled,

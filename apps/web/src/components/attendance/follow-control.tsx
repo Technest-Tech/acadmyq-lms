@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { Eye, Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useState } from "react";
@@ -41,7 +42,7 @@ export function FollowControl({
   const [busy, setBusy] = useState(false);
 
   if (followed) {
-    const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }).format(
+    const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }).format(
       new Date(followed.followed_at),
     );
     return (

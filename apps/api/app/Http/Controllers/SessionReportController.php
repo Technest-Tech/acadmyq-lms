@@ -5,15 +5,19 @@ declare(strict_types=1);
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
+use App\Services\Invoicing;
+use App\Services\Payroll;
 use App\Services\Reports\ReportValidator;
 use App\Services\Reports\WhatsAppReportBuilder;
 use App\Support\Audit;
 use App\Support\DataTable;
+use App\Support\ReportFields;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -87,8 +91,8 @@ final class SessionReportController extends Controller
         $wasFreeTrial = (bool) ($before['is_free_trial'] ?? false);
         $nowFreeTrial = (bool) ($merged['is_free_trial'] ?? false);
         if ($wasFreeTrial !== $nowFreeTrial) {
-            app(\App\Services\Invoicing::class)->repriceFreeTrial($session);
-            app(\App\Services\Payroll::class)->repriceFreeTrial($session);
+            app(Invoicing::class)->repriceFreeTrial($session);
+            app(Payroll::class)->repriceFreeTrial($session);
         }
 
         // The report now exists, so any "report overdue / reminder" alert for this session is
@@ -196,6 +200,142 @@ final class SessionReportController extends Controller
             'total' => $result['total'],
             'page' => $result['page'],
             'pageSize' => $result['pageSize'],
+        ]);
+    }
+
+    /**
+     * A report "has something in it": any answer other than the trial flag that is not blank once
+     * its markup is stripped. The popup saves a report row on every outcome (a cancellation sends
+     * an empty `report_text`), so the row alone says nothing about whether a report was written.
+     */
+    private const HAS_CONTENT = <<<'SQL'
+        exists (
+          select 1 from jsonb_each_text(sr."values") kv
+          where kv.key <> 'is_free_trial'
+            and regexp_replace(coalesce(kv.value, ''), '<[^>]*>|&nbsp;|[[:space:]]', '', 'g') <> ''
+        )
+        SQL;
+
+    /** Delivered lessons — the ones a report is owed for (FlagOverdueReportsJob, minus the unmarked). */
+    private const OWES_REPORT = ['ATTENDED', 'FREE'];
+
+    /**
+     * GET /api/session-reports — the reports log: every private lesson's report, newest first, with
+     * its answers, across all of the caller's students. Teachers asked for it: their old reports were
+     * only reachable through a salary statement. A TEACHER sees only lessons they taught (§3.6);
+     * everyone else with session.read sees the academy's, optionally narrowed to one teacher.
+     *
+     * `filter[tab]`: `written` (default) = lessons whose report has something in it; `missing` =
+     * delivered lessons (ATTENDED/FREE) that have ended with nothing written. `counts` carries both
+     * under the same filters and search, so the tabs agree with the list. `fields` is every report
+     * field the academy ever defined (retired ones included), to label old answers.
+     */
+    public function log(Request $request): JsonResponse
+    {
+        Gate::authorize('session.read');
+
+        $filter = $request->validate([
+            'filter' => ['sometimes', 'array'],
+            'filter.tab' => ['sometimes', 'nullable', Rule::in(['written', 'missing'])],
+            'filter.student_id' => ['sometimes', 'nullable', 'uuid'],
+            'filter.teacher_id' => ['sometimes', 'nullable', 'uuid'],
+            'filter.from' => ['sometimes', 'nullable', 'date'],
+            'filter.to' => ['sometimes', 'nullable', 'date'],
+            'search' => ['sometimes', 'nullable', 'string', 'max:100'],
+        ])['filter'] ?? [];
+
+        $now = now()->utc()->toIso8601String();
+        $base = DB::table('sessions as se')
+            ->leftJoin('session_reports as sr', 'sr.session_id', '=', 'se.id')
+            ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
+            ->leftJoin('teachers as te', 'te.id', '=', 'se.teacher_id')
+            // A deleted or wound-down lesson is off every lesson list; a RESCHEDULED row is only the
+            // old slot's marker (its successor carries the lesson).
+            ->whereNull('se.hidden_at')
+            ->where('se.status', '!=', 'RESCHEDULED')
+            ->where('se.scheduled_at_utc', '<=', $now);
+
+        if ($this->ctx()->role === 'TEACHER') {
+            $ownTeacherId = $this->callerTeacherId();
+            if ($ownTeacherId === null) {
+                abort(403, 'No teacher record for this user.');
+            }
+            $base->where('se.teacher_id', $ownTeacherId);
+        } elseif (! empty($filter['teacher_id'])) {
+            $base->where('se.teacher_id', $filter['teacher_id']);
+        }
+        if (! empty($filter['student_id'])) {
+            $base->where('se.student_id', $filter['student_id']);
+        }
+        // Window edges are instants the client built on the academy's clock (as /sessions/day).
+        if (! empty($filter['from'])) {
+            $base->where('se.scheduled_at_utc', '>=', Carbon::parse($filter['from'])->utc()->toIso8601String());
+        }
+        if (! empty($filter['to'])) {
+            $base->where('se.scheduled_at_utc', '<', Carbon::parse($filter['to'])->utc()->toIso8601String());
+        }
+        // A student's name or any word in the report itself ("الملك", "تجويد").
+        DataTable::search($base, (string) $request->query('search', ''), ['st.full_name', 'sr."values"']);
+
+        $hasContent = self::HAS_CONTENT;
+        $owes = "se.status in ('".implode("','", self::OWES_REPORT)."')";
+        $ended = 'se.scheduled_at_utc + make_interval(mins => se.duration_minutes) <= ?';
+        $missing = "({$owes} and {$ended} and (sr.id is null or not {$hasContent}))";
+
+        $counts = (clone $base)
+            ->selectRaw("count(*) filter (where sr.id is not null and {$hasContent}) as written", [])
+            ->selectRaw("count(*) filter (where {$missing}) as missing", [$now])
+            ->first();
+
+        $list = clone $base;
+        if (($filter['tab'] ?? 'written') === 'missing') {
+            $list->whereRaw($missing, [$now]);
+        } else {
+            $list->whereNotNull('sr.id')->whereRaw($hasContent);
+        }
+        $list->select([
+            'se.id', 'se.scheduled_at_utc', 'se.duration_minutes', 'se.status',
+            'se.student_id', 'st.full_name as student_name',
+            'se.teacher_id', 'te.full_name as teacher_name',
+            'sr.values as report_values', 'sr.created_at as written_at', 'sr.whatsapp_sent_at',
+            'fu.full_name as written_by_name',
+        ])
+            // Who saved it last: the teacher, or someone in the office writing it for them.
+            ->leftJoin('users as fu', 'fu.id', '=', 'sr.filled_by_user_id')
+            ->selectRaw('(sr.filled_by_user_id is not null and sr.filled_by_user_id = te.user_id) as written_by_teacher');
+
+        $result = DataTable::paginate($list, $request, [
+            'sortable' => ['date' => 'se.scheduled_at_utc'],
+            'defaultSort' => '-date',
+            'defaultPageSize' => 20,
+            'idColumn' => 'se.id',
+        ]);
+
+        $iso = fn ($v) => $v !== null ? Carbon::parse($v)->utc()->toIso8601String() : null;
+        $rows = $result['rows']->map(function ($r) use ($iso) {
+            $r->scheduled_at_utc = $iso($r->scheduled_at_utc);
+            // `created_at` takes the database's own default — the one timestamp on a report that is
+            // never bound naively (filled_at is, and is re-stamped on every edit).
+            $r->written_at = $iso($r->written_at);
+            $r->whatsapp_sent_at = $iso($r->whatsapp_sent_at);
+            $r->written_by_teacher = (bool) $r->written_by_teacher;
+            $r->report_values = $r->report_values !== null ? (json_decode($r->report_values, true) ?: []) : null;
+
+            return $r;
+        });
+
+        return response()->json([
+            'rows' => $rows,
+            'total' => $result['total'],
+            'page' => $result['page'],
+            'pageSize' => $result['pageSize'],
+            'counts' => ['written' => (int) ($counts->written ?? 0), 'missing' => (int) ($counts->missing ?? 0)],
+            'fields' => ReportFields::map(
+                DB::table('report_field_definitions')
+                    ->where('academy_id', $this->currentAcademyId())
+                    ->orderBy('sort_order')
+                    ->get()
+            ),
         ]);
     }
 

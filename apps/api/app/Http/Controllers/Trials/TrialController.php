@@ -302,7 +302,7 @@ final class TrialController extends Controller
             'outcome_notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
 
-        $timezone = $data['timezone'] ?? $this->academyTimezone($academyId);
+        $timezone = $this->academyTimezone($academyId); // the academy clock, whatever the device says
         $startUtc = $this->resolveInstant($data, $timezone);
         $duration = (int) $data['duration_minutes'];
 
@@ -359,7 +359,7 @@ final class TrialController extends Controller
 
         // Reschedule: a new instant (explicit UTC or local wall-clock) and/or a new duration.
         if (! empty($data['scheduled_at_utc']) || ! empty($data['local_datetime'])) {
-            $timezone = $data['timezone'] ?? (string) $trial->timezone;
+            $timezone = $this->academyTimezone($this->currentAcademyId()); // the academy clock, whatever the device says
             $newStart = $this->resolveInstant($data, $timezone);
             $before['scheduled_at_utc'] = Carbon::parse($trial->scheduled_at_utc)->utc()->toIso8601String();
             $after['scheduled_at_utc'] = $newStart->format('Y-m-d H:i:sP');

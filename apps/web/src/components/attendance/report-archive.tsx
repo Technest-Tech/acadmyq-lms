@@ -1,5 +1,6 @@
 "use client";
 
+import { academyTimeZone } from "@/lib/academy-clock";
 import { Check, FileText, MessageCircle } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useMemo, useState } from "react";
@@ -43,8 +44,7 @@ export function ReportArchive({ studentId }: { studentId: string }) {
     () =>
       new Intl.DateTimeFormat(locale, {
         dateStyle: "medium",
-        timeStyle: "short",
-      }),
+        timeStyle: "short", timeZone: academyTimeZone() }),
     [locale],
   );
 

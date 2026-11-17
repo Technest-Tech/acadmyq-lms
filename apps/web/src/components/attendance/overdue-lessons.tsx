@@ -1,5 +1,6 @@
 "use client";
 
+import { academyDay, academyTimeZone } from "@/lib/academy-clock";
 import {
   AlarmClock,
   CalendarX2,
@@ -143,11 +144,9 @@ function endedAt(s: OverdueSession): number {
   return new Date(s.scheduled_at_utc).getTime() + s.duration_minutes * 60_000;
 }
 
-/** The local calendar date (Y-m-d) an instant falls on, in the browser's timezone. */
+/** The calendar date (Y-m-d) an instant falls on, on the academy's clock. */
 function localDay(utcIso: string): string {
-  const d = new Date(utcIso);
-  const off = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - off).toISOString().slice(0, 10);
+  return academyDay(utcIso);
 }
 
 const selectClass =
@@ -225,11 +224,11 @@ export function OverdueLessonsBoard({
   const set = (patch: Partial<OverdueFilters>) => onFiltersChange({ ...filters, ...patch });
 
   const timeFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit" }),
+    () => new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }),
     [locale],
   );
   const dayFmt = useMemo(
-    () => new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short" }),
+    () => new Intl.DateTimeFormat(locale, { weekday: "short", day: "numeric", month: "short", timeZone: academyTimeZone() }),
     [locale],
   );
 
