@@ -39,11 +39,21 @@ function addDays(date: string, days: number): string {
 
 /**
  * "نهاية الكورس" (docs/centre-profile, Phase 2 §2): what a centre does when a group's term ends —
- * renew it into a new term, promote its students into the next level's term, or close it. Shown on a
- * RUNNING or FINISHED group for whoever manages groups; highlighted while the term is ending soon.
- * A renewal or promotion opens the new group; a close stays and refreshes.
+ * renew it (the SAME group runs on for a new term), promote its students into the next level's
+ * term, or close it. Shown on a RUNNING or FINISHED group for whoever manages groups; highlighted
+ * while the term is ending soon. A promotion opens the new group; a renewal or a close stays and
+ * refreshes.
  */
-export function CourseEndPanel({ group, onClosed }: { group: GroupDetail; onClosed: (g: GroupDetail) => void }) {
+export function CourseEndPanel({
+  group,
+  onClosed,
+  onRenewed,
+}: {
+  group: GroupDetail;
+  onClosed: (g: GroupDetail) => void;
+  /** The group after a renewal — the same group, running on. Falls back to `onClosed`. */
+  onRenewed?: (g: GroupDetail) => void;
+}) {
   const t = useTranslations("courseTerm");
   const word = useLevelWord();
   const [action, setAction] = useState<Action | null>(null);
@@ -94,7 +104,16 @@ export function CourseEndPanel({ group, onClosed }: { group: GroupDetail; onClos
       </div>
 
       <Modal open={action === "renew"} onClose={() => setAction(null)} title={t("renew.title")} description={t("renew.subtitle")} size="lg">
-        {action === "renew" && <RenewForm group={group} onCancel={() => setAction(null)} />}
+        {action === "renew" && (
+          <RenewForm
+            group={group}
+            onCancel={() => setAction(null)}
+            onRenewed={(g) => {
+              setAction(null);
+              (onRenewed ?? onClosed)(g);
+            }}
+          />
+        )}
       </Modal>
       <Modal open={action === "promote"} onClose={() => setAction(null)} title={t("promote.title")} description={t("promote.subtitle", { word })} size="lg">
         {action === "promote" && <PromoteForm group={group} onCancel={() => setAction(null)} />}
@@ -225,15 +244,17 @@ function defaultDates(group: GroupDetail): { start: string; end: string } {
   return { start: start < today && group.state !== "FINISHED" ? today : start, end };
 }
 
-function RenewForm({ group, onCancel }: { group: GroupDetail; onCancel: () => void }) {
+/**
+ * Renew: the same group, a new end. No start date — nothing new is opened, the lessons simply go
+ * on — and no end date by default: a group with none runs until someone ends it.
+ */
+function RenewForm({ group, onCancel, onRenewed }: { group: GroupDetail; onCancel: () => void; onRenewed: (g: GroupDetail) => void }) {
   const t = useTranslations("courseTerm");
   const tGroups = useTranslations("groups");
-  const router = useRouter();
-  const defaults = defaultDates(group);
+  const today = new Date().toISOString().slice(0, 10);
   const [name, setName] = useState(group.name);
-  const [startDate, setStartDate] = useState(defaults.start);
-  const [endDate, setEndDate] = useState(defaults.end);
-  const [lessons, setLessons] = useState(group.lessons_planned != null ? String(group.lessons_planned) : "");
+  const [endDate, setEndDate] = useState("");
+  const [lessons, setLessons] = useState("");
   const [picked, setPicked] = useState<Set<string>>(() => new Set(group.members.filter((m) => m.status === "ACTIVE").map((m) => m.student_id)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -241,22 +262,20 @@ function RenewForm({ group, onCancel }: { group: GroupDetail; onCancel: () => vo
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!startDate) return setError(t("renew.errors.startDate"));
-    if (endDate && endDate < startDate) return setError(t("renew.errors.endBeforeStart"));
+    if (endDate && endDate < today) return setError(t("renew.errors.endPast"));
     if (lessons && (!Number.isInteger(Number(lessons)) || Number(lessons) < 1)) return setError(t("renew.errors.lessons"));
     setBusy(true);
     setError(null);
     try {
       const keepAll = picked.size === activeCount;
       const res = await renewGroup(group.id, {
-        start_date: startDate,
         end_date: endDate || null,
         lessons_planned: lessons ? Number(lessons) : null,
         name: name.trim() && name.trim() !== group.name ? name.trim() : null,
         keep_members: keepAll,
         ...(keepAll ? {} : { member_ids: [...picked] }),
       });
-      router.push(`/groups/${res.group.id}`);
+      onRenewed(res.group);
     } catch (err) {
       setError(apiErrorMessage(err, t("panel.failed")));
       setBusy(false);
@@ -266,14 +285,23 @@ function RenewForm({ group, onCancel }: { group: GroupDetail; onCancel: () => vo
   return (
     <form onSubmit={submit} className="space-y-4" data-testid="renew-form">
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}
-      {group.lessons.upcoming > 0 && <AlertBanner variant="info" message={t("renew.upcomingWarning", { count: group.lessons.upcoming })} />}
 
       <label className="block space-y-1.5">
         <span className="text-sm font-medium">{t("renew.name")}</span>
         <input className={fieldClass} value={name} onChange={(e) => setName(e.target.value)} maxLength={120} data-testid="renew-name" />
       </label>
 
-      <TermDates startDate={startDate} endDate={endDate} lessons={lessons} onStart={setStartDate} onEnd={setEndDate} onLessons={setLessons} />
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium">{t("renew.endDate")}</span>
+          <input className={fieldClass} type="date" value={endDate} min={today} onChange={(e) => setEndDate(e.target.value)} data-testid="term-end" />
+          <span className="text-muted-foreground block text-xs">{t("renew.endDateHint")}</span>
+        </label>
+        <label className="block space-y-1.5">
+          <span className="text-sm font-medium">{t("plannedLessons")}</span>
+          <input className={fieldClass} type="number" inputMode="numeric" min={1} value={lessons} onChange={(e) => setLessons(e.target.value)} data-testid="term-lessons" />
+        </label>
+      </div>
 
       <MemberChecklist group={group} picked={picked} onChange={setPicked} label={t("renew.members")} hint={t("renew.membersHint")} testId="renew-members" />
 

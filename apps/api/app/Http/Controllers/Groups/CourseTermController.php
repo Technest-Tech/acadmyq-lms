@@ -12,8 +12,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 
 /**
- * The end of a course term (docs/centre-profile, Phase 2 §2): renew it, promote its students, or
- * close it. Behind `entitled:centre` + `entitled:groups`; `group.manage` throughout, and a
+ * The end of a course term (docs/centre-profile, Phase 2 §2): renew it (the same group runs on),
+ * promote its students, or close it. Behind `entitled:centre` + `entitled:groups`; `group.manage` throughout, and a
  * promotion changes the students too (`student.update`), exactly as the single-student one does.
  * The group payloads these return are the same shape as GET /groups/{id}.
  */
@@ -24,9 +24,11 @@ final class CourseTermController extends Controller
     public function __construct(private readonly CourseTerm $terms) {}
 
     /**
-     * POST /api/groups/{id}/renew — a new term from `start_date` (`end_date`, `lessons_planned`,
-     * `price_minor`, `name` optional), with every member (`keep_members`) or the `member_ids` given.
-     * Answers with the successor; the old group is archived RENEWED.
+     * POST /api/groups/{id}/renew — the same group runs on for another term: `end_date` is its new
+     * end (empty = no end), `lessons_planned` the new term's plan, `price_minor` and `name` optional,
+     * with every member (`keep_members`) or only the `member_ids` given — the rest leave. Nothing is
+     * archived and no new group is made; `start_date` is still accepted from older clients and
+     * ignored. Answers with the group itself.
      */
     public function renew(Request $request, string $id): JsonResponse
     {
@@ -34,7 +36,7 @@ final class CourseTermController extends Controller
 
         $group = $this->findGroup($id);
         $data = $request->validate([
-            'start_date' => ['required', 'date_format:Y-m-d'],
+            'start_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'end_date' => ['sometimes', 'nullable', 'date_format:Y-m-d'],
             'lessons_planned' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:1000'],
             'price_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
@@ -43,16 +45,16 @@ final class CourseTermController extends Controller
             'member_ids' => ['sometimes', 'array', 'max:500'],
             'member_ids.*' => ['uuid'],
         ]);
-        if (array_key_exists('price_minor', $data)) {
+        if (array_key_exists('price_minor', $data) && $data['price_minor'] !== null) {
             Gate::authorize('student.set_price');
         }
 
-        $newId = $this->terms->renew($group, $data, $this->ctx()->userId, $this->ctx()->role);
+        $this->terms->renew($group, $data, $this->ctx()->userId, $this->ctx()->role);
 
         return response()->json([
-            'group' => app(ClassGroupController::class)->payload($newId),
+            'group' => app(ClassGroupController::class)->payload($id),
             'previous_group_id' => $id,
-        ], 201);
+        ]);
     }
 
     /**

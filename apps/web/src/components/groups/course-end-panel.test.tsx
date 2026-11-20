@@ -10,7 +10,7 @@ import { CourseEndPanel } from "./course-end-panel";
 
 /**
  * "نهاية الكورس" (docs/centre-profile, Phase 2 §2): the three ways a term ends, and the exact
- * payloads they send — a renewal from the day after the old end with the ticked members, a
+ * payloads they send — a renewal of the same group (no start date) with the ticked members, a
  * promotion to the next level with who passed, a close with its reason.
  */
 
@@ -107,7 +107,7 @@ const centreSession = () =>
 beforeEach(() => {
   vi.clearAllMocks();
   listLevels.mockResolvedValue({ levels: [level("l1", "A1", 1), level("l2", "A2", 2), level("l3", "B1", 3)] });
-  renewGroup.mockResolvedValue({ group: group({ id: "g2", state: "UPCOMING" }), previous_group_id: "g1" });
+  renewGroup.mockResolvedValue({ group: group({ end_date: null, state: "RUNNING", ends_in_days: null }), previous_group_id: "g1" });
   promoteGroup.mockResolvedValue({
     group: group({ id: "g3", level: "A2", level_id: "l2", state: "UPCOMING" }),
     previous_group_id: "g1",
@@ -119,20 +119,21 @@ beforeEach(() => {
 });
 
 describe("CourseEndPanel — renew / promote / close", () => {
-  it("renews from the day after the old end, same length, with only the ticked members", async () => {
+  it("renews the same group: no start date, no end date by default, only the ticked members stay", async () => {
     const user = userEvent.setup();
-    render(withAuth(centreSession(), <CourseEndPanel group={group()} onClosed={() => {}} />));
+    const onRenewed = vi.fn();
+    const onClosed = vi.fn();
+    render(withAuth(centreSession(), <CourseEndPanel group={group()} onClosed={onClosed} onRenewed={onRenewed} />));
 
     await user.click(screen.getByTestId("course-renew"));
     const form = await screen.findByTestId("renew-form");
-    // The day after 30 May, kept 90 days long like the old term.
-    expect(within(form).getByTestId("term-start")).toHaveValue("2026-05-31");
-    expect(within(form).getByTestId("term-end")).toHaveValue("2026-08-29");
-    expect(within(form).getByTestId("term-lessons")).toHaveValue(24);
+    // Nothing new is opened, so there is no start to pick; an empty end = the group runs on.
+    expect(within(form).queryByTestId("term-start")).toBeNull();
+    expect(within(form).getByTestId("term-end")).toHaveValue("");
+    expect(within(form).getByTestId("term-lessons")).toHaveValue(null);
     expect(within(form).getByTestId("renew-name")).toHaveValue("English A1 — evening");
 
     await user.click(within(form).getByTestId("renew-members-s-celine"));
-    await user.clear(within(form).getByTestId("term-lessons"));
     await user.type(within(form).getByTestId("term-lessons"), "20");
     await user.click(within(form).getByTestId("renew-submit"));
 
@@ -140,14 +141,17 @@ describe("CourseEndPanel — renew / promote / close", () => {
     const [id, input] = renewGroup.mock.calls[0]!;
     expect(id).toBe("g1");
     expect(input).toEqual({
-      start_date: "2026-05-31",
-      end_date: "2026-08-29",
+      end_date: null,
       lessons_planned: 20,
       name: null,
       keep_members: false,
       member_ids: ["s-adam", "s-bassel"],
     });
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/groups/g2"));
+    // It stays on the group — the same one — and hands the page its new state.
+    await waitFor(() => expect(onRenewed).toHaveBeenCalledTimes(1));
+    expect(onRenewed.mock.calls[0]![0].id).toBe("g1");
+    expect(push).not.toHaveBeenCalled();
+    expect(onClosed).not.toHaveBeenCalled();
   });
 
   it("keeps everyone with keep_members when nobody is unticked, and sends a changed name", async () => {
@@ -167,6 +171,7 @@ describe("CourseEndPanel — renew / promote / close", () => {
     expect(input.member_ids).toBeUndefined();
     expect(input.name).toBe("English A1 — summer");
     expect(input.end_date).toBeNull();
+    expect(input.start_date).toBeUndefined();
   });
 
   it("promotes to the next level by default, with who passed, and says who stayed behind", async () => {

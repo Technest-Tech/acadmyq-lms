@@ -382,6 +382,10 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
             setGroup(g);
             setNotice(tTerm("close.done"));
           }}
+          onRenewed={(g) => {
+            setGroup(g);
+            setNotice(tTerm("renew.done"));
+          }}
         />
       )}
 

@@ -743,7 +743,7 @@ final class GroupBilling
     }
 
     /** 480 → "8", 450 → "7.5" — for the line's description. */
-    private static function hoursText(int $minutes): string
+    public static function hoursText(int $minutes): string
     {
         return rtrim(rtrim(number_format($minutes / 60, 2, '.', ''), '0'), '.');
     }

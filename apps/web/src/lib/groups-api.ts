@@ -474,14 +474,15 @@ export function rescheduleGroupLesson(
 // Group calls behind the centre switch as well (402 for a Quran academy).
 
 export interface RenewGroupInput {
-  start_date: string;
+  /** The group's new end; empty = it runs on with no end. */
   end_date?: string | null;
+  /** The new term's plan, counted on top of the lessons already held. */
   lessons_planned?: number | null;
-  /** The new term's price (student.set_price); omitted = the old term's. */
+  /** A new price from now (student.set_price); omitted = unchanged. */
   price_minor?: number | null;
   /** Omitted = the same name. */
   name?: string | null;
-  /** Everyone moves on; otherwise `member_ids` says who. */
+  /** Everyone stays; otherwise `member_ids` says who — the rest leave the group. */
   keep_members?: boolean;
   member_ids?: string[];
 }
@@ -498,7 +499,7 @@ export interface PromoteGroupInput {
   member_ids: string[];
 }
 
-/** The successor term; `previous_group_id` is the one just archived. */
+/** Renew in place: the same group runs on. `group` is that group; `previous_group_id` is its own id. */
 export function renewGroup(id: string, input: RenewGroupInput): Promise<{ group: GroupDetail; previous_group_id: string }> {
   return apiFetch(`/api/groups/${id}/renew`, { method: "POST", body: JSON.stringify(input) });
 }

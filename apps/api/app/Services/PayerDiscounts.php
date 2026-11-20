@@ -39,8 +39,8 @@ final class PayerDiscounts
      *
      * @param  string  $scope  GROUP | PRIVATE — what kind of charge this is
      * @param  \Closure|string|null  $teacherId  a private charge's subject teacher (a package's, or the
-     *                                          lesson's timetable's); a closure is only asked when a
-     *                                          discount names a subject
+     *                                           lesson's timetable's); a closure is only asked when a
+     *                                           discount names a subject
      * @return array{amount_minor:int, list_amount_minor:?int, discount_minor:int, discount_label:?string}
      */
     public function apply(string $academyId, ?string $studentId, string $scope, ?string $classGroupId, int $amountMinor, string $onDate, \Closure|string|null $teacherId = null): array
@@ -367,6 +367,43 @@ final class PayerDiscounts
         }
 
         return ['lines' => $moved, 'discount_minor' => $taken];
+    }
+
+    /**
+     * Price these group charges again under the discounts standing on their dates — for a charge
+     * whose group changed under it (a renewal folded back into the group it came from: the family's
+     * discounts name the group, so the charge was raised without them). Only charges still on an
+     * OPEN bill; a two-month offer and a cancelled charge keep what they were set to.
+     *
+     * @param  list<string>  $lineIds
+     * @return array{lines:int, discount_minor:int}
+     */
+    public function repriceGroupLines(string $academyId, array $lineIds): array
+    {
+        if ($lineIds === [] || ! Ledger::enabledFor($academyId)) {
+            return ['lines' => 0, 'discount_minor' => 0];
+        }
+
+        $lines = DB::table('invoice_line_items as li')
+            ->join('invoices as i', 'i.id', '=', 'li.invoice_id')
+            ->where('i.academy_id', $academyId)
+            ->where('i.status', 'OPEN')
+            ->whereIn('li.id', $lineIds)
+            ->whereNotNull('li.class_group_id')
+            ->whereNull('li.cancelled_at')
+            ->where(fn ($q) => $q->whereNull('li.group_months')->orWhere('li.group_months', '<>', 2))
+            ->whereNotNull('li.session_date')
+            ->whereRaw('coalesce(li.list_amount_minor, li.amount_minor) > 0')
+            ->orderBy('li.session_date')
+            ->get(['li.*'])
+            ->map(function ($line) {
+                $line->charge_scope = self::SCOPE_GROUP;
+                $line->subject_teacher_id = null;
+
+                return $line;
+            });
+
+        return $this->reprice($academyId, $lines);
     }
 
     /**

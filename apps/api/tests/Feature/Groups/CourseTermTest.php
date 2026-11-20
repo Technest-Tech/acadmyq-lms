@@ -19,9 +19,9 @@ uses(RefreshDatabase::class, InteractsWithTenancy::class, CreatesTenantData::cla
 /**
  * A group as a course term (docs/centre-profile, Phase 2 §2). Pinned here:
  *   - the payload says how far the term has run and when it is "ending soon" — by date or by lessons;
- *   - renewing copies the course into a new term (times, seats, level, members on the new start) and
- *     archives the old one RENEWED; promoting writes each student's level history through the seam
- *     and leaves the rest behind; closing archives CLOSED and lets the queue go;
+ *   - renewing keeps the group: it runs on to a new end date with the members chosen, and nothing
+ *     is archived; promoting opens the next level's term, writes each student's level history
+ *     through the seam and leaves the rest behind; closing archives CLOSED and lets the queue go;
  *   - the waiting list seats through the members path (so a full group refuses), never by itself;
  *   - all of it is a centre's: a Quran academy gets 402 and its group payload only gains nullable keys.
  */
@@ -204,86 +204,78 @@ it('counts the term\'s progress and says when it is ending soon, by lessons or b
 
 // ── Renew ────────────────────────────────────────────────────────────────────
 
-it('renews a finished term into a new one — same course, members on the new start, old one archived RENEWED', function () {
+it('renews a finished term in place — the same group runs on, the chosen stay, the rest leave, nothing is archived', function () {
     ctCentreOn($this->academy);
     $a1 = ctLevel($this, 'A1', 1);
     $old = ctGroup($this, [
         'end_date' => '2026-06-15', 'lessons_planned' => 5, 'level_id' => $a1, 'notes' => 'Front room',
         'student_ids' => [$this->students['Adam'], $this->students['Bassel'], $this->students['Celine']],
     ]);
-    ctHold($this, $old, 5);
+    ctHold($this, $old, 5); // 1, 3, 8, 10 and 15 June — the last one ON the end date
     Sanctum::actingAs($this->owner);
     $this->getJson("/api/groups/{$old}")->assertOk()->assertJsonPath('group.state', 'FINISHED');
-    // A name waiting at the door follows the course into its new term.
     $this->postJson("/api/groups/{$old}/waitlist", ['student_id' => $this->students['Dina']])->assertCreated();
 
     $res = $this->postJson("/api/groups/{$old}/renew", [
-        'start_date' => '2026-06-22', 'end_date' => '2026-07-22', 'lessons_planned' => 9,
+        'end_date' => '2026-07-22', 'lessons_planned' => 9,
         'keep_members' => false, 'member_ids' => [$this->students['Adam'], $this->students['Bassel']],
-    ])->assertCreated();
-    $new = $res->json('group');
+    ])->assertOk();
+    $group = $res->json('group');
     expect($res->json('previous_group_id'))->toBe($old)
-        ->and($new['id'])->not->toBe($old)
-        ->and($new['name'])->toBe('English A1 — evening')
-        ->and($new['level_id'])->toBe($a1)->and($new['level'])->toBe('A1')
-        ->and($new['teacher_id'])->toBe($this->teacher)
-        ->and($new['capacity'])->toBe(4)->and($new['location'])->toBe('Room 2')->and($new['mode'])->toBe('OFFLINE')
-        ->and($new['slots'])->toBe([
-            ['weekday' => 1, 'start_time_local' => '17:00', 'duration_minutes' => 60],
-            ['weekday' => 3, 'start_time_local' => '17:00', 'duration_minutes' => 60],
-        ])
-        ->and($new['start_date'])->toBe('2026-06-22')->and($new['end_date'])->toBe('2026-07-22')
-        ->and($new['lessons_planned'])->toBe(9)->and($new['lessons_held'])->toBe(0)->and($new['lessons_remaining'])->toBe(9)
-        ->and($new['state'])->toBe('UPCOMING')
-        ->and($new['continues_group_id'])->toBe($old)
-        ->and($new['continues_group_name'])->toBe('English A1 — evening')
-        ->and($new['member_count'])->toBe(2)
-        ->and($new['waiting_count'])->toBe(1)
-        ->and($new['notes'])->toBe('Front room');
+        ->and($group['id'])->toBe($old) // the same group — nothing new, nothing archived
+        ->and($group['status'])->toBe('ACTIVE')->and($group['state'])->toBe('RUNNING')
+        ->and($group['closed_reason'])->toBeNull()->and($group['continues_group_id'])->toBeNull()
+        ->and($group['start_date'])->toBe('2026-06-01')->and($group['end_date'])->toBe('2026-07-22')
+        // The new term plans 9 lessons on top of the 5 already held.
+        ->and($group['lessons_planned'])->toBe(14)->and($group['lessons_held'])->toBe(5)->and($group['lessons_remaining'])->toBe(9)
+        ->and($group['level_id'])->toBe($a1)->and($group['notes'])->toBe('Front room')
+        ->and($group['member_count'])->toBe(2)
+        ->and($group['waiting_count'])->toBe(1); // the queue waits at the same door
+    expect(ctInContext($this->academy, fn () => DB::table('class_groups')->count()))->toBe(1);
 
-    // Its lessons exist, Mondays and Wednesdays from 22 June to 22 July.
-    $dates = ctInContext($this->academy, fn () => DB::table('class_group_lessons')->where('group_id', $new['id'])
-        ->orderBy('occurrence_local_date')->pluck('occurrence_local_date')->map(fn ($d) => Carbon::parse($d)->format('Y-m-d'))->all());
-    expect($dates)->toBe(['2026-06-22', '2026-06-24', '2026-06-29', '2026-07-01', '2026-07-06', '2026-07-08', '2026-07-13', '2026-07-15', '2026-07-20', '2026-07-22']);
+    // Its history stays where it was, and the lessons to come run from today to the new end.
+    $lessons = ctInContext($this->academy, fn () => DB::table('class_group_lessons')->where('group_id', $old)->orderBy('occurrence_local_date')->get(['occurrence_local_date', 'status']));
+    $coming = $lessons->where('status', 'SCHEDULED')->map(fn ($l) => Carbon::parse($l->occurrence_local_date)->format('Y-m-d'))->values();
+    expect($lessons->where('status', 'HELD'))->toHaveCount(5)
+        ->and($coming->first())->toBe('2026-06-17')->and($coming->last())->toBe('2026-07-22');
 
-    // New members joined on the new start; everyone left the old term on the day it ended.
-    expect(ctMembers($this, $new['id']))->toBe([
-        ['name' => 'Adam', 'status' => 'ACTIVE', 'joined_on' => '2026-06-22', 'left_on' => null, 'left_reason' => null],
-        ['name' => 'Bassel', 'status' => 'ACTIVE', 'joined_on' => '2026-06-22', 'left_on' => null, 'left_reason' => null],
+    // The two chosen never left; the third left the day AFTER the term's last day, so the lesson
+    // held on that day is still theirs.
+    expect(ctMembers($this, $old))->toBe([
+        ['name' => 'Adam', 'status' => 'ACTIVE', 'joined_on' => '2026-06-01', 'left_on' => null, 'left_reason' => null],
+        ['name' => 'Bassel', 'status' => 'ACTIVE', 'joined_on' => '2026-06-01', 'left_on' => null, 'left_reason' => null],
+        ['name' => 'Celine', 'status' => 'LEFT', 'joined_on' => '2026-06-01', 'left_on' => '2026-06-16', 'left_reason' => 'Not renewed'],
     ]);
-    expect(collect(ctMembers($this, $old))->map(fn ($m) => [$m['status'], $m['left_on']])->all())
-        ->toBe([['LEFT', '2026-06-15'], ['LEFT', '2026-06-15'], ['LEFT', '2026-06-15']]);
 
-    $oldPayload = $this->getJson("/api/groups/{$old}")->assertOk()->json('group');
-    expect($oldPayload['status'])->toBe('ARCHIVED')->and($oldPayload['closed_reason'])->toBe('RENEWED')
-        ->and($oldPayload['waiting_count'])->toBe(0)
-        ->and($oldPayload['lessons']['held'])->toBe(5); // history stays
-
-    expect($this->getJson("/api/groups/{$new['id']}/waitlist")->assertOk()->json('entries.0.name'))->toBe('Dina');
-
-    // Once archived, it cannot be renewed again.
-    $this->postJson("/api/groups/{$old}/renew", ['start_date' => '2026-08-01', 'keep_members' => true])->assertStatus(422);
+    // It can be renewed again, as often as the course goes on; no end date = it simply runs.
+    $this->postJson("/api/groups/{$old}/renew", ['keep_members' => true])->assertOk()
+        ->assertJsonPath('group.id', $old)->assertJsonPath('group.end_date', null)->assertJsonPath('group.member_count', 2);
+    $audit = ctInContext($this->academy, fn () => DB::table('audit_log')->where('action', 'class_group.renewed')->where('entity_id', $old)->count());
+    expect($audit)->toBe(2);
 });
 
-it('renews a running term with every member by default-dates, and refuses a stranger or an upcoming one', function () {
+it('renews a running term with every member, and refuses a stranger, a past end date or an upcoming one', function () {
     ctCentreOn($this->academy);
     $old = ctGroup($this, ['end_date' => '2026-06-30', 'student_ids' => [$this->students['Adam'], $this->students['Bassel']]]);
     $upcoming = ctGroup($this, ['name' => 'Not yet', 'start_date' => '2026-07-01']);
 
     Sanctum::actingAs($this->owner);
-    $this->postJson("/api/groups/{$upcoming}/renew", ['start_date' => '2026-08-01', 'keep_members' => true])->assertStatus(422);
-    $this->postJson("/api/groups/{$old}/renew", ['start_date' => '2026-07-01', 'member_ids' => [$this->students['Dina']]])
+    $this->postJson("/api/groups/{$upcoming}/renew", ['keep_members' => true])->assertStatus(422);
+    $this->postJson("/api/groups/{$old}/renew", ['member_ids' => [$this->students['Dina']]])
         ->assertStatus(422)->assertJsonValidationErrors(['member_ids']);
-    $this->postJson("/api/groups/{$old}/renew", ['start_date' => '2026-07-01', 'end_date' => '2026-06-01', 'keep_members' => true])
+    $this->postJson("/api/groups/{$old}/renew", ['end_date' => '2026-06-01', 'keep_members' => true])
         ->assertStatus(422)->assertJsonValidationErrors(['end_date']);
     // Nothing half-done behind the refusals.
-    expect(ctInContext($this->academy, fn () => DB::table('class_groups')->count()))->toBe(2);
+    expect(ctInContext($this->academy, fn () => DB::table('class_groups')->count()))->toBe(2)
+        ->and(collect(ctMembers($this, $old))->pluck('status')->all())->toBe(['ACTIVE', 'ACTIVE']);
 
-    $new = $this->postJson("/api/groups/{$old}/renew", ['start_date' => '2026-07-01', 'keep_members' => true, 'name' => 'English A1 — July'])
-        ->assertCreated()->json('group');
-    expect($new['name'])->toBe('English A1 — July')->and($new['member_count'])->toBe(2)->and($new['end_date'])->toBeNull();
-    // A running term archived today has its members leave today, not on an end date still ahead.
-    expect(collect(ctMembers($this, $old))->pluck('left_on')->unique()->all())->toBe(['2026-06-17']);
+    // An older client still sends `start_date`; it is accepted and means nothing.
+    $group = $this->postJson("/api/groups/{$old}/renew", ['start_date' => '2026-07-01', 'keep_members' => true, 'name' => 'English A1 — July'])
+        ->assertOk()->json('group');
+    expect($group['id'])->toBe($old)->and($group['name'])->toBe('English A1 — July')
+        ->and($group['member_count'])->toBe(2)->and($group['end_date'])->toBeNull()->and($group['start_date'])->toBe('2026-06-01');
+    expect(collect(ctMembers($this, $old))->pluck('left_on')->unique()->all())->toBe([null]);
+    expect(ctInContext($this->academy, fn () => DB::table('class_groups')->count()))->toBe(2);
 });
 
 // ── Promote ──────────────────────────────────────────────────────────────────
@@ -327,8 +319,9 @@ it('promotes the chosen students to the next level in a new term, through the le
     // Celine left the old term, kept her (missing) level, and wrote no history.
     $this->getJson("/api/students/{$this->students['Celine']}")->assertOk()->assertJsonPath('student.level_id', null);
     expect($this->getJson("/api/students/{$this->students['Celine']}/level-history")->json('history'))->toBe([]);
+    // Everyone left the old term the day AFTER it ended (the leave day is exclusive: the last day is theirs).
     expect(collect(ctMembers($this, $old))->map(fn ($m) => [$m['name'], $m['status'], $m['left_on']])->all())->toBe([
-        ['Adam', 'LEFT', '2026-06-15'], ['Bassel', 'LEFT', '2026-06-15'], ['Celine', 'LEFT', '2026-06-15'],
+        ['Adam', 'LEFT', '2026-06-16'], ['Bassel', 'LEFT', '2026-06-16'], ['Celine', 'LEFT', '2026-06-16'],
     ]);
     expect(collect(ctMembers($this, $new['id']))->map(fn ($m) => [$m['name'], $m['joined_on']])->all())
         ->toBe([['Adam', '2026-06-22'], ['Bassel', '2026-06-22']]);

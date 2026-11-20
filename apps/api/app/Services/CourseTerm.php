@@ -15,10 +15,11 @@ use Illuminate\Validation\ValidationException;
  * the lessons it promised, the "this course is ending" signal, and the three things a centre does
  * when a term ends — RENEW it for a new term, PROMOTE its students to the next level, or CLOSE it.
  *
- * The successor of a renewal or a promotion is a new `class_groups` row that carries everything
- * the old one was (name, level, teacher, weekly times, seats, room, how it bills and pays) and
- * points back through `continues_group_id`; the old one is archived with a `closed_reason`. The
- * people move through the SAME calls the members tab uses — {@see ClassGroups::addMembers} and
+ * A renewal keeps the group: the same row runs on for another term (see {@see renew}). The
+ * successor of a promotion is a new `class_groups` row that carries everything the old one was
+ * (name, level, teacher, weekly times, seats, room, how it bills and pays) and points back through
+ * `continues_group_id`; the old one is archived with a `closed_reason`. The people move through
+ * the SAME calls the members tab uses — {@see ClassGroups::addMembers} and
  * {@see ClassGroups::removeMember}, and a promotion through {@see StudentLevels::promote} — so the
  * billing that comes with joining, the seat limit and the level history are the real ones, never a
  * copy. Each lifecycle step is ONE transaction: a refused seat anywhere undoes the whole thing.
@@ -52,6 +53,7 @@ final class CourseTerm
         private readonly GroupLessonGenerator $generator,
         private readonly StudentLevels $levels,
         private readonly GroupWaitlist $waitlist,
+        private readonly GroupBilling $billing,
     ) {}
 
     // ── The payload ──────────────────────────────────────────────────────────
@@ -154,37 +156,65 @@ final class CourseTerm
     // ── The lifecycle ────────────────────────────────────────────────────────
 
     /**
-     * Renew: a new term of the same course from `start_date`, with the chosen members (all of
-     * them with `keep_members`) joining on that day, and the old term archived RENEWED. The
-     * waiting list follows the course to the new term — those names wait for "English A2 Sat/Tue",
-     * which carries on.
+     * Renew: the SAME group carries on for another term (Lingo, 2026-11-20). It used to open a new
+     * group and archive this one, which split a class's lessons, sheets and charges across two
+     * groups, dropped the family's group discounts (they name the group) and left the students who
+     * had used their hours with nothing owed. Now nothing moves: the end date is pushed to
+     * `end_date` (or cleared — a group with no end simply runs on), the lessons to come are
+     * generated, and whoever has used up what they paid for is raised their next month at once.
+     * The members chosen stay as they are (all of them with `keep_members`); the rest leave.
+     * `lessons_planned` is the NEW term's plan — it is kept on top of the lessons already held, so
+     * "lessons remaining" counts the new term only.
      *
-     * @param  array{start_date:string, end_date?:?string, lessons_planned?:?int, price_minor?:?int, name?:?string, keep_members?:bool, member_ids?:list<string>}  $data
-     * @return string the successor's id
+     * @param  array{start_date?:?string, end_date?:?string, lessons_planned?:?int, price_minor?:?int, name?:?string, keep_members?:bool, member_ids?:list<string>}  $data
+     * @return string the group's id — the same group
      */
     public function renew(object $group, array $data, string $actorUserId, string $actorRole): string
     {
         $this->assertCanEnd($group);
         $memberIds = $this->chosenMembers($group, (bool) ($data['keep_members'] ?? false), $data['member_ids'] ?? []);
 
-        return DB::transaction(function () use ($group, $data, $memberIds, $actorUserId, $actorRole): string {
-            $newId = $this->createSuccessor($group, $data, [], $actorUserId, $actorRole);
-            $new = DB::table('class_groups')->where('id', $newId)->first();
+        $today = ClassGroups::localToday((string) $group->timezone);
+        $end = ! empty($data['end_date']) ? Carbon::parse((string) $data['end_date'])->format('Y-m-d') : null;
+        if ($end !== null && $end < $today) {
+            throw ValidationException::withMessages(['end_date' => ['The new end date must be today or later. / يجب أن يكون تاريخ الانتهاء الجديد اليوم أو بعده.']]);
+        }
 
-            // Leave the old term first, join the new one from its first day. A MONTHLY course whose
-            // new term starts in a month already paid in the old one is not billed for it twice.
+        return DB::transaction(function () use ($group, $data, $memberIds, $end, $actorUserId, $actorRole): string {
             $leftOn = $this->leaveDate($group);
+            $left = 0;
             foreach ($this->activeMemberIds($group) as $studentId) {
-                $this->groups->removeMember($group, $studentId, $leftOn, 'Renewed into '.$new->name, $actorUserId, $actorRole);
-            }
-            if ($memberIds !== []) {
-                $this->groups->addMembers($new, $memberIds, (string) $data['start_date'], false, $actorUserId, $actorRole, movedFromGroup: (string) $group->id);
+                if (! in_array($studentId, $memberIds, true)) {
+                    $this->groups->removeMember($group, $studentId, $leftOn, 'Not renewed', $actorUserId, $actorRole);
+                    $left++;
+                }
             }
 
-            $this->waitlist->moveQueue((string) $group->id, $newId);
-            $this->archiveAs($group, self::RENEWED, $actorUserId, $actorRole, ['successor_id' => $newId, 'members' => count($memberIds)]);
+            $fields = ['end_date' => $end];
+            if (array_key_exists('lessons_planned', $data)) {
+                $held = DB::table('class_group_lessons')->where('group_id', $group->id)->where('status', 'HELD')->count();
+                $fields['lessons_planned'] = $data['lessons_planned'] !== null ? $held + (int) $data['lessons_planned'] : null;
+            }
+            if (isset($data['name']) && trim((string) $data['name']) !== '') {
+                $fields['name'] = trim((string) $data['name']);
+            }
+            if (array_key_exists('price_minor', $data) && $data['price_minor'] !== null) {
+                $fields['price_minor'] = (int) $data['price_minor'];
+                if ($group->currency === null) {
+                    $fields['currency'] = DB::table('academies')->where('id', $group->academy_id)->value('default_currency');
+                }
+            }
+            DB::table('class_groups')->where('id', $group->id)->update($fields + ['updated_at' => now()]);
 
-            return $newId;
+            $generated = $this->generator->regenerate((string) $group->id);
+            // The lessons to come are what an hours month waits for; a new price bills from now.
+            $this->billing->onPricingChanged(DB::table('class_groups')->where('id', $group->id)->first());
+
+            Audit::log('class_group.renewed', 'class_group', (string) $group->id, (string) $group->academy_id, $actorUserId, $actorRole,
+                after: $fields + ['members' => count($memberIds), 'left' => $left, 'generated' => $generated],
+                before: array_intersect_key((array) $group, $fields));
+
+            return (string) $group->id;
         });
     }
 
@@ -362,20 +392,32 @@ final class CourseTerm
     }
 
     /**
-     * The day the old term's members leave it: the day it ended when that has passed, else today —
-     * an archive stops a running term today, whatever its end date said.
+     * The first day the term's members are no longer in it. `left_on` is exclusive — a member is in
+     * the group on `joined_on <= day < left_on` — so a term that has ended is left the day AFTER its
+     * last day: that day's lesson is theirs. (It used to be the last day itself, and the lesson held
+     * on it fell out of every member's hours: Lingo 2026-11-20, an eighth lesson counted as unused
+     * and carried on.) A running term stopped today is left today, whatever its end date said —
+     * or the day after the last lesson already held, when that is today.
      */
     private function leaveDate(object $group): string
     {
-        $today = ClassGroups::localToday((string) $group->timezone);
+        $day = ClassGroups::localToday((string) $group->timezone);
         if ($group->end_date !== null) {
             $end = Carbon::parse($group->end_date)->format('Y-m-d');
-            if ($end < $today) {
-                return $end;
+            if ($end < $day) {
+                $day = Carbon::parse($end)->addDay()->format('Y-m-d');
             }
         }
 
-        return $today;
+        $lastHeld = DB::table('class_group_lessons')->where('group_id', $group->id)->where('status', 'HELD')->max('occurrence_local_date');
+        if ($lastHeld !== null) {
+            $after = Carbon::parse($lastHeld)->addDay()->format('Y-m-d');
+            if ($after > $day) {
+                $day = $after;
+            }
+        }
+
+        return $day;
     }
 
     /**
