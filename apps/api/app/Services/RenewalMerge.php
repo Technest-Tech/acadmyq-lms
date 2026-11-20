@@ -250,7 +250,9 @@ final class RenewalMerge
             $own = DB::table('class_group_members')->where('group_id', $rootId)->where('student_id', $m->student_id)
                 ->orderByDesc('joined_on')->orderByDesc('created_at')->get();
             $active = $own->firstWhere('status', 'ACTIVE');
-            $latest = $own->first();
+            // The row the renewal ended — not simply the newest: a student moved in and out of the
+            // group before has other rows, some starting the same day.
+            $latest = $own->first(fn ($r) => $r->status === 'LEFT' && str_starts_with((string) $r->left_reason, self::RENEWED_OUT));
             $carried = (int) $m->carried_minutes;
 
             if ($active !== null) {
@@ -263,7 +265,7 @@ final class RenewalMerge
                 continue;
             }
 
-            if ($latest !== null && str_starts_with((string) $latest->left_reason, self::RENEWED_OUT)) {
+            if ($latest !== null) {
                 $stillIn = $m->status === 'ACTIVE';
                 DB::table('class_group_members')->where('id', $latest->id)->update([
                     'status' => $stillIn ? 'ACTIVE' : 'LEFT',
@@ -303,6 +305,9 @@ final class RenewalMerge
         $rows = DB::table('class_group_members')->where('group_id', $rootId)->where('status', 'LEFT')
             ->where('left_reason', 'like', self::RENEWED_OUT.'%')->get();
         foreach ($rows as $m) {
+            if (DB::table('class_group_members')->where('group_id', $rootId)->where('student_id', $m->student_id)->where('status', 'ACTIVE')->exists()) {
+                continue; // back in the group on another row: that row already covers the day
+            }
             $leftOn = Carbon::parse($m->left_on)->format('Y-m-d');
             $held = DB::table('class_group_lessons')->where('group_id', $rootId)->where('status', 'HELD')
                 ->where('occurrence_local_date', $leftOn)->exists();
