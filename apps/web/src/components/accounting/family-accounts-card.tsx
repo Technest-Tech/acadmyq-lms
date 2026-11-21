@@ -7,6 +7,7 @@ import {
   Banknote,
   BellRing,
   CalendarClock,
+  FilePlus,
   FileText,
   GraduationCap,
   History,
@@ -40,6 +41,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import {
+  addFamilyCharge,
   addFamilyDiscount,
   applyFamilyDiscountToExisting,
   addFamilyNote,
@@ -102,6 +104,7 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
   const [showVoided, setShowVoided] = useState(false);
   // A balance carried in from before the system (Lingo 2026-11-15).
   const [opening, setOpening] = useState(false);
+  const [charging, setCharging] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [reminding, setReminding] = useState(false);
   const [note, setNote] = useState("");
@@ -225,6 +228,12 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
               <FileText className="size-4" aria-hidden />
               {t("arrears.statement")}
             </Link>
+            {data.can_collect && (
+              <Button type="button" variant="outline" className="gap-1.5" onClick={() => setCharging(true)} data-testid="family-add-charge">
+                <FilePlus className="size-4" aria-hidden />
+                {t("family.charge.button")}
+              </Button>
+            )}
             {data.can_collect && (
               <Button type="button" variant="outline" className="gap-1.5" onClick={() => setOpening(true)} data-testid="family-opening">
                 <History className="size-4" aria-hidden />
@@ -538,6 +547,19 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
           void load();
         }}
       />
+      <ManualChargeModal
+        open={charging}
+        guardianId={guardianId}
+        today={data.today}
+        kids={data.children.map((c) => ({ id: c.id, name: c.name }))}
+        currency={data.balance[0]?.currency ?? data.charges[0]?.currency ?? "EGP"}
+        onClose={() => setCharging(false)}
+        onDone={(message) => {
+          setCharging(false);
+          setNotice(message);
+          void load();
+        }}
+      />
       <OpeningBalanceModal
         open={opening}
         guardianId={guardianId}
@@ -671,6 +693,8 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
   const [savePreset, setSavePreset] = useState(false);
   // On by default: a family given a discount expects it on this month's bill, not only the next.
   const [applyExisting, setApplyExisting] = useState(true);
+  // From a chosen day only ("the new month"): empty = every open charge, as before.
+  const [startsOn, setStartsOn] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The row whose End / Cancel is being confirmed, and the day an End takes effect.
@@ -801,6 +825,7 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
         scope: scope === "PICK" ? ("ALL" as const) : scope,
         student_id: studentId || null,
         ...(scope === "PICK" ? { targets: pickedOptions.map((o) => o.target) } : {}),
+        ...(startsOn ? { starts_on: startsOn } : {}),
         apply_to_existing: applyExisting,
       };
       const typed = { kind, value: kind === "PERCENT" ? Math.round(valueNumber) : Math.round(valueNumber * 100), label: label.trim() };
@@ -818,6 +843,7 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
       setPicked([]);
       setStudentId("");
       setApplyExisting(true);
+      setStartsOn("");
       onNotice(res.applied && res.applied.lines > 0 ? appliedText(res.applied) : t("family.discountSaved"));
       onChanged();
     } catch (err) {
@@ -858,6 +884,13 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
       setClosingBusy(false);
     }
   }
+
+  // The open charges carrying a discount now (matched by its name on the charge), for the End /
+  // Cancel box to say which keep it and which go back to full price before anything is saved.
+  const carrying = (d: FamilyDiscount) =>
+    data.charges
+      .filter((c) => c.bill_open !== false && (c.discount_label ?? "").split(" + ").map((s) => s.trim()).includes(d.label.trim()))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
   const describe = (d: FamilyDiscount) =>
     d.kind === "PERCENT" ? `${d.value / 100}%` : money(d.value, currency);
@@ -982,6 +1015,13 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
             </fieldset>
           )}
           {editingId === null && (
+            <label className="block text-xs">
+              <span className="font-medium">{t("family.discountStartsOn")}</span>
+              <input type="date" className={cn(fieldClass, "mt-1")} value={startsOn} onChange={(e) => setStartsOn(e.target.value)} data-testid="discount-starts-on" />
+              <span className="text-muted-foreground mt-1 block text-[11px]">{startsOn ? t("family.discountStartsOnSet") : t("family.discountStartsOnEmpty")}</span>
+            </label>
+          )}
+          {editingId === null && (
           <label className="flex items-start gap-2 text-xs">
             <input type="checkbox" className="mt-0.5 size-4" checked={applyExisting} onChange={(e) => setApplyExisting(e.target.checked)} data-testid="discount-apply-existing" />
             <span>
@@ -1059,6 +1099,27 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
                     </label>
                   )}
                   <p className="text-muted-foreground">{closing.mode === "end" ? t("family.endDiscountHint") : t("family.cancelDiscountHint")}</p>
+                  {carrying(d).length > 0 && (
+                    <ul className="divide-y rounded-lg border bg-card" data-testid={`discount-preview-${d.id}`}>
+                      {carrying(d).map((c) => {
+                        const keeps = closing.mode === "end" && !!endsOn && c.date < endsOn;
+                        return (
+                          <li key={c.id} className="flex items-center justify-between gap-2 px-2 py-1.5" data-testid={`discount-preview-row-${c.id}`}>
+                            <span className="min-w-0">
+                              <span className="block truncate font-medium">{c.description}</span>
+                              <span className="text-muted-foreground">
+                                {dayLabel(c.date, locale)}
+                                {c.student_name ? ` · ${c.student_name}` : ""}
+                              </span>
+                            </span>
+                            <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", keeps ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-rose-500/10 text-rose-700 dark:text-rose-300")} data-keeps={keeps ? "1" : "0"}>
+                              {keeps ? t("family.previewKeeps") : t("family.previewLoses", { amount: money(c.list_amount_minor ?? c.amount_minor, c.currency) })}
+                            </span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
                   <div className="flex justify-end gap-2">
                     <Button type="button" size="xs" variant="ghost" onClick={() => setClosing(null)} disabled={closingBusy}>
                       {t("family.discountBack")}
@@ -1083,6 +1144,99 @@ function DiscountsPanel({ data, guardianId, onChanged, onNotice }: { data: Famil
  * account), or money they already had with the academy (pays their charges first — never counted as
  * money in, never added to a treasury account).
  */
+/**
+ * مستحق يدوي (Lingo 2026-11-21): a charge typed by hand on one child (or the family), for a month,
+ * when nothing raised it on its own. It lands on the family's account like any other charge.
+ */
+function ManualChargeModal({
+  open,
+  guardianId,
+  today,
+  kids,
+  currency,
+  onClose,
+  onDone,
+}: {
+  open: boolean;
+  guardianId: string;
+  today: string;
+  kids: { id: string; name: string }[];
+  currency: string;
+  onClose: () => void;
+  onDone: (message: string) => void;
+}) {
+  const t = useTranslations("accounting");
+  const locale = useLocale();
+  const [studentId, setStudentId] = useState(kids.length === 1 ? kids[0]!.id : "");
+  const [description, setDescription] = useState("");
+  const [amount, setAmount] = useState("");
+  const [period, setPeriod] = useState(today.slice(0, 7));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const minor = Math.round(Number.parseFloat(amount.replace(",", ".")) * 100);
+  const valid = Number.isFinite(minor) && minor > 0 && description.trim().length >= 2;
+
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!valid) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addFamilyCharge(guardianId, { student_id: studentId || null, description: description.trim(), amount_minor: minor, period: period || null, currency });
+      setDescription("");
+      setAmount("");
+      onDone(t("family.charge.saved", { amount: formatMoney({ amount: minor, currency }, locale) }));
+    } catch (err) {
+      setError(apiErrorMessage(err, t("family.discountFailed")));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={t("family.charge.title")} description={t("family.charge.description")} size="sm">
+      <form onSubmit={(e) => void save(e)} className="space-y-3" data-testid="charge-form">
+        <label className="block text-sm font-medium">
+          {t("family.charge.student")}
+          <select className={cn(fieldClass, "mt-1.5")} value={studentId} onChange={(e) => setStudentId(e.target.value)} data-testid="charge-student">
+            <option value="">{t("family.charge.wholeFamily")}</option>
+            {kids.map((k) => (
+              <option key={k.id} value={k.id}>
+                {k.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="block text-sm font-medium">
+          {t("family.charge.what")}
+          <input className={cn(fieldClass, "mt-1.5")} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("family.charge.whatPlaceholder")} data-testid="charge-description" />
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block text-sm font-medium">
+            {t("collect.amount", { currency })}
+            <input className={cn(fieldClass, "mt-1.5 text-lg font-semibold")} inputMode="decimal" dir="ltr" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="charge-amount" />
+          </label>
+          <label className="block text-sm font-medium">
+            {t("family.charge.month")}
+            <input type="month" className={cn(fieldClass, "mt-1.5")} value={period} onChange={(e) => setPeriod(e.target.value)} data-testid="charge-period" />
+          </label>
+        </div>
+        <p className="text-muted-foreground text-xs">{t("family.charge.hint")}</p>
+        {error && <AlertBanner variant="error" message={error} />}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={busy}>
+            {t("collect.cancel")}
+          </Button>
+          <Button type="submit" disabled={busy || !valid} data-testid="charge-save">
+            {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+            {t("family.charge.save")}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 function OpeningBalanceModal({
   open,
   guardianId,

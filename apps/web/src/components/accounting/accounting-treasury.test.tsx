@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
@@ -56,6 +56,7 @@ const api = {
   refundFamilyCredit: vi.fn(),
   getPayerAccount: vi.fn(),
   addOpeningBalance: vi.fn(),
+  addFamilyCharge: vi.fn(),
 };
 const listStudents = vi.fn();
 const getPayout = vi.fn();
@@ -86,6 +87,7 @@ vi.mock("@/lib/accounting-api", async (importOriginal) => ({
   updateExpense: (...a: unknown[]) => api.updateExpense(...a),
   getPayerAccount: (...a: unknown[]) => api.getPayerAccount(...a),
   addOpeningBalance: (...a: unknown[]) => api.addOpeningBalance(...a),
+  addFamilyCharge: (...a: unknown[]) => api.addFamilyCharge(...a),
   updateFamilyDiscount: (...a: unknown[]) => api.updateFamilyDiscount(...a),
   closeDay: (...a: unknown[]) => api.closeDay(...a),
   getExpenses: (...a: unknown[]) => api.getExpenses(...a),
@@ -539,6 +541,61 @@ describe("Family card", () => {
     await userEvent.click(screen.getByTestId("opening-save"));
     await waitFor(() => expect(api.addOpeningBalance).toHaveBeenCalledWith("gd1", { kind: "CREDIT", amount_minor: 30000, currency: "EGP", note: "old ledger" }));
     await waitFor(() => expect(api.getFamilyAccount).toHaveBeenCalledTimes(2));
+  });
+
+  it("adds a charge by hand on one child for a chosen month (Lingo 2026-11-21)", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.addFamilyCharge.mockResolvedValue({ invoice_id: "i9" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("family-add-charge"));
+    const form = screen.getByTestId("charge-form");
+    // The month starts on this one; nothing goes up without a description and an amount.
+    expect((within(form).getByTestId("charge-period") as HTMLInputElement).value).toBe("2026-06");
+    expect(within(form).getByTestId("charge-save")).toBeDisabled();
+    await userEvent.selectOptions(within(form).getByTestId("charge-student"), "s1");
+    await userEvent.type(within(form).getByTestId("charge-description"), "Maths B — May");
+    await userEvent.type(within(form).getByTestId("charge-amount"), "300");
+    fireEvent.change(within(form).getByTestId("charge-period"), { target: { value: "2026-05" } });
+    await userEvent.click(within(form).getByTestId("charge-save"));
+    await waitFor(() =>
+      expect(api.addFamilyCharge).toHaveBeenCalledWith("gd1", { student_id: "s1", description: "Maths B — May", amount_minor: 30000, period: "2026-05", currency: "EGP" }),
+    );
+    await waitFor(() => expect(api.getFamilyAccount).toHaveBeenCalledTimes(2));
+  });
+
+  it("gives a new discount a start day — only the new month gets it — and shows which charges keep the old one before ending it (Lingo 2026-11-21)", async () => {
+    const data = family();
+    data.charges = [
+      { ...data.charges[0]!, id: "may", description: "English A1 — month 1", date: "2026-05-01", period: "2026-05" },
+      { ...data.charges[0]!, id: "jun", description: "English A1 — month 2", date: "2026-06-10", period: "2026-06" },
+      data.charges[1]!,
+    ];
+    api.getFamilyAccount.mockResolvedValue(data);
+    api.endFamilyDiscount.mockResolvedValue({ removed: { lines: 1, amount_minor: 4500 } });
+    api.addFamilyDiscount.mockResolvedValue({ id: "d2", applied: { lines: 1, discount_minor: 9000 } });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    // End the old one from 1 June: May keeps it, June goes back to 450 — said before saving.
+    await userEvent.click(await screen.findByTestId("discount-end-d1"));
+    fireEvent.change(screen.getByTestId("discount-ends-on-d1"), { target: { value: "2026-06-01" } });
+    const preview = screen.getByTestId("discount-preview-d1");
+    expect(within(preview).getAllByRole("listitem")).toHaveLength(2); // the undiscounted lesson is not listed
+    expect(within(screen.getByTestId("discount-preview-row-may")).getByText(ar.family.previewKeeps)).toBeTruthy();
+    expect(screen.getByTestId("discount-preview-row-jun").querySelector("[data-keeps]")?.getAttribute("data-keeps")).toBe("0");
+    await userEvent.click(screen.getByTestId("discount-confirm-d1"));
+    await waitFor(() => expect(api.endFamilyDiscount).toHaveBeenCalledWith("gd1", "d1", "2026-06-01"));
+
+    // The new one from 1 June only.
+    await userEvent.click(screen.getByTestId("discount-add"));
+    await userEvent.type(screen.getByTestId("discount-value"), "20");
+    await userEvent.type(screen.getByTestId("discount-label"), "Sibling 20");
+    fireEvent.change(screen.getByTestId("discount-starts-on"), { target: { value: "2026-06-01" } });
+    expect(screen.getByText(ar.family.discountStartsOnSet)).toBeTruthy();
+    await userEvent.click(screen.getByTestId("discount-save"));
+    await waitFor(() =>
+      expect(api.addFamilyDiscount).toHaveBeenCalledWith("gd1", { kind: "PERCENT", value: 20, label: "Sibling 20", scope: "ALL", student_id: null, starts_on: "2026-06-01", apply_to_existing: true }),
+    );
   });
 
   it("keeps a voided receipt out of the timeline until asked for, then marks it unmistakably (Lingo 2026-11-15)", async () => {

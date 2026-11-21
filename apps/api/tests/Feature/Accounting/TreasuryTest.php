@@ -9,8 +9,8 @@ use App\Services\ModuleBilling;
 use App\Services\PayerDiscounts;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Carbon;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
@@ -603,6 +603,63 @@ it('ends a discount from a chosen day — earlier charges keep it, later open on
     // Cancelling it afterwards takes May's back too.
     $this->deleteJson("/api/accounting/family/{$this->parent}/discounts/{$id}")->assertOk()->assertJsonPath('removed.lines', 2);
     expect((int) $line($this->adam, '2026-05-01')->amount_minor)->toBe(45000);
+});
+
+it('swaps a discount for the new month only: the old one ends from that day, the new one starts there — the old month keeps its own (Lingo 2026-11-21)', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    $line = fn (string $student, string $period) => trsTenant($this->academy, fn () => DB::table('invoice_line_items')->where('class_group_id', $this->groupId)->where('student_id', $student)->where('group_period', $period)->first());
+    // 10 % on everything billed (May and June).
+    $old = $this->postJson("/api/accounting/family/{$this->parent}/discounts", ['kind' => 'PERCENT', 'value' => 10, 'label' => 'Sibling', 'apply_to_existing' => true])
+        ->assertCreated()->json('id');
+    expect((int) $line($this->adam, '2026-05-01')->amount_minor)->toBe(40500);
+
+    // June gets 20 % instead: end the old one from 1 June, give the new one from 1 June.
+    $this->postJson("/api/accounting/family/{$this->parent}/discounts/{$old}/end", ['ends_on' => '2026-06-01'])->assertOk();
+    $res = $this->postJson("/api/accounting/family/{$this->parent}/discounts", [
+        'kind' => 'PERCENT', 'value' => 20, 'label' => 'Sibling 20', 'starts_on' => '2026-06-01', 'apply_to_existing' => true,
+    ])->assertCreated();
+    expect($res->json('applied'))->toBe(['lines' => 2, 'discount_minor' => 18000]);
+
+    // May keeps the old 10 % and nothing else; June has only the new 20 %.
+    foreach ([$this->adam, $this->bassel] as $kid) {
+        expect((int) $line($kid, '2026-05-01')->amount_minor)->toBe(40500)->and($line($kid, '2026-05-01')->discount_label)->toBe('Sibling');
+        expect((int) $line($kid, '2026-06-01')->amount_minor)->toBe(36000)->and($line($kid, '2026-06-01')->discount_label)->toBe('Sibling 20');
+    }
+    // The start stays where it was put — it was not moved back to May.
+    expect(collect($this->getJson("/api/accounting/family/{$this->parent}")->json('discounts'))->firstWhere('label', 'Sibling 20')['starts_on'])->toBe('2026-06-01');
+});
+
+it('adds a charge by hand on a child, on the family account, collected like any other (Lingo 2026-11-21)', function () {
+    trsOn($this->academy);
+    Sanctum::actingAs($this->owner);
+    $card = fn () => $this->getJson("/api/accounting/family/{$this->parent}")->assertOk();
+    expect($card()->json('balance.0.due_minor'))->toBe(180000);
+
+    $this->postJson("/api/accounting/family/{$this->parent}/charges", [
+        'student_id' => $this->adam, 'description' => 'English A1 — November', 'amount_minor' => 30000, 'period' => '2026-05',
+    ])->assertCreated()->assertJsonStructure(['invoice_id']);
+
+    $after = $card();
+    expect($after->json('balance.0.due_minor'))->toBe(210000);
+    $charge = collect($after->json('charges'))->firstWhere('description', 'English A1 — November');
+    expect($charge)->toMatchArray(['student_id' => $this->adam, 'student_name' => 'Adam', 'amount_minor' => 30000, 'period' => '2026-05', 'source' => 'OTHER', 'bill_open' => true]);
+    expect(collect($after->json('children'))->firstWhere('id', $this->adam)['due'][0]['due_minor'])->toBe(120000);
+    // Paid like any other.
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 30000, 'method' => 'CASH', 'line_ids' => [$charge['id']], 'apply_rest' => false])->assertCreated();
+    expect(collect($card()->json('charges'))->firstWhere('id', $charge['id']))->toBeNull() // paid: off the open list
+        ->and($card()->json('balance.0.due_minor'))->toBe(180000);
+
+    // Not someone else's child, not without a description, not by a teacher.
+    $stranger = $this->createStudent($this->academy, null, ['full_name' => 'Stranger', 'status' => 'REGULAR']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/accounting/family/{$this->parent}/charges", ['student_id' => $stranger, 'description' => 'x y', 'amount_minor' => 100])->assertStatus(422)->assertJsonValidationErrors(['student_id']);
+    $this->postJson("/api/accounting/family/{$this->parent}/charges", ['amount_minor' => 100])->assertStatus(422)->assertJsonValidationErrors(['description']);
+    $teacher = $this->makeUser($this->academy, 'TEACHER', ['email' => 't-charge@test.local']);
+    $this->clearTenantContext();
+    Sanctum::actingAs($teacher);
+    $this->postJson("/api/accounting/family/{$this->parent}/charges", ['description' => 'x y', 'amount_minor' => 100])->assertForbidden();
 });
 
 it('puts one discount on several groups and on one subject’s private subscription — and nothing else', function () {

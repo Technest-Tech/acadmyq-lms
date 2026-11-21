@@ -1442,6 +1442,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::delete('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'cancelDiscount'])->whereUuid(['guardianId', 'discountId']);
             Route::patch('/accounting/family/{guardianId}/discounts/{discountId}', [FamilyAccountController::class, 'updateDiscount'])->whereUuid(['guardianId', 'discountId']);
             Route::post('/accounting/family/{guardianId}/opening-balance', [FamilyAccountController::class, 'openingBalance'])->whereUuid('guardianId');
+            Route::post('/accounting/family/{guardianId}/charges', [FamilyAccountController::class, 'addCharge'])->whereUuid('guardianId');
             Route::post('/accounting/family/{guardianId}/discounts/{discountId}/apply-existing', [FamilyAccountController::class, 'applyDiscountToExisting'])->whereUuid(['guardianId', 'discountId']);
             Route::post('/accounting/family/{guardianId}/charges/{lineId}/cancel', [FamilyAccountController::class, 'cancelCharge'])->whereUuid(['guardianId', 'lineId']);
             Route::post('/accounting/family/{guardianId}/refund', [SettlementController::class, 'refund'])->whereUuid('guardianId');

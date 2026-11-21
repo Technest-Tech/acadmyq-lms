@@ -120,18 +120,25 @@ final class PayerDiscounts
      * start moves back to the earliest such charge, so a lesson marked late in that month is priced
      * the same way. A closed bill is never touched.
      *
+     * With `$fromDate` (the start the office picked: "the new month only", Lingo 2026-11-21) only the
+     * charges dated on or after it are taken, and the start stays where it was put — an older month
+     * keeps whatever discount it already had.
+     *
      * A line that was already paid for in full keeps the money: the database trigger hands what is
      * no longer owed back to the payer as credit, and the credit then pays their next open charge.
      *
      * @return array{lines:int, discount_minor:int} how many charges moved, and by how much in all
      */
-    public function applyToExisting(string $academyId, string $discountId): array
+    public function applyToExisting(string $academyId, string $discountId, ?string $fromDate = null): array
     {
-        return DB::transaction(function () use ($academyId, $discountId): array {
+        return DB::transaction(function () use ($academyId, $discountId, $fromDate): array {
             $d = $this->lockDiscount($discountId);
-            $lines = $d === null ? collect() : $this->openLinesInReach($academyId, $d, null);
+            $lines = $d === null ? collect() : $this->openLinesInReach($academyId, $d, $fromDate);
             if ($lines->isEmpty()) {
                 return ['lines' => 0, 'discount_minor' => 0];
+            }
+            if ($fromDate !== null) {
+                return $this->reprice($academyId, $lines);
             }
 
             $earliest = Carbon::parse($lines->first()->session_date)->format('Y-m-d');

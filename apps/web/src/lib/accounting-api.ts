@@ -775,10 +775,23 @@ export function addFamilyDiscount(
     scope?: DiscountScope;
     student_id?: string | null;
     targets?: Pick<DiscountTarget, "class_group_id" | "student_id" | "teacher_id">[];
+    /** From this day only (Y-m-d): with `apply_to_existing`, older charges keep what they had. */
+    starts_on?: string | null;
     apply_to_existing?: boolean;
   },
 ): Promise<{ id: string; applied?: DiscountApplied }> {
   return apiFetch(`/api/accounting/family/${guardianId}/discounts`, { method: "POST", body: JSON.stringify(input) });
+}
+
+/**
+ * A charge typed by hand on the family's account — for one child (`student_id`) or the family — on
+ * a hand-made bill of `period` (Y-m, default this month). Collected like any other charge.
+ */
+export function addFamilyCharge(
+  guardianId: string,
+  input: { student_id?: string | null; description: string; amount_minor: number; period?: string | null; currency?: string },
+): Promise<{ invoice_id: string }> {
+  return apiFetch(`/api/accounting/family/${guardianId}/charges`, { method: "POST", body: JSON.stringify(input) });
 }
 
 /**

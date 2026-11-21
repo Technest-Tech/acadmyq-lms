@@ -9,8 +9,8 @@ use App\Services\ChargeCancellation;
 use App\Services\Invoicing;
 use App\Services\Ledger;
 use App\Services\PackageSettlement;
-use App\Services\SubscriptionSettlement;
 use App\Services\PayerDiscounts;
+use App\Services\SubscriptionSettlement;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\CentreBooks;
@@ -459,7 +459,8 @@ final class FamilyAccountController extends Controller
             'discount' => $id, 'kind' => $data['kind'], 'value' => (int) $data['value'], 'label' => trim((string) $data['label']), 'scope' => $scope, 'student_id' => $studentId,
             'preset_id' => $presetId, 'targets' => $targets,
         ]);
-        $applied = ($data['apply_to_existing'] ?? false) ? $this->applied($guardianId, $id) : ['lines' => 0, 'discount_minor' => 0];
+        // A start picked by hand ("the new month only") reaches only the charges from that day on.
+        $applied = ($data['apply_to_existing'] ?? false) ? $this->applied($guardianId, $id, $data['starts_on'] ?? null) : ['lines' => 0, 'discount_minor' => 0];
 
         return response()->json(['id' => $id, 'applied' => $applied], 201);
     }
@@ -517,6 +518,51 @@ final class FamilyAccountController extends Controller
             after: ['kind' => 'CREDIT', 'amount_minor' => (int) $data['amount_minor'], 'currency' => $currency, 'receipt_id' => (string) $receipt->id, 'note' => $note]);
 
         return response()->json(['kind' => 'CREDIT', 'receipt_id' => (string) $receipt->id, 'number' => (string) $receipt->number], 201);
+    }
+
+    /**
+     * POST /api/accounting/family/{guardianId}/charges { student_id?, description, amount_minor,
+     * period? (Y-m), currency? } — a charge typed by hand on the family's account, for one child or
+     * the family (Lingo 2026-11-21: "a student with nothing showing"). A hand-made bill of that
+     * month: listed in their dues, collected like any other, taken back by deleting the bill while
+     * nothing is paid on it. It is never a group month or a private block — those come from their
+     * own engines — so no discount reaches it and nothing counts it as lessons.
+     */
+    public function addCharge(Request $request, string $guardianId): JsonResponse
+    {
+        Gate::authorize('invoice.mark_paid');
+        $academyId = $this->academyId();
+        $data = $request->validate([
+            'student_id' => ['nullable', 'uuid'],
+            'description' => ['required', 'string', 'min:2', 'max:200'],
+            'amount_minor' => ['required', 'integer', 'min:1', 'max:100000000000'],
+            'period' => ['nullable', 'date_format:Y-m'],
+            'currency' => ['nullable', 'string', 'size:3'],
+        ]);
+        $guardian = DB::table('guardians')->where('id', $guardianId)->whereNull('deleted_at')->first();
+        if ($guardian === null) {
+            throw ValidationException::withMessages(['guardian' => ['Unknown family. / أسرة غير معروفة.']]);
+        }
+        $studentId = $data['student_id'] ?? null;
+        if ($studentId !== null && ! DB::table('students')->where('id', $studentId)->where('guardian_id', $guardianId)->whereNull('deleted_at')->exists()) {
+            throw ValidationException::withMessages(['student_id' => ['Not one of this family\'s children. / ليس من أبناء هذه الأسرة.']]);
+        }
+        $period = isset($data['period']) ? Carbon::createFromFormat('!Y-m', (string) $data['period']) : Carbon::now($this->timezone($academyId));
+        $currency = strtoupper((string) ($data['currency'] ?? $guardian->currency ?? DB::table('academies')->where('id', $academyId)->value('default_currency') ?? 'EGP'));
+        $description = trim((string) $data['description']);
+        $ctx = app(AuthContext::class);
+
+        $invoiceId = app(Invoicing::class)->createManualInvoice(
+            $academyId, $guardianId, null, (int) $period->year, (int) $period->month, $currency,
+            [['description' => $description, 'amount_minor' => (int) $data['amount_minor'], 'student_id' => $studentId]],
+            (string) $ctx->userId, (string) $ctx->role,
+        );
+        Audit::log('accounting.manual_charge', 'guardian', $guardianId, $academyId, $ctx->userId, $ctx->role, after: [
+            'invoice_id' => $invoiceId, 'student_id' => $studentId, 'description' => $description,
+            'amount_minor' => (int) $data['amount_minor'], 'currency' => $currency, 'period' => $period->format('Y-m'),
+        ]);
+
+        return response()->json(['invoice_id' => $invoiceId], 201);
     }
 
     /**
@@ -699,10 +745,10 @@ final class FamilyAccountController extends Controller
     }
 
     /** Runs the reprice and leaves a trace of what it moved. */
-    private function applied(string $guardianId, string $discountId): array
+    private function applied(string $guardianId, string $discountId, ?string $fromDate = null): array
     {
         $ctx = app(AuthContext::class);
-        $applied = $this->discounts->applyToExisting($this->academyId(), $discountId);
+        $applied = $this->discounts->applyToExisting($this->academyId(), $discountId, $fromDate);
         if ($applied['lines'] > 0) {
             Audit::log('accounting.discount_applied_to_existing', 'guardian', $guardianId, $this->academyId(), $ctx->userId, $ctx->role, after: ['discount' => $discountId] + $applied);
         }
