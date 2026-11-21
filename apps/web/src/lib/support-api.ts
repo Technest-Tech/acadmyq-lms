@@ -93,19 +93,19 @@ function form(fields: Record<string, string | null | undefined>, files: File[]):
 // ── The academy's own page ────────────────────────────────────────────────────
 
 export function getSupportRequests(): Promise<SupportListResult> {
-  return apiFetch<SupportListResult>("/support/requests");
+  return apiFetch<SupportListResult>("/api/support/requests");
 }
 
 export function getSupportSummary(): Promise<{ unread: number }> {
-  return apiFetch<{ unread: number }>("/support/summary");
+  return apiFetch<{ unread: number }>("/api/support/summary");
 }
 
 export function getSupportRequest(id: string): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>(`/support/requests/${id}`);
+  return apiFetch<SupportRequestDetail>(`/api/support/requests/${id}`);
 }
 
 export function createSupportRequest(input: NewSupportRequest): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>("/support/requests", {
+  return apiFetch<SupportRequestDetail>("/api/support/requests", {
     method: "POST",
     body: form(
       { kind: input.kind, title: input.title, body: input.body, priority: input.priority, page: input.page ?? null },
@@ -115,14 +115,14 @@ export function createSupportRequest(input: NewSupportRequest): Promise<SupportR
 }
 
 export function replySupportRequest(id: string, body: string, files: File[]): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>(`/support/requests/${id}/messages`, {
+  return apiFetch<SupportRequestDetail>(`/api/support/requests/${id}/messages`, {
     method: "POST",
     body: form({ body }, files),
   });
 }
 
 export function withdrawSupportRequest(id: string): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>(`/support/requests/${id}/withdraw`, { method: "POST" });
+  return apiFetch<SupportRequestDetail>(`/api/support/requests/${id}/withdraw`, { method: "POST" });
 }
 
 // ── The platform team's inbox ─────────────────────────────────────────────────
@@ -154,22 +154,22 @@ export function getSupportInbox(params: {
   if (params.search?.trim()) q.set("search", params.search.trim());
   if (params.page && params.page > 1) q.set("page", String(params.page));
   const qs = q.toString();
-  return apiFetch<SupportInboxResult>(`/admin/support${qs ? `?${qs}` : ""}`);
+  return apiFetch<SupportInboxResult>(`/api/admin/support${qs ? `?${qs}` : ""}`);
 }
 
 export function getSupportInboxSummary(): Promise<{ unread: number; new: number }> {
-  return apiFetch<{ unread: number; new: number }>("/admin/support/summary");
+  return apiFetch<{ unread: number; new: number }>("/api/admin/support/summary");
 }
 
 export function getSupportInboxRequest(id: string): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>(`/admin/support/${id}`);
+  return apiFetch<SupportRequestDetail>(`/api/admin/support/${id}`);
 }
 
 export function respondSupportRequest(
   id: string,
   input: { body: string; status?: SupportStatus | null; internal?: boolean; files: File[] },
 ): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>(`/admin/support/${id}/messages`, {
+  return apiFetch<SupportRequestDetail>(`/api/admin/support/${id}/messages`, {
     method: "POST",
     body: form(
       {
@@ -186,7 +186,7 @@ export function updateSupportRequest(
   id: string,
   patch: Partial<{ kind: SupportKind; priority: SupportPriority; title: string }>,
 ): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>(`/admin/support/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+  return apiFetch<SupportRequestDetail>(`/api/admin/support/${id}`, { method: "PATCH", body: JSON.stringify(patch) });
 }
 
 export function logSupportRequest(input: {
@@ -198,7 +198,7 @@ export function logSupportRequest(input: {
   priority: SupportPriority;
   files: File[];
 }): Promise<SupportRequestDetail> {
-  return apiFetch<SupportRequestDetail>("/admin/support", {
+  return apiFetch<SupportRequestDetail>("/api/admin/support", {
     method: "POST",
     body: form(
       {

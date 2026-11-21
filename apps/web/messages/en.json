@@ -2286,6 +2286,10 @@
         "teacher_can_add_lessons": {
           "title": "Teachers can add a class",
           "desc": "Shows the \"Add class\" button in the teacher's attendance page, for a one-off lesson outside the timetable. Turn it off so only you and your admins add lessons."
+        },
+        "teacher_report_required": {
+          "title": "Report required to record a lesson",
+          "desc": "A teacher can't record a lesson as attended until they write its report. You and your supervisors can still record without one."
         }
       }
     },
@@ -4488,6 +4492,7 @@
     "attendanceRecorded": "Attendance recorded.",
     "saved": "Report saved.",
     "savedNoOutcome": "Report saved — remember to record the attendance outcome.",
+    "reportRequiredHint": "Write the lesson report first, then you can record attendance.",
     "cancelRequestSent": "Cancellation request sent — awaiting the owner’s approval. The class stays scheduled until then.",
     "freeRequestSent": "Free-lesson request sent — awaiting the owner’s approval. The class stays scheduled until then.",
     "pendingCancellationTitle": "Cancellation awaiting approval",

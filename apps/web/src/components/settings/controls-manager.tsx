@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, CalendarPlus, Lock, SlidersHorizontal, type LucideIcon } from "lucide-react";
+import { CalendarClock, CalendarPlus, FileText, Lock, SlidersHorizontal, type LucideIcon } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { SectionCard } from "@/components/settings/section-card";
@@ -19,6 +19,7 @@ const CONTROLS: ReadonlyArray<{ key: ControlKey; icon: LucideIcon; coveredBy?: C
   { key: "teacher_lessons_read_only", icon: Lock },
   { key: "teacher_can_reschedule", icon: CalendarClock, coveredBy: "teacher_lessons_read_only" },
   { key: "teacher_can_add_lessons", icon: CalendarPlus, coveredBy: "teacher_lessons_read_only" },
+  { key: "teacher_report_required", icon: FileText, coveredBy: "teacher_lessons_read_only" },
 ];
 
 /**

@@ -147,7 +147,11 @@ export function CreateClassModal({
   }, [open, isTeacher, teacherId, centre]);
 
   const isCancel = CANCEL_STATUSES.includes(status);
-  const canSubmit = !!studentId && !!when && duration > 0 && !busy;
+  // Settings → Controls "report required": a teacher adding a lesson that already happened writes
+  // its report with it (the API refuses the attendance otherwise).
+  const reportRequired = isTeacher && (auth?.academy?.teacherReportRequired ?? false);
+  const needsReport = reportRequired && status === "ATTENDED" && !description.trim();
+  const canSubmit = !!studentId && !!when && duration > 0 && !busy && !needsReport;
 
   async function submit(overrideTiming = false) {
     if (!canSubmit && !createdId) return;
@@ -170,6 +174,12 @@ export function CreateClassModal({
         setWarnings(res.warnings ?? []);
       }
 
+      // The free-text report body (`report_text` is the reserved free-text key the report endpoint
+      // already understands, so it reads back like any other session's report). Where the report
+      // is required it goes BEFORE the outcome: the API looks for it when the lesson is recorded.
+      const saveReport = (id: string) => putSessionReport(id, { report_text: description.trim() });
+      if (reportRequired && description.trim()) await saveReport(sessionId);
+
       // 2) The outcome — the same endpoint the attendance rows use, so the billing hook fires
       //    identically and the invoice/payout pick it up with no special-casing.
       if (status !== "SCHEDULED") {
@@ -180,11 +190,8 @@ export function CreateClassModal({
         });
       }
 
-      // 3) The free-text report body (`report_text` is the reserved free-text key the report
-      //    endpoint already understands, so it reads back like any other session's report).
-      if (description.trim()) {
-        await putSessionReport(sessionId, { report_text: description.trim() });
-      }
+      // 3) Otherwise the report follows the outcome, as it always has.
+      if (!reportRequired && description.trim()) await saveReport(sessionId);
 
       onCreated();
     } catch (err) {
@@ -396,6 +403,11 @@ export function CreateClassModal({
             value={description}
             onChange={(e) => setDescription(e.target.value)}
           />
+          {needsReport && (
+            <span data-testid="create-class-report-required" className="block text-xs font-medium text-amber-700 dark:text-amber-400">
+              {t("reportRequiredHint")}
+            </span>
+          )}
         </label>
 
         {error && (

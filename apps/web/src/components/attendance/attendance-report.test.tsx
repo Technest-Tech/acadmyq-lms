@@ -944,3 +944,110 @@ describe("AttendanceReport — a double lesson on a block counted in lessons", (
     expect(screen.queryByTestId("double-lesson")).not.toBeInTheDocument();
   });
 });
+
+// Settings → Controls "report required" (2026-11-21): a teacher records a lesson as attended only
+// once its report is written. The API refuses it too; the popup holds the button and saves the
+// report FIRST, so the API finds it when the lesson is recorded.
+describe("AttendanceReport — report required before a teacher records the lesson", () => {
+  const teacherPerms = ["session.read", "session.mark_attendance", "session.write_report"];
+  const academy = { name: "Noor Academy", displayName: "Noor Academy", logoUrl: null, country: "EG", defaultCurrency: "EGP" };
+  const teacher = (required: boolean, capabilities?: string[]): Session =>
+    makeSession("TEACHER", {
+      permissions: teacherPerms,
+      academy: { ...academy, teacherReportRequired: required },
+      ...(capabilities ? { capabilities } : {}),
+    });
+
+  /** Type into the rich editor the way the browser does: content, then an input event. */
+  function typeReport(html: string) {
+    const editor = screen.getByTestId("report-text");
+    editor.innerHTML = html;
+    fireEvent.input(editor);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getSession).mockResolvedValue(detail());
+    vi.mocked(api.markAttendance).mockResolvedValue({
+      status: "ATTENDED",
+      billed: true,
+      classification: { billableToStudent: true, countsForTeacher: true },
+    });
+    vi.mocked(api.putSessionReport).mockResolvedValue({ ok: true, values: {} });
+  });
+
+  it("holds the save button until the report is written, then saves the report before the attendance", async () => {
+    const user = userEvent.setup();
+    renderPanel(teacher(true));
+
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    expect(screen.getByTestId("save-report")).toBeDisabled();
+    expect(screen.getByTestId("report-required-hint")).toHaveTextContent(
+      "Write the lesson report first, then you can record attendance.",
+    );
+
+    // Blank lines are not a report.
+    typeReport("<p>&nbsp;</p>");
+    expect(screen.getByTestId("save-report")).toBeDisabled();
+
+    typeReport("<p>Al-Mulk 1-10</p>");
+    expect(screen.queryByTestId("report-required-hint")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("save-report"));
+
+    await waitFor(() => expect(api.markAttendance).toHaveBeenCalled());
+    expect(api.putSessionReport).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(api.putSessionReport).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.markAttendance).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("takes one answer on the academy's own form as a written report", async () => {
+    const user = userEvent.setup();
+    vi.mocked(api.getSession).mockResolvedValue(
+      detail({
+        reportFields: [
+          {
+            id: "f1", academy_id: "a1", key: "hifz_score", label_ar: "حفظ", label_en: "Memorisation",
+            field_type: "NUMBER", options: null, sort_order: 0, is_required: false, is_active: true,
+            section: null, max_value: 10,
+          },
+        ],
+      }),
+    );
+    renderPanel(teacher(true, ["report_card", "lesson_report"]));
+
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    expect(screen.getByTestId("save-report")).toBeDisabled();
+    await user.click(screen.getByTestId("score-hifz_score-9"));
+    expect(screen.getByTestId("save-report")).toBeEnabled();
+  });
+
+  it("changes nothing where the academy has not switched it on", async () => {
+    const user = userEvent.setup();
+    renderPanel(teacher(false));
+
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    expect(screen.getByTestId("save-report")).toBeEnabled();
+    expect(screen.queryByTestId("report-required-hint")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("save-report"));
+
+    // The old order: the outcome, then the report.
+    await waitFor(() => expect(api.putSessionReport).toHaveBeenCalled());
+    expect(vi.mocked(api.markAttendance).mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(api.putSessionReport).mock.invocationCallOrder[0]!,
+    );
+  });
+
+  it("never holds the office to it", async () => {
+    const user = userEvent.setup();
+    renderPanel(
+      makeSession("ACADEMY_OWNER", {
+        permissions: teacherPerms,
+        academy: { ...academy, teacherReportRequired: true },
+      }),
+    );
+
+    await user.click(await screen.findByTestId("outcome-ATTENDED"));
+    expect(screen.getByTestId("save-report")).toBeEnabled();
+  });
+});

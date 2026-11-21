@@ -145,6 +145,10 @@ export function AttendanceReport({
   // cancellations). A teacher's cancel still routes through approval; an owner's opens the
   // billing popup. Absence outcomes were retired in favour of a cancellation billing override.
   const isTeacher = auth?.role === "TEACHER";
+  // Settings → Controls "report required": a teacher records a lesson as attended only once its
+  // report is written. The API refuses it too; here it holds the save button and saves the report
+  // before the attendance.
+  const reportRequired = isTeacher && (auth?.academy?.teacherReportRequired ?? false);
   const visibleOutcomes = OUTCOMES;
   const outcomeGridClass = "grid grid-cols-2 gap-2 sm:grid-cols-4";
 
@@ -241,6 +245,13 @@ export function AttendanceReport({
   // Structured lesson report: the academy switched it on AND built a form to fill.
   const structured = hasLessonReport && data.reportFields.length > 0;
   const filledFields = structured && data.reportFields.some((f) => displayValue(f, fieldValues[f.key]) !== "");
+  // Something written, by the API's own rule: markup, &nbsp; and spaces alone are not a report.
+  const reportWritten = structured
+    ? filledFields
+    : reportText.replace(/<[^>]*>|&nbsp;|\s/g, "") !== "";
+  // Recording the lesson as attended right now (re-saving a mark it already has is not recording).
+  const blockedByReport =
+    reportRequired && selectedStatus === "ATTENDED" && data.session.status !== "ATTENDED" && !reportWritten;
   /** What the report saves: the form's answers (a cleared one sent empty), or the free text. */
   const reportPayload = (): Record<string, unknown> =>
     structured
@@ -405,16 +416,6 @@ export function AttendanceReport({
       // FREE is a real backend outcome — send it as-is.
       const backendStatus: AttendanceOutcome | null = target;
 
-      // Mark attendance only if the outcome changed.
-      // Always bypass the backend timing window — admins mark sessions at any time of day.
-      if (backendStatus !== null && backendStatus !== session.status) {
-        await markAttendance(sessionId, {
-          status: backendStatus,
-          override_timing: true,
-          ...(offerDouble ? { package_lessons: doubleLesson ? 2 : 1 } : {}),
-        });
-      }
-
       // Save report (always, so notes are persisted)
       const reportValues = reportPayload();
       // The FREE status now owns "this lesson is free" — the legacy is_free_trial report flag
@@ -426,9 +427,23 @@ export function AttendanceReport({
       // required fields would refuse it); on a delivered lesson it is saved, so required ones speak.
       const outcomeNow = target ?? serverStatus;
       const delivered = outcomeNow === "ATTENDED" || outcomeNow === "FREE";
-      if (!structured || filledFields || delivered || serverIsFreeLegacy) {
-        await putSessionReport(sessionId, reportValues);
+      const saveReport = !structured || filledFields || delivered || serverIsFreeLegacy;
+      // Where the report is required the API looks for it when the lesson is recorded, so it goes
+      // first — and a report the form refuses (a required field left empty) stops the mark too.
+      const reportFirst = reportRequired && saveReport;
+      if (reportFirst) await putSessionReport(sessionId, reportValues);
+
+      // Mark attendance only if the outcome changed.
+      // Always bypass the backend timing window — admins mark sessions at any time of day.
+      if (backendStatus !== null && backendStatus !== session.status) {
+        await markAttendance(sessionId, {
+          status: backendStatus,
+          override_timing: true,
+          ...(offerDouble ? { package_lessons: doubleLesson ? 2 : 1 } : {}),
+        });
       }
+
+      if (saveReport && !reportFirst) await putSessionReport(sessionId, reportValues);
 
       // Saved with no outcome chosen on a still-scheduled session: persist the report
       // anyway, but nudge the user to also record attendance (drives billing/payroll).
@@ -1001,7 +1016,7 @@ export function AttendanceReport({
                 <Button
                   type="button"
                   size="sm"
-                  disabled={busy}
+                  disabled={busy || blockedByReport}
                   onClick={() => void save()}
                   data-testid="save-report"
                 >
@@ -1009,6 +1024,14 @@ export function AttendanceReport({
                 </Button>
               )}
             </div>
+            {editing && blockedByReport && (
+              <p
+                data-testid="report-required-hint"
+                className="mt-2 text-end text-xs font-medium text-amber-700 dark:text-amber-400"
+              >
+                {t("reportRequiredHint")}
+              </p>
+            )}
 
             {/* WhatsApp deep-link result — preview the message, copy it, or open WhatsApp directly. */}
             {waResult && (

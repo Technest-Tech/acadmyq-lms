@@ -7,6 +7,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Support\AcademyLevelLabel;
 use App\Support\AcademyProfile;
+use App\Support\AcademySettings;
 use App\Support\AcademyUrl;
 use App\Support\Audit;
 use App\Support\AuthContext;
@@ -220,6 +221,9 @@ final class AuthController extends Controller
             'defaultCurrency' => (string) ($academy->default_currency ?? ''),
             // The ONE clock every lesson time is shown and typed on, whatever the device is set to.
             'timezone' => (string) ($academy->timezone ?? 'UTC'),
+            // Settings → Controls: teachers write the lesson report before recording attendance.
+            // The API enforces it; the web only uses it to hold the save button until there is one.
+            'teacherReportRequired' => AcademySettings::forAcademy($academyId)['teacher_report_required'],
             // The academy's own handle, so the shell can tell whether the host the browser is on is
             // this academy's address. One session covers every `*.<root>` host, so without it a
             // signed-in user can sit on another client's subdomain looking at their OWN data under

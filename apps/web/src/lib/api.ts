@@ -224,6 +224,8 @@ export interface SessionAcademy {
   levelsEnabled?: boolean;
   /** Does it teach online (the setting, else worked out); read through `useOnlineLessons`. */
   onlineLessons?: boolean;
+  /** Settings → Controls: a teacher writes the lesson report before recording attendance (API-enforced). */
+  teacherReportRequired?: boolean;
 }
 
 export type AcademyKind = "QURAN" | "CENTRE";
@@ -2905,6 +2907,8 @@ export interface AcademyControls {
   teacher_can_reschedule: boolean;
   /** Teachers see the "Add class" button for a one-off lesson (on by default). */
   teacher_can_add_lessons: boolean;
+  /** Teachers must write the lesson report before they can record a lesson as attended (off by default). */
+  teacher_report_required: boolean;
 }
 
 export function getAcademyControls(): Promise<{ settings: AcademyControls }> {

@@ -23,6 +23,9 @@ final class AcademySettings
         'teacher_can_add_lessons' => true,
         // A student on their own stays off the parents page. Not on the Controls tab: set per client.
         'hide_solo_students_from_parents' => false,
+        // A teacher records a lesson as delivered only once its report is written. Not a capability
+        // (the teacher still marks and still reports); enforced where attendance is recorded.
+        'teacher_report_required' => false,
     ];
 
     /**
@@ -51,7 +54,7 @@ final class AcademySettings
      * The academy's settings merged over the defaults. Reads through the BYPASSRLS function, so it
      * works both before the tenant context exists (the auth middleware) and inside it.
      *
-     * @return array{teacher_lessons_read_only: bool, teacher_can_reschedule: bool, teacher_can_add_lessons: bool, hide_solo_students_from_parents: bool}
+     * @return array{teacher_lessons_read_only: bool, teacher_can_reschedule: bool, teacher_can_add_lessons: bool, hide_solo_students_from_parents: bool, teacher_report_required: bool}
      */
     public static function forAcademy(?string $academyId): array
     {
@@ -68,6 +71,16 @@ final class AcademySettings
         }
 
         return $settings;
+    }
+
+    /**
+     * Must this caller write the report before recording a lesson as delivered? Only a TEACHER, and
+     * only where the academy switched it on: the office marks lessons for absent teachers in bulk
+     * and is never held to it.
+     */
+    public static function reportRequiredFor(string $role, ?string $academyId): bool
+    {
+        return $role === 'TEACHER' && $academyId !== null && self::forAcademy($academyId)['teacher_report_required'];
     }
 
     /**

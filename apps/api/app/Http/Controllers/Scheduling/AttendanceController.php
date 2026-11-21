@@ -13,8 +13,10 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\LessonPackages;
 use App\Services\Payroll;
+use App\Support\AcademySettings;
 use App\Support\Audit;
 use App\Support\OfficeNote;
+use App\Support\ReportContent;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -110,6 +112,18 @@ final class AttendanceController extends Controller
 
         $next = SessionStatus::from($data['status']);
         $this->assertTimingAllowed($session, (bool) ($data['override_timing'] ?? false), $academyId);
+
+        // Settings → Controls "report required": a teacher records a delivered lesson only once its
+        // report is written (the popup saves the report first). Re-saving the outcome the lesson
+        // already has is not recording it, so a teacher is never stuck on their own old mark.
+        $delivered = in_array($data['status'], ['ATTENDED', 'FREE'], true);
+        if ($delivered && (string) $session->status !== $data['status']
+            && AcademySettings::reportRequiredFor((string) $this->ctx()->role, $academyId)
+            && ! ReportContent::written((string) $session->id)) {
+            throw ValidationException::withMessages([
+                'report' => ['Write the lesson report first, then record attendance. / اكتب تقرير الحصة الأول، وبعدين سجّل الحضور.'],
+            ]);
+        }
 
         // Charge-student / pay-teacher overrides apply to a cancellation OR a free lesson (both let
         // the academy decide the billing per occurrence); a plain ATTENDED outcome keeps the

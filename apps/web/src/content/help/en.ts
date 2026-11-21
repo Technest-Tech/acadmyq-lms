@@ -970,7 +970,7 @@ const en: HelpContent = {
         title: "How do I control what teachers can do?",
         steps: [
           "Open the [[Controls]] tab.",
-          "Switch on or off what you want: [[Teachers can only view lessons]], [[Teachers can reschedule lessons]], [[Teachers can add a class]].",
+          "Switch on or off what you want: [[Teachers can only view lessons]], [[Teachers can reschedule lessons]], [[Teachers can add a class]], [[Report required to record a lesson]].",
           "Each change saves at once.",
         ],
       },
