@@ -398,7 +398,7 @@ describe("PackagesManager", () => {
     open.mockRestore();
   });
 
-  it("shows Due as a table: a band of rows per family, the parent's cell spanning its children", async () => {
+  it("shows Due as a compact table: one line per package, the parent named on the family's first line", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
@@ -451,9 +451,14 @@ describe("PackagesManager", () => {
     const hassan = within(table).getByTestId("due-table-family-g-hassan");
     const rows = within(hassan).getAllByTestId("due-table-row");
     expect(rows).toHaveLength(2);
-    // One family cell, spanning both children's rows, with what the family owes in all.
-    expect(hassan.querySelector("td[rowspan='2']")).not.toBeNull();
+    // The parent leads the family's first line only, with what the family owes in all; a one-package
+    // family shows no separate total (its line already says it).
+    expect(within(hassan).getAllByTestId("due-table-family-name")).toHaveLength(1);
+    expect(within(rows[0]!).getByTestId("due-table-family-name")).toHaveTextContent("Hassan");
     expect(within(hassan).getByTestId("due-table-family-total").textContent).toContain(formatMoney({ amount: 100000, currency: "EGP" }, "ar"));
+    expect(within(within(table).getByTestId("due-table-family-g-ali")).queryByTestId("due-table-family-total")).toBeNull();
+    // Maryam was reminded twice: said beside how long she has waited.
+    expect(within(rows[1]!).getByTestId("due-table-reminded")).toHaveTextContent(formatNumber(2, "ar"));
     expect(within(hassan).getAllByTestId("due-table-purpose").map((p) => p.textContent)).toEqual([
       arMessages.packages.purpose.NEW,
       arMessages.packages.purpose.AUTO_RENEWAL,

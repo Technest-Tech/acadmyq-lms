@@ -417,14 +417,13 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        {/* Due is a table from tablet width up (Ahmed 2026-11-22): a band of rows per family, the
-            parent's cell spanning them. Phones keep the family cards, which a seven-column table
-            cannot fit. Open stays one compact card per parent, in masonry columns so a one-child
-            card stays short. */}
+        {/* Due is a compact table from laptop width up (Ahmed 2026-11-22): one line per package, a
+            family's lines together. Phones and tablets keep the family cards, which a seven-column
+            table cannot fit. Open stays one compact card per parent, in masonry columns. */}
         {duePaid && visible.length > 0 ? (
           <>
             <PaidTable rows={visible} timezone={timezone} onOpenDetail={openDetail} />
-            <div className="grid grid-cols-1 gap-3 md:hidden">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:hidden">
               {visible.map((row) => (
                 <PaidPackageCard
                   key={row.id}
@@ -443,9 +442,8 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
               canSendInvoice={canSendInvoice}
               actionProps={actionProps}
               onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
-              onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
             />
-            <div className="columns-1 gap-3 md:hidden">
+            <div className="columns-1 gap-3 md:columns-2 lg:hidden">
               {groupDueByFamily(visible).map((family) => (
                 <FamilyDueGroup
                   key={family.key}

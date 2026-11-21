@@ -6,7 +6,6 @@ import {
   BellOff,
   BellRing,
   BookOpenCheck,
-  CalendarCheck,
   Check,
   CircleDollarSign,
   Copy,
@@ -16,7 +15,6 @@ import {
   Hourglass,
   Link2,
   Loader2,
-  MessageSquare,
   Receipt,
   Wallet,
   type LucideIcon,
@@ -35,13 +33,12 @@ import {
   type DueFamily,
 } from "@/components/packages/family-due-group";
 import { blockAmount, blockMinutes } from "@/components/packages/lesson-price-fields";
-import { actionClass, PackageActions, type PackageActionProps } from "@/components/packages/package-card";
+import { PackageActions, type PackageActionProps } from "@/components/packages/package-card";
 import { PackageHistoryModal } from "@/components/packages/package-history-log";
 import { KNOWN_METHODS, paidAmount } from "@/components/packages/paid-package-card";
-import { buttonVariants } from "@/components/ui/button";
 import type { LessonPackageRow } from "@/lib/api";
 import { apiBase } from "@/lib/api-base";
-import { avatarTone, initials } from "@/lib/avatar";
+import { avatarTone } from "@/lib/avatar";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -104,26 +101,27 @@ function StatCard({
   testId?: string;
 }) {
   const s = STAT_TONES[tone];
+  // Compact (Ahmed 2026-11-22: "why so big"): the chip beside the figures, currencies side by side.
   return (
     <div
-      className={cn("bg-card relative overflow-hidden rounded-2xl border bg-gradient-to-br to-transparent p-4 shadow-sm", s.card)}
+      className={cn("bg-card relative flex items-center gap-3 overflow-hidden rounded-xl border bg-gradient-to-br to-transparent px-3.5 py-2.5 shadow-sm", s.card)}
       data-testid={testId}
     >
-      <span className={cn("absolute inset-y-4 start-0 w-1 rounded-e-full", s.bar)} aria-hidden />
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-muted-foreground pt-0.5 text-xs font-semibold">{label}</p>
-        <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br text-white shadow-md", s.chip)}>
-          <Icon className="size-5" aria-hidden />
-        </span>
+      <span className={cn("absolute inset-y-2.5 start-0 w-1 rounded-e-full", s.bar)} aria-hidden />
+      <span className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br text-white shadow-sm", s.chip)}>
+        <Icon className="size-4" aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-muted-foreground truncate text-[11px] font-semibold">{label}</p>
+        <p className={cn("flex flex-wrap items-baseline gap-x-2.5 leading-tight font-bold tabular-nums", s.value)}>
+          {values.map((v) => (
+            <span key={v} className={cn("break-words", values.length > 1 ? "text-sm" : "text-lg")}>
+              {v}
+            </span>
+          ))}
+          {hint && <span className="text-muted-foreground text-[11px] font-medium">{hint}</span>}
+        </p>
       </div>
-      <div className="mt-1 space-y-0.5">
-        {values.map((v) => (
-          <p key={v} className={cn("leading-tight font-bold break-words tabular-nums", values.length > 2 ? "text-lg" : "text-2xl", s.value)}>
-            {v}
-          </p>
-        ))}
-      </div>
-      {hint && <p className="text-muted-foreground mt-1.5 text-xs">{hint}</p>}
     </div>
   );
 }
@@ -223,7 +221,7 @@ function WaitingChip({ createdAt }: { createdAt: string }) {
   return (
     <span
       className={cn(
-        "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold whitespace-nowrap",
+        "inline-flex items-center rounded-full px-2 py-px text-[11px] font-semibold whitespace-nowrap",
         days <= 2
           ? "bg-sky-500/12 text-sky-700 dark:text-sky-300"
           : days <= 7
@@ -237,14 +235,15 @@ function WaitingChip({ createdAt }: { createdAt: string }) {
   );
 }
 
-const HEAD = "px-3 py-3 text-start text-xs font-semibold whitespace-nowrap";
+const HEAD = "px-3 py-2 text-start text-[11px] font-semibold whitespace-nowrap";
+const CELL = "px-3 py-2 whitespace-nowrap";
+const ICON_BUTTON = "inline-flex size-7 shrink-0 items-center justify-center rounded-md border transition-colors disabled:opacity-50";
 
 /**
- * The Due page as a table (Ahmed 2026-11-22), shown from tablet width up; phones keep the family
- * cards. A family is one band of rows: its parent's cell spans its children's rows and carries what
- * the family owes in all and the family's own actions (one payment link for every bill, the message,
- * paying ahead); each child's package is a row — what it is for, how much of it is used, the amount,
- * how long it has waited, the reminders, and the package's actions.
+ * The Due page as a plain, compact table (Ahmed 2026-11-22: a table, then "why so big — a normal
+ * table, not that tall"): one line per package. A family's packages sit together; the parent's name
+ * leads the family's first line, with what the family owes in all and ONE payment link for every
+ * bill when there are two or more. Shown from laptop width up; phones and tablets keep the cards.
  */
 export function DueTable({
   families,
@@ -252,29 +251,26 @@ export function DueTable({
   canSendInvoice,
   actionProps,
   onMessageOpened,
-  onPrepay,
 }: {
   families: DueFamily[];
   timezone: string;
   canSendInvoice: boolean;
   actionProps: (row: LessonPackageRow) => PackageActionProps;
   onMessageOpened: () => void;
-  onPrepay?: (rows: LessonPackageRow[]) => void;
 }) {
   const t = useTranslations("packages");
   return (
-    <section className="bg-card hidden overflow-hidden rounded-2xl border shadow-sm md:block" data-testid="due-table">
+    <section className="bg-card hidden overflow-hidden rounded-xl border shadow-sm lg:block" data-testid="due-table">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1000px] border-collapse text-sm">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="from-primary/[0.09] via-primary/[0.035] text-muted-foreground border-b bg-gradient-to-l to-transparent">
-              <th className={cn(HEAD, "ps-5")}>{t("dueTable.family")}</th>
+              <th className={cn(HEAD, "ps-4")}>{t("dueTable.family")}</th>
               <th className={HEAD}>{t("dueTable.student")}</th>
               <th className={HEAD}>{t("dueTable.purpose")}</th>
               <th className={HEAD}>{t("dueTable.package")}</th>
               <th className={cn(HEAD, "text-end")}>{t("dueTable.amount")}</th>
               <th className={HEAD}>{t("dueTable.waiting")}</th>
-              <th className={HEAD}>{t("dueTable.reminders")}</th>
               <th className={cn(HEAD, "pe-4 text-end")}>
                 <span className="sr-only">{t("dueTable.actions")}</span>
               </th>
@@ -289,7 +285,6 @@ export function DueTable({
               canSendInvoice={canSendInvoice}
               actionProps={actionProps}
               onMessageOpened={onMessageOpened}
-              onPrepay={onPrepay}
             />
           ))}
         </table>
@@ -305,7 +300,6 @@ function FamilyBand({
   canSendInvoice,
   actionProps,
   onMessageOpened,
-  onPrepay,
 }: {
   family: DueFamily;
   striped: boolean;
@@ -313,101 +307,62 @@ function FamilyBand({
   canSendInvoice: boolean;
   actionProps: (row: LessonPackageRow) => PackageActionProps;
   onMessageOpened: () => void;
-  onPrepay?: (rows: LessonPackageRow[]) => void;
 }) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const totals = owed(family.rows);
-  const { prepayable, payable, familyLink, busy, copied, error, sendMessage, copyLink } = useFamilyPayLink(family, onMessageOpened);
+  const { payable, familyLink, busy, copied, error, sendMessage, copyLink } = useFamilyPayLink(family, onMessageOpened);
 
+  // The family's first line: the parent, the family's total when it has more than one package, and
+  // the one link for all its bills.
   const familyCell = (
-    <td rowSpan={family.rows.length} className="relative w-60 border-e align-top">
-      <span className={cn("absolute inset-y-3 start-0 w-1 rounded-e-full", avatarTone(family.name))} aria-hidden />
-      <div className="space-y-2.5 py-3 ps-5 pe-3">
-        <div className="flex items-center gap-2.5">
-          <span
-            className={cn("flex size-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm", avatarTone(family.name))}
-            aria-hidden
-          >
-            {initials(family.name)}
+    <td className={cn(CELL, "relative max-w-56 ps-4")}>
+      <span className={cn("absolute inset-y-1.5 start-0 w-1 rounded-e-full", avatarTone(family.name))} aria-hidden />
+      <div className="flex items-center gap-2">
+        <span className="min-w-0 truncate font-semibold" title={family.phone ? `${family.name} · ${family.phone}` : family.name} data-testid="due-table-family-name">
+          {family.name}
+        </span>
+        {family.rows.length > 1 && totals.length > 0 && (
+          <span className="shrink-0 text-xs font-bold text-rose-600 tabular-nums dark:text-rose-400" data-testid="due-table-family-total">
+            {totals.map((o) => formatMoney({ amount: o.amount_minor, currency: o.currency }, locale)).join(" + ")}
           </span>
-          <div className="min-w-0">
-            <p className="truncate font-semibold" title={family.name} data-testid="due-table-family-name">
-              {family.name}
-            </p>
-            {family.phone && (
-              <p className="text-muted-foreground truncate text-xs tabular-nums" dir="ltr">
-                {family.phone}
-              </p>
-            )}
-          </div>
-        </div>
-
-        <div className="rounded-xl bg-rose-500/[0.08] px-3 py-2 dark:bg-rose-500/10">
-          <p className="text-[11px] font-medium text-rose-700/80 dark:text-rose-300/80">{t("family.totalLabel")}</p>
-          {totals.length === 0 ? (
-            <p className="text-sm font-bold text-amber-600 dark:text-amber-400">{t("family.notBilled")}</p>
-          ) : (
-            totals.map((o) => (
-              <p key={o.currency} className="text-base leading-tight font-bold break-words text-rose-600 tabular-nums dark:text-rose-400" data-testid="due-table-family-total">
-                {formatMoney({ amount: o.amount_minor, currency: o.currency }, locale)}
-              </p>
-            ))
-          )}
-        </div>
-
-        {canSendInvoice && payable.length > 0 && (
-          <div className="flex items-stretch gap-1.5">
+        )}
+        {canSendInvoice && familyLink && (
+          <span className="flex shrink-0 items-center gap-1">
             <button
               type="button"
               onClick={() => void sendMessage()}
               disabled={busy}
-              className={cn(actionClass({ tone: "primary" }), "min-w-0 flex-1")}
+              className={cn(ICON_BUTTON, "border-primary/25 bg-primary/10 text-primary hover:bg-primary/18")}
+              aria-label={t("family.sendFamilyLink", { count: payable.length })}
+              title={t("family.sendFamilyLink", { count: payable.length })}
               data-testid="due-table-family-send"
             >
-              {busy ? (
-                <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden />
-              ) : familyLink ? (
-                <Link2 className="size-3.5 shrink-0" aria-hidden />
-              ) : (
-                <MessageSquare className="size-3.5 shrink-0" aria-hidden />
-              )}
-              <span className="truncate">{familyLink ? t("family.sendFamilyLink", { count: payable.length }) : t("family.sendOne")}</span>
+              {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Link2 className="size-3.5" aria-hidden />}
             </button>
             <button
               type="button"
               onClick={() => void copyLink()}
-              className={cn(actionClass(), "w-8 shrink-0 px-0")}
+              className={cn(ICON_BUTTON, "border-border/70 bg-muted/60 text-foreground/80 hover:bg-muted")}
               aria-label={copied ? t("actions.copied") : t("actions.copyMessage")}
               title={copied ? t("actions.copied") : t("actions.copyMessage")}
             >
               {copied ? <Check className="size-3.5 text-emerald-600" aria-hidden /> : <Copy className="size-3.5" aria-hidden />}
             </button>
-          </div>
+          </span>
         )}
-        {onPrepay && prepayable.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onPrepay(prepayable)}
-            className="inline-flex min-h-8 w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 text-[11px] font-semibold text-emerald-700 transition-colors hover:bg-emerald-500/15 dark:text-emerald-300"
-          >
-            <CalendarCheck className="size-3.5 shrink-0" aria-hidden />
-            {prepayable.length > 1 ? t("prepay.familyButton", { count: prepayable.length }) : t("prepay.oneButton")}
-          </button>
-        )}
-        {error && <p className="text-destructive text-[11px]">{t("family.linkFailed")}</p>}
       </div>
+      {error && <p className="text-destructive text-[11px]">{t("family.linkFailed")}</p>}
     </td>
   );
 
   return (
-    <tbody className={cn("border-t-2 border-border/80 first-of-type:border-t-0", striped && "bg-muted/25")} data-testid={`due-table-family-${family.key}`}>
+    <tbody className={cn("border-t border-border/80 first-of-type:border-t-0", striped && "bg-muted/30")} data-testid={`due-table-family-${family.key}`}>
       {family.rows.map((row, i) => (
         <DueTableRow
           key={row.id}
           row={row}
-          familyCell={i === 0 ? familyCell : null}
-          last={i === family.rows.length - 1}
+          familyCell={i === 0 ? familyCell : <td className={CELL} />}
           timezone={timezone}
           payerName={family.name}
           canSendInvoice={canSendInvoice}
@@ -421,16 +376,14 @@ function FamilyBand({
 function DueTableRow({
   row,
   familyCell,
-  last,
   timezone,
   payerName,
   canSendInvoice,
   actions,
 }: {
   row: LessonPackageRow;
-  /** The family's spanning cell, on its first row only. */
+  /** The parent's cell on the family's first line, an empty one after it. */
   familyCell: React.ReactNode;
-  last: boolean;
   timezone: string;
   payerName: string;
   canSendInvoice: boolean;
@@ -444,60 +397,50 @@ function DueTableRow({
   const owes = row.outstanding_minor > 0;
   const unbilled = row.invoice_id === null && row.minutes_consumed > 0;
   const remindable = owes || row.awaiting_next_package;
+  const usage = `${blockAmount(row.minutes_sold, row.lesson_minutes, t, locale)} · ${t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}${row.status !== "ACTIVE" ? ` · ${t(`status.${row.status}`)}` : ""}`;
 
   return (
-    <tr className={cn("hover:bg-primary/[0.03] align-middle transition-colors", !last && "border-b border-border/50")} data-testid="due-table-row">
+    <tr className="hover:bg-primary/[0.04] transition-colors" data-testid="due-table-row">
       {familyCell}
 
-      {/* Who, and which package. */}
-      <td className="px-3 py-3">
-        <button type="button" onClick={actions.onOpenDetail} className="hover:text-primary block max-w-48 truncate text-start font-semibold transition-colors">
-          {row.student_name}
-        </button>
-        <div className="text-muted-foreground mt-0.5 flex max-w-56 flex-wrap items-center gap-1 text-xs">
-          <span className="font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span>
-          <span className="truncate">{row.label}</span>
-          {row.subject && (
-            <span className="rounded bg-violet-500/10 px-1 py-px text-[10px] font-semibold text-violet-700 dark:text-violet-300">
-              {row.subject.course ?? row.subject.teacher_name}
+      <td className={CELL}>
+        <span className="flex max-w-48 items-center gap-1.5">
+          <button type="button" onClick={actions.onOpenDetail} className="hover:text-primary min-w-0 truncate text-start font-medium transition-colors">
+            {row.student_name}
+          </button>
+          <PrepaidChip row={row} />
+          {row.gap !== null && (
+            <span className="shrink-0 text-rose-600 dark:text-rose-400" title={t("family.gap")} aria-label={t("family.gap")}>
+              <AlertTriangle className="size-3.5" aria-hidden />
             </span>
           )}
-          <PrepaidChip row={row} />
-        </div>
+        </span>
       </td>
 
-      {/* What the money is for, in words. */}
-      <td className="px-3 py-3">
-        <span className={cn("inline-block rounded-md px-2 py-0.5 text-xs font-semibold whitespace-nowrap", PURPOSE_TONE[purpose])} data-testid="due-table-purpose">
+      <td className={CELL}>
+        <span className={cn("inline-block rounded-md px-1.5 py-px text-[11px] font-semibold", PURPOSE_TONE[purpose])} data-testid="due-table-purpose">
           {purposeText(row, purpose, t)}
         </span>
       </td>
 
-      {/* How much of it is used: the bar, then the same in words. */}
-      <td className="w-52 px-3 py-3">
-        <div className="bg-muted h-1.5 overflow-hidden rounded-full" aria-hidden>
-          <div
-            className={cn("h-full rounded-full", row.status === "ACTIVE" ? "bg-amber-500" : "bg-rose-500")}
-            style={{ width: `${Math.max(0, Math.min(100, row.percent_used))}%` }}
-          />
-        </div>
-        <p className="text-muted-foreground mt-1 text-xs" data-testid="due-table-usage">
-          {blockAmount(row.minutes_sold, row.lesson_minutes, t, locale)} · {t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}
-          {row.status !== "ACTIVE" && ` · ${t(`status.${row.status}`)}`}
-        </p>
-        {row.gap !== null && (
-          <p className="mt-0.5 inline-flex items-center gap-1 text-[11px] font-semibold text-rose-600 dark:text-rose-400">
-            <AlertTriangle className="size-3 shrink-0" aria-hidden />
-            {t("family.gap")}
-          </p>
-        )}
+      {/* Which package, and how much of it is used: a short bar, the rest on hover. */}
+      <td className={CELL} title={usage} data-testid="due-table-usage">
+        <span className="flex items-center gap-2 text-xs">
+          <span className="text-muted-foreground max-w-36 truncate">
+            <span className="text-foreground font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span>{" "}
+            {row.subject ? (row.subject.course ?? row.subject.teacher_name) : row.label}
+          </span>
+          <span className="bg-muted h-1.5 w-14 shrink-0 overflow-hidden rounded-full" aria-hidden>
+            <span
+              className={cn("block h-full rounded-full", row.status === "ACTIVE" ? "bg-amber-500" : "bg-rose-500")}
+              style={{ width: `${Math.max(0, Math.min(100, row.percent_used))}%` }}
+            />
+          </span>
+        </span>
       </td>
 
-      <td className="px-3 py-3 text-end">
-        <span
-          className={cn("text-base font-bold whitespace-nowrap tabular-nums", owes ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400")}
-          data-testid="due-table-amount"
-        >
+      <td className={cn(CELL, "text-end")}>
+        <span className={cn("font-bold tabular-nums", owes ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400")} data-testid="due-table-amount">
           {owes
             ? formatMoney({ amount: row.outstanding_minor, currency: row.currency }, locale)
             : unbilled
@@ -506,37 +449,35 @@ function DueTableRow({
         </span>
       </td>
 
-      <td className="px-3 py-3">
-        <WaitingChip createdAt={row.created_at} />
+      {/* How long it has waited — and, if any, how many reminders went. */}
+      <td className={CELL}>
+        <span className="flex items-center gap-1.5">
+          <WaitingChip createdAt={row.created_at} />
+          {row.reminders_sent > 0 && row.last_reminded_at !== null && (
+            <span
+              className="inline-flex items-center gap-0.5 text-[11px] font-semibold text-sky-700 tabular-nums dark:text-sky-300"
+              title={t("card.reminders", {
+                count: row.reminders_sent,
+                n: formatNumber(row.reminders_sent, locale),
+                date: formatDateTime(row.last_reminded_at, timezone, locale),
+              })}
+              data-testid="due-table-reminded"
+            >
+              <BellRing className="size-3" aria-hidden />
+              {formatNumber(row.reminders_sent, locale)}
+            </span>
+          )}
+        </span>
       </td>
 
-      <td className="px-3 py-3">
-        {row.reminders_sent > 0 && row.last_reminded_at !== null ? (
-          <span
-            className="inline-flex items-center gap-1 text-xs font-semibold whitespace-nowrap text-sky-700 dark:text-sky-300"
-            title={t("card.reminders", {
-              count: row.reminders_sent,
-              n: formatNumber(row.reminders_sent, locale),
-              date: formatDateTime(row.last_reminded_at, timezone, locale),
-            })}
-          >
-            <BellRing className="size-3.5" aria-hidden />
-            {t("family.reminded", { count: row.reminders_sent, n: formatNumber(row.reminders_sent, locale) })}
-          </span>
-        ) : (
-          <span className="text-muted-foreground text-xs whitespace-nowrap">{t("dueTable.notReminded")}</span>
-        )}
-      </td>
-
-      {/* The package's actions: remind, its payment message, its log — then Mark as paid and "⋯". */}
-      <td className="px-3 py-3 pe-4">
-        <div className="flex items-center justify-end gap-1.5">
+      <td className={cn(CELL, "pe-4")}>
+        <div className="flex items-center justify-end gap-1">
           {canSendInvoice && remindable && (
             <button
               type="button"
               onClick={actions.onRemind}
               disabled={actions.reminding}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border border-sky-500/25 bg-sky-500/10 text-sky-700 transition-colors hover:bg-sky-500/20 disabled:opacity-50 dark:text-sky-300"
+              className={cn(ICON_BUTTON, "border-sky-500/25 bg-sky-500/10 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300")}
               aria-label={t("actions.remind")}
               title={t("actions.remind")}
               data-testid="due-table-remind"
@@ -548,7 +489,7 @@ function DueTableRow({
             <button
               type="button"
               onClick={() => void copyMessage()}
-              className={cn(actionClass(), "w-8 shrink-0 px-0")}
+              className={cn(ICON_BUTTON, "border-border/70 bg-muted/60 text-foreground/80 hover:bg-muted")}
               aria-label={copied ? t("actions.copied") : t("actions.copyMessage")}
               title={copied ? t("actions.copied") : t("actions.copyMessage")}
             >
@@ -558,7 +499,7 @@ function DueTableRow({
           <button
             type="button"
             onClick={() => setHistoryOpen(true)}
-            className={cn(actionClass(), "w-8 shrink-0 px-0")}
+            className={cn(ICON_BUTTON, "border-border/70 bg-muted/60 text-foreground/80 hover:bg-muted")}
             aria-label={t("actions.history")}
             title={t("actions.history")}
           >
@@ -575,8 +516,9 @@ function DueTableRow({
 // ── The Paid tab's table ──────────────────────────────────────────────────────
 
 /**
- * The Due page's Paid tab as a table, from tablet width up (phones keep the paid cards): who, which
- * package, what came in, how, when, the reference, and the receipt / invoice / lessons behind it.
+ * The Due page's Paid tab as the same compact table, one line per package (phones and tablets keep
+ * the paid cards): who, the parent, which package, what came in, how, when, the reference, and the
+ * receipt / invoice / lessons behind it.
  */
 export function PaidTable({
   rows,
@@ -592,12 +534,13 @@ export function PaidTable({
   const methodLabel = (m: string | null) => (m === null ? "—" : KNOWN_METHODS.includes(m) ? t(`paid.method.${m}`) : m);
 
   return (
-    <section className="bg-card hidden overflow-hidden rounded-2xl border border-emerald-200/70 shadow-sm md:block dark:border-emerald-900/50" data-testid="paid-table">
+    <section className="bg-card hidden overflow-hidden rounded-xl border border-emerald-200/70 shadow-sm lg:block dark:border-emerald-900/50" data-testid="paid-table">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] border-collapse text-sm">
+        <table className="w-full border-collapse text-sm">
           <thead>
             <tr className="text-muted-foreground border-b bg-gradient-to-l from-emerald-500/[0.10] via-emerald-500/[0.035] to-transparent">
-              <th className={cn(HEAD, "ps-5")}>{t("dueTable.student")}</th>
+              <th className={cn(HEAD, "ps-4")}>{t("dueTable.student")}</th>
+              <th className={HEAD}>{t("dueTable.family")}</th>
               <th className={HEAD}>{t("dueTable.package")}</th>
               <th className={cn(HEAD, "text-end")}>{t("dueTable.paidAmount")}</th>
               <th className={HEAD}>{t("paid.methodLabel")}</th>
@@ -615,66 +558,48 @@ export function PaidTable({
               const paidOn = row.paid_at !== null ? formatDateTime(row.paid_at, timezone, locale) : (receipts[0]?.received_on ?? "—");
               const reference = receipts.find((r) => r.reference)?.reference ?? row.payment_reference ?? "—";
               const receipt = receipts[0] ?? null;
+              const proof = receipt !== null ? receipt.public_url : row.payment_proof_url !== null ? `${apiBase()}${row.payment_proof_url}` : null;
               return (
-                <tr key={row.id} className={cn("hover:bg-emerald-500/[0.04] transition-colors", i > 0 && "border-t border-border/50", i % 2 === 1 && "bg-muted/25")} data-testid="paid-table-row">
-                  <td className="py-3 ps-5 pe-3">
-                    <div className="flex items-center gap-2.5">
-                      <span
-                        className={cn("flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white", avatarTone(row.guardian_name ?? row.student_name))}
-                        aria-hidden
-                      >
-                        {initials(row.student_name)}
-                      </span>
-                      <div className="min-w-0">
-                        <button type="button" onClick={() => onOpenDetail(row)} className="hover:text-primary block max-w-48 truncate text-start font-semibold transition-colors">
-                          {row.student_name}
-                        </button>
-                        {row.guardian_name && row.guardian_name !== row.student_name && (
-                          <p className="text-muted-foreground max-w-48 truncate text-xs">{row.guardian_name}</p>
-                        )}
-                      </div>
-                    </div>
+                <tr key={row.id} className={cn("transition-colors hover:bg-emerald-500/[0.05]", i > 0 && "border-t border-border/50", i % 2 === 1 && "bg-muted/30")} data-testid="paid-table-row">
+                  <td className={cn(CELL, "ps-4")}>
+                    <button type="button" onClick={() => onOpenDetail(row)} className="hover:text-primary block max-w-44 truncate text-start font-medium transition-colors">
+                      {row.student_name}
+                    </button>
                   </td>
-                  <td className="text-muted-foreground px-3 py-3 text-xs">
+                  <td className={cn(CELL, "text-muted-foreground max-w-40 truncate text-xs")}>
+                    {row.guardian_name && row.guardian_name !== row.student_name ? row.guardian_name : "—"}
+                  </td>
+                  <td className={cn(CELL, "text-muted-foreground max-w-40 truncate text-xs")}>
                     <span className="text-foreground font-semibold tabular-nums">#{formatNumber(row.sequence_no, locale)}</span> {row.label}
                   </td>
-                  <td className="px-3 py-3 text-end">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-600 px-2.5 py-1 text-xs font-bold whitespace-nowrap text-white tabular-nums">
+                  <td className={cn(CELL, "text-end")}>
+                    <span className="inline-flex items-center gap-1 font-bold text-emerald-700 tabular-nums dark:text-emerald-300">
                       <BadgeCheck className="size-3.5" aria-hidden />
                       {formatMoney({ amount: paidAmount(row), currency: row.currency }, locale)}
                     </span>
                   </td>
-                  <td className="px-3 py-3 text-xs font-semibold">{methods}</td>
-                  <td className="px-3 py-3 text-xs whitespace-nowrap text-emerald-700 dark:text-emerald-300">{paidOn}</td>
-                  <td className="text-muted-foreground max-w-40 truncate px-3 py-3 text-xs" title={reference} data-testid="paid-table-reference">
+                  <td className={cn(CELL, "text-xs font-medium")}>{methods}</td>
+                  <td className={cn(CELL, "text-muted-foreground text-xs tabular-nums")}>{paidOn}</td>
+                  <td className={cn(CELL, "text-muted-foreground max-w-32 truncate text-xs")} title={reference} data-testid="paid-table-reference">
                     {reference}
                   </td>
-                  <td className="px-3 py-3 pe-4">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {receipt !== null ? (
+                  <td className={cn(CELL, "pe-4")}>
+                    <div className="flex items-center justify-end gap-1">
+                      {proof !== null && (
                         <a
-                          href={receipt.public_url}
+                          href={proof}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className={cn(buttonVariants({ size: "sm" }), "h-8 gap-1.5 bg-emerald-600 px-2.5 text-xs text-white hover:bg-emerald-700")}
+                          className={cn(ICON_BUTTON, "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20 dark:text-emerald-300")}
+                          aria-label={receipt !== null ? t("paid.openReceipt") : t("actions.viewProof")}
+                          title={receipt !== null ? t("paid.openReceipt") : t("actions.viewProof")}
                         >
-                          <ExternalLink className="size-3.5" aria-hidden />
-                          {receipts.length > 1 ? `${t("paid.openReceipt")} (${formatNumber(receipts.length, locale)})` : t("paid.openReceipt")}
+                          {receipt !== null ? <ExternalLink className="size-3.5" aria-hidden /> : <FileImage className="size-3.5" aria-hidden />}
                         </a>
-                      ) : row.payment_proof_url !== null ? (
-                        <a
-                          href={`${apiBase()}${row.payment_proof_url}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={cn(buttonVariants({ size: "sm" }), "h-8 gap-1.5 bg-emerald-600 px-2.5 text-xs text-white hover:bg-emerald-700")}
-                        >
-                          <FileImage className="size-3.5" aria-hidden />
-                          {t("actions.viewProof")}
-                        </a>
-                      ) : null}
+                      )}
                       <Link
                         href={`/invoices?id=${row.invoice_id}`}
-                        className={cn(actionClass(), "w-8 shrink-0 px-0")}
+                        className={cn(ICON_BUTTON, "border-border/70 bg-muted/60 text-foreground/80 hover:bg-muted")}
                         aria-label={t("actions.viewInvoice")}
                         title={t("actions.viewInvoice")}
                       >
@@ -683,7 +608,7 @@ export function PaidTable({
                       <button
                         type="button"
                         onClick={() => onOpenDetail(row)}
-                        className={cn(actionClass(), "w-8 shrink-0 px-0")}
+                        className={cn(ICON_BUTTON, "border-border/70 bg-muted/60 text-foreground/80 hover:bg-muted")}
                         aria-label={t("actions.viewLessons")}
                         title={t("actions.viewLessons")}
                       >
