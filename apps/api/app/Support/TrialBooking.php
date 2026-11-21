@@ -39,6 +39,7 @@ final class TrialBooking
      *     lead_whatsapp?: string|null,
      *     lead_email?: string|null,
      *     timezone: string,
+     *     student_timezone?: string|null,
      *     duration_minutes: int,
      *     outcome_notes?: string|null,
      * }  $data
@@ -93,6 +94,8 @@ final class TrialBooking
             'lead_whatsapp' => $leadWhatsapp,
             'lead_email' => $leadEmail,
             'timezone' => $data['timezone'],
+            // Where the student lives, so the board can say what the hour is at their home.
+            'student_timezone' => self::studentClock($data['student_timezone'] ?? null, (string) $data['timezone']),
             'scheduled_at_utc' => $startUtc->format('Y-m-d H:i:sP'),
             'duration_minutes' => $duration,
             'status' => 'SCHEDULED',
@@ -106,8 +109,17 @@ final class TrialBooking
             'lead' => $leadName,
             'scheduled_at_utc' => $startUtc->toIso8601String(),
             'duration_minutes' => $duration,
+            'student_timezone' => self::studentClock($data['student_timezone'] ?? null, (string) $data['timezone']),
         ]);
 
         return $trialId;
+    }
+
+    /** The student's clock as stored: null when none was given or it is the academy's own. */
+    public static function studentClock(?string $zone, string $academyTimezone): ?string
+    {
+        $zone = $zone !== null ? trim($zone) : '';
+
+        return $zone === '' || $zone === $academyTimezone ? null : $zone;
     }
 }

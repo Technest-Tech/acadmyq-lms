@@ -13,6 +13,8 @@ import {
   type LeadRow,
 } from "@/lib/api";
 import { TrialDurationPicker, isTrialDuration } from "@/components/trials/trial-duration-picker";
+import { StudentClockField, StudentTimeNote, phoneCountry, usualClock, useClockZones } from "@/components/trials/student-clock";
+import { academyInstant } from "@/lib/academy-clock";
 
 const inputBase =
   "border-input bg-background focus:border-primary focus:ring-primary/15 w-full rounded-xl border py-2.5 px-3.5 text-sm outline-none transition-colors focus:ring-3 disabled:opacity-50";
@@ -59,6 +61,14 @@ export function BookLeadTrialForm({
   const [time, setTime] = useState("17:00");
   const [duration, setDuration] = useState(30);
   const [notes, setNotes] = useState("");
+  // Where the lead lives ("" = the academy's clock), read off their number until picked by hand.
+  const zones = useClockZones();
+  const [studentClock, setStudentClock] = useState("");
+  const [clockPicked, setClockPicked] = useState(false);
+  useEffect(() => {
+    if (clockPicked || !zones) return;
+    setStudentClock(usualClock(zones, phoneCountry(lead.whatsapp_phone)) ?? "");
+  }, [zones, lead.whatsapp_phone, clockPicked]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -105,6 +115,7 @@ export function BookLeadTrialForm({
         // The academy's own timezone is the booking's frame of reference — the owner reading
         // this from another country is still booking a lesson in the academy's day.
         timezone: timezone ?? undefined,
+        student_timezone: studentClock || null,
         duration_minutes: duration,
         notes: notes.trim() || null,
       });
@@ -117,6 +128,7 @@ export function BookLeadTrialForm({
   }
 
   const teacherName = teachers.find((tch) => tch.id === teacherId)?.full_name;
+  const at = date && time ? academyInstant(date, time) : null;
 
   return (
     <div className="space-y-5" data-testid="crm-trial-form">
@@ -187,6 +199,16 @@ export function BookLeadTrialForm({
         </div>
       </div>
 
+      <StudentClockField
+        value={studentClock}
+        onChange={(zone) => {
+          setStudentClock(zone);
+          setClockPicked(true);
+        }}
+        at={at}
+        testId="crm-trial-clock"
+      />
+
       <TrialDurationPicker
         value={duration}
         onChange={setDuration}
@@ -226,6 +248,7 @@ export function BookLeadTrialForm({
             {teacherName ? ` · ${teacherName}` : ""}
             {timezone ? ` · ${timezone.replace(/_/g, " ")}` : ""}
           </p>
+          {at && <StudentTimeNote timezone={studentClock} at={at} className="mt-1 text-xs" />}
         </div>
       )}
 

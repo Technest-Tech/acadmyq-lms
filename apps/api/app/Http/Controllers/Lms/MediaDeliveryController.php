@@ -87,7 +87,7 @@ final class MediaDeliveryController extends Controller
     private function signedKey(Request $request): string
     {
         $key = (string) $request->query('k', '');
-        $known = str_starts_with($key, 'lms/') || str_starts_with($key, 'help/');
+        $known = str_starts_with($key, 'lms/') || str_starts_with($key, 'help/') || str_starts_with($key, 'support/');
         abort_unless($key !== '' && $known && ! str_contains($key, '..'), 404);
 
         return $key;

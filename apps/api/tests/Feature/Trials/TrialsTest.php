@@ -415,3 +415,55 @@ it('warns about a clash when a trial is rescheduled onto another one', function 
     expect($res['changed'])->toContain('scheduled_at_utc');
     expect(collect($res['warnings'])->pluck('type'))->toContain('conflict');
 });
+
+it('keeps the clock the student lives on, and says what the trial hour is there', function () {
+    Sanctum::actingAs($this->owner);
+
+    // A prospect in Riyadh, booked at 17:00 on the academy's (Cairo) clock.
+    $id = $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'lead_name' => 'Riyadh Lead',
+        'lead_whatsapp' => '+966501112223',
+        'local_datetime' => '2026-06-16 17:00',
+        'student_timezone' => 'Asia/Riyadh',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+
+    $row = collect($this->getJson('/api/trials')->assertOk()->json('rows'))->firstWhere('id', $id);
+    expect($row['student_timezone'])->toBe('Asia/Riyadh');
+    expect($row['student_country'])->toBe('SA');
+
+    // Moved to the academy's own clock: nothing to show beside the hour.
+    $this->patchJson("/api/trials/{$id}", ['student_timezone' => null])->assertOk()->assertJsonPath('changed', ['student_timezone']);
+    $row = collect($this->getJson('/api/trials')->json('rows'))->firstWhere('id', $id);
+    expect($row['student_timezone'])->toBeNull();
+
+    // Then to New York — a country with several clocks keeps the one picked.
+    $this->patchJson("/api/trials/{$id}", ['student_timezone' => 'America/New_York'])->assertOk();
+    $row = collect($this->getJson('/api/trials')->json('rows'))->firstWhere('id', $id);
+    expect($row['student_timezone'])->toBe('America/New_York');
+    expect($row['student_country'])->toBe('US');
+
+    // The academy's own zone is stored as "none", and junk is refused.
+    $this->patchJson("/api/trials/{$id}", ['student_timezone' => 'Africa/Cairo'])->assertOk();
+    $this->asAcademy($this->academy);
+    expect(DB::table('trials')->where('id', $id)->value('student_timezone'))->toBeNull();
+    $this->patchJson("/api/trials/{$id}", ['student_timezone' => 'Mars/Olympus'])->assertStatus(422);
+});
+
+it('reads an existing student\'s clock from their country when the trial names none', function () {
+    $this->asAcademy($this->academy);
+    DB::table('students')->where('id', $this->student)->update(['country' => 'AE']);
+    Sanctum::actingAs($this->owner);
+
+    $id = $this->postJson('/api/trials', [
+        'teacher_id' => $this->teacher,
+        'student_id' => $this->student,
+        'local_datetime' => '2026-06-16 17:00',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+
+    $row = collect($this->getJson('/api/trials')->json('rows'))->firstWhere('id', $id);
+    expect($row['student_timezone'])->toBe('Asia/Dubai');
+    expect($row['student_country'])->toBe('AE');
+});

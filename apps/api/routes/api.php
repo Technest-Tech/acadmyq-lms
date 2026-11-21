@@ -37,6 +37,7 @@ use App\Http\Controllers\Admin\LmsOversightController;
 use App\Http\Controllers\Admin\PlanController;
 use App\Http\Controllers\Admin\RoleController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\SupportInboxController;
 use App\Http\Controllers\Admin\SystemHealthController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\VideoOversightController;
@@ -122,7 +123,7 @@ use App\Http\Controllers\Public\WhatsAppConnectController;
 use App\Http\Controllers\Quality\QualityReportController;
 use App\Http\Controllers\Quality\QualityRubricController;
 use App\Http\Controllers\Quality\TeacherAdjustmentController;
-use App\Http\Controllers\Quality\TeacherInsightsController;
+use App\Http\Controllers\Quality\TeacherPerformanceController;
 use App\Http\Controllers\ReportCardTemplateController;
 use App\Http\Controllers\ReportFieldController;
 use App\Http\Controllers\Rooms\RoomController;
@@ -141,6 +142,7 @@ use App\Http\Controllers\SessionReportController;
 use App\Http\Controllers\SpecializationController;
 use App\Http\Controllers\StaffDepartmentController;
 use App\Http\Controllers\StudentProgressReportController;
+use App\Http\Controllers\Support\SupportRequestController;
 use App\Http\Controllers\TeacherReportController;
 use App\Http\Controllers\Trials\TrialController;
 use App\Http\Controllers\Video\LivekitWebhookController;
@@ -689,6 +691,22 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     Route::post('/admin/help-videos/upload-url', [HelpVideoController::class, 'createUpload']);
     Route::put('/admin/help-videos/{slot}', [HelpVideoController::class, 'update']);
     Route::delete('/admin/help-videos/{slot}', [HelpVideoController::class, 'destroy']);
+
+    // Support requests (2026-11-21): each academy's problems and change requests, and our answers.
+    // The academy's side is support.manage on its own rows; the inbox is platform.manage over every
+    // client. See App\Support\SupportRequests for what each status means.
+    Route::get('/support/requests', [SupportRequestController::class, 'index']);
+    Route::get('/support/summary', [SupportRequestController::class, 'summary']);
+    Route::middleware('throttle:20,1')->post('/support/requests', [SupportRequestController::class, 'store']);
+    Route::get('/support/requests/{id}', [SupportRequestController::class, 'show'])->whereUuid('id');
+    Route::middleware('throttle:30,1')->post('/support/requests/{id}/messages', [SupportRequestController::class, 'reply'])->whereUuid('id');
+    Route::post('/support/requests/{id}/withdraw', [SupportRequestController::class, 'withdraw'])->whereUuid('id');
+    Route::get('/admin/support', [SupportInboxController::class, 'index']);
+    Route::get('/admin/support/summary', [SupportInboxController::class, 'summary']);
+    Route::post('/admin/support', [SupportInboxController::class, 'store']);
+    Route::get('/admin/support/{id}', [SupportInboxController::class, 'show'])->whereUuid('id');
+    Route::post('/admin/support/{id}/messages', [SupportInboxController::class, 'respond'])->whereUuid('id');
+    Route::patch('/admin/support/{id}', [SupportInboxController::class, 'update'])->whereUuid('id');
 
     // Marketing demo requests (Super Admin, platform.manage) — the inbox behind the public form on
     // acadmyq.com. Platform-scoped: these prospects belong to no academy, which is exactly why they
@@ -1600,13 +1618,23 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         });
     });
 
-    // Teacher performance — the Teacher Quality page: Enter punctuality, report speed and
-    // attendance for every teacher, read from records the system already keeps. Same switch and
-    // capability as the page it replaced (teacher_quality / teacher_quality.read), but OUTSIDE the
-    // payroll gate: it reads lessons, never pay.
+    // Teacher performance — the monthly evaluation page (/teacher-quality): the supervisor's
+    // lesson visits and conduct notes beside the reports and entry times the system already
+    // records, weighed into one total per teacher per month. Same switch as the page it replaced
+    // (entitled:teacher_quality), OUTSIDE the payroll gate: it reads lessons, never pay. Reading
+    // takes teacher_quality.insights or .read, writing .manage, the weights settings.manage — all
+    // checked in the controller. Literal segments are declared before `{id}`.
     Route::middleware('entitled:teacher_quality')->group(function () {
-        Route::get('/teacher-insights', [TeacherInsightsController::class, 'index']);
-        Route::get('/teacher-insights/teachers/{id}', [TeacherInsightsController::class, 'show']);
+        Route::get('/teacher-performance', [TeacherPerformanceController::class, 'index']);
+        Route::get('/teacher-performance/settings', [TeacherPerformanceController::class, 'settings']);
+        Route::put('/teacher-performance/settings', [TeacherPerformanceController::class, 'updateSettings']);
+        Route::get('/teacher-performance/teachers/{id}', [TeacherPerformanceController::class, 'show']);
+        Route::post('/teacher-performance/teachers/{id}/notes', [TeacherPerformanceController::class, 'storeNote']);
+        Route::patch('/teacher-performance/notes/{id}', [TeacherPerformanceController::class, 'updateNote']);
+        Route::delete('/teacher-performance/notes/{id}', [TeacherPerformanceController::class, 'destroyNote']);
+        Route::post('/teacher-performance/teachers/{id}/visits', [TeacherPerformanceController::class, 'storeVisit']);
+        Route::patch('/teacher-performance/visits/{id}', [TeacherPerformanceController::class, 'updateVisit']);
+        Route::delete('/teacher-performance/visits/{id}', [TeacherPerformanceController::class, 'destroyVisit']);
     });
 
     // Video classroom (archive/video-platform/docs). Plan-gated by entitled:video.conferencing (402 on a

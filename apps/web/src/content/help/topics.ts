@@ -6,9 +6,11 @@ import {
   ClipboardCheck,
   Crown,
   FileCheck2,
+  Gauge,
   GraduationCap,
   LayoutDashboard,
   Layers,
+  LifeBuoy,
   MessageCircle,
   NotebookPen,
   NotebookText,
@@ -109,6 +111,23 @@ export const HELP_TOPICS: readonly HelpTopicDef[] = [
       { id: "pay", anyOf: ["teacher.set_pay"] },
       { id: "login", anyOf: ["teacher.create_login"] },
       { id: "link", anyOf: ["teacher.update"] },
+    ],
+  },
+  // أداء المعلّمين. Opens for the owner's scorecard or for whoever reads quality (the supervisor
+  // who writes the lesson ratings and conduct notes), as the page itself does.
+  {
+    id: "teacher-performance",
+    icon: Gauge,
+    group: "people",
+    href: "/teacher-quality",
+    routes: ["/teacher-quality"],
+    anyOf: ["teacher_quality.insights", "teacher_quality.read"],
+    capability: "teacher_quality",
+    tasks: [
+      { id: "read" },
+      { id: "visit", anyOf: ["teacher_quality.manage"] },
+      { id: "note", anyOf: ["teacher_quality.manage"] },
+      { id: "settings", anyOf: ["settings.manage"] },
     ],
   },
   {
@@ -358,5 +377,14 @@ export const HELP_TOPICS: readonly HelpTopicDef[] = [
       { id: "controls", anyOf: ["settings.manage"] },
       { id: "export", anyOf: ["settings.manage"] },
     ],
+  },
+  {
+    id: "support",
+    icon: LifeBuoy,
+    group: "setup",
+    href: "/support",
+    routes: ["/support"],
+    anyOf: ["support.manage"],
+    tasks: [{ id: "send" }, { id: "follow" }],
   },
 ];

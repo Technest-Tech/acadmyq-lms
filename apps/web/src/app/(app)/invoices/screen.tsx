@@ -3,12 +3,10 @@
 import { academyTimeZone } from "@/lib/academy-clock";
 import {
   AlertTriangle,
-  Banknote,
   CalendarClock,
   CircleCheck,
   Clock,
   FileText,
-  Hourglass,
   ListChecks,
   Lock,
   Plus,
@@ -217,44 +215,91 @@ function SummaryCards({
   );
 }
 
-// ── Stat tiles (the hand-made bills' header) ─────────────────────────────────
+// ── The hand-made bills' header ───────────────────────────────────────────────
 
-/** One figure in its own box: a tinted icon, what it is, the number — and a line under it. */
-function StatTile({
-  icon: Icon,
-  tone,
-  label,
-  children,
-  testId,
-}: {
-  icon: typeof Receipt;
-  tone: string;
-  label: string;
-  children: React.ReactNode;
-  testId?: string;
-}) {
+/** "جنيه مصري" for EGP, in the workspace's language; the code itself when the browser has no name. */
+function currencyName(code: string, locale: string): string {
+  try {
+    return new Intl.DisplayNames([locale.startsWith("ar") ? "ar" : "en"], { type: "currency" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/** A thin bar: how much of the whole is done. */
+function ShareBar({ done, whole, tone, title }: { done: number; whole: number; tone: string; title?: string }) {
+  const width = whole > 0 ? Math.max(0, Math.min(100, (done / whole) * 100)) : 0;
   return (
-    <div className="bg-card flex items-start gap-3 rounded-2xl border p-4 shadow-sm" data-testid={testId}>
-      <span className={cn("flex size-10 shrink-0 items-center justify-center rounded-xl", tone)}>
-        <Icon className="size-5" aria-hidden />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-muted-foreground text-xs font-medium">{label}</p>
-        <div className="mt-1 space-y-1">{children}</div>
+    <span className="bg-muted block h-1.5 overflow-hidden rounded-full" title={title} aria-hidden>
+      <span className={cn("block h-full rounded-full", tone)} style={{ width: `${width}%` }} />
+    </span>
+  );
+}
+
+/**
+ * One currency's money on its own card (Ahmed 2026-11-17: three tall tiles, each a list of seven
+ * currencies, made you read across boxes to put one currency together). What is still owed is the
+ * big figure — it is what this screen is for; the bar is how much of what was billed is in, then
+ * the two figures behind it. A currency with nothing owed says so in words.
+ */
+function CurrencyMoneyCard({ bucket, locale }: { bucket: InvoiceSummary["money"][number]; locale: string }) {
+  const t = useTranslations("invoices");
+  const money = (minor: number) => formatMoney({ amount: minor, currency: bucket.currency }, locale);
+  // A hand-made bill is owed from the day it is raised: everything unpaid, open bills included.
+  const owed = bucket.due_minor;
+  const settled = owed <= 0;
+  const rate = bucket.billed_minor > 0 ? Math.round((bucket.collected_minor / bucket.billed_minor) * 100) : 0;
+
+  return (
+    <div className="bg-muted/30 flex flex-col rounded-xl border p-3.5" data-testid={`currency-total-${bucket.currency}`}>
+      <div className="flex min-w-0 items-center gap-2">
+        <span className="bg-primary/10 text-primary shrink-0 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide">
+          {bucket.currency}
+        </span>
+        <span className="text-muted-foreground min-w-0 truncate text-xs">{currencyName(bucket.currency, locale)}</span>
       </div>
+
+      <p className="text-muted-foreground mt-3 text-[11px] font-medium">{t("stats.outstanding")}</p>
+      {settled ? (
+        <p className="mt-0.5 inline-flex items-center gap-1.5 text-base font-bold text-emerald-700 dark:text-emerald-400">
+          <CircleCheck className="size-4 shrink-0" aria-hidden />
+          {t("stats.settled")}
+        </p>
+      ) : (
+        <p className="mt-0.5 text-xl leading-tight font-bold break-words text-amber-700 tabular-nums dark:text-amber-300">
+          {money(owed)}
+        </p>
+      )}
+
+      <div className="mt-3">
+        <ShareBar
+          done={bucket.collected_minor}
+          whole={bucket.billed_minor}
+          tone="bg-emerald-500"
+          title={`${t("summaryCollectionRate")} ${formatNumber(rate, locale)}%`}
+        />
+      </div>
+
+      <dl className="mt-2 divide-y text-xs">
+        <div className="flex items-baseline justify-between gap-3 py-1.5">
+          <dt className="text-muted-foreground">{t("summaryCollected")}</dt>
+          <dd className="font-semibold break-words text-emerald-700 tabular-nums dark:text-emerald-400">{money(bucket.collected_minor)}</dd>
+        </div>
+        <div className="flex items-baseline justify-between gap-3 pt-1.5">
+          <dt className="text-muted-foreground">{t("stats.billed")}</dt>
+          <dd className="font-semibold break-words tabular-nums">{money(bucket.billed_minor)}</dd>
+        </div>
+      </dl>
     </div>
   );
 }
 
-const statValueClass = "text-lg leading-tight font-bold break-words tabular-nums";
-
 /**
- * The hand-made bills at a glance, one box per question (Ahmed 2026-11-17: the header was a stack
- * of banners and a single cramped line): how many bills, how much was billed, how much is in, how
- * much is still owed — and, when some are past their date, how many to chase. Money is one line per
- * currency and never summed across them.
+ * The hand-made bills at a glance, in one panel: how many bills and how many are paid (a bar), the
+ * ones past their date to chase — then one card per currency, money never summed across them.
+ * Currencies with money still owed come first.
  */
-function ManualStats({
+export function ManualStats({
   summary,
   followUpCount,
   followUpOnly,
@@ -267,102 +312,81 @@ function ManualStats({
 }) {
   const t = useTranslations("invoices");
   const locale = useLocale();
-  const grid = cn("grid grid-cols-1 gap-3 sm:grid-cols-2", followUpCount > 0 ? "xl:grid-cols-5" : "xl:grid-cols-4");
 
   if (!summary) {
-    return (
-      <div className={grid} aria-hidden>
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-card h-[5.5rem] animate-pulse rounded-2xl border shadow-sm" />
-        ))}
-      </div>
-    );
+    return <div className="bg-card h-56 animate-pulse rounded-2xl border shadow-sm" aria-hidden />;
   }
 
-  // In the workspace's own digits, like the money beside them.
-  const numFmt = { format: (n: number) => formatNumber(n, locale) };
+  const num = (n: number) => formatNumber(n, locale);
+  const paid = summary.counts.PAID;
   const unpaid = summary.counts.OPEN + summary.counts.CLOSED + summary.counts.PARTIALLY_PAID;
-  const money = (bucket: InvoiceSummary["money"][number], minor: number) => formatMoney({ amount: minor, currency: bucket.currency }, locale);
-  const none = <p className={cn(statValueClass, "text-muted-foreground")}>—</p>;
+  const buckets = [...summary.money].sort((a, b) => Number(b.due_minor > 0) - Number(a.due_minor > 0));
 
   return (
-    <div className={grid} data-testid="invoice-summary">
-      <StatTile icon={Receipt} tone="bg-primary/10 text-primary" label={t("stats.count")}>
-        <p className={statValueClass}>{numFmt.format(summary.counts.all)}</p>
-        <p className="text-muted-foreground text-xs">
-          {t("stats.countSplit", { paid: numFmt.format(summary.counts.PAID), unpaid: numFmt.format(unpaid) })}
-        </p>
-      </StatTile>
-
-      <StatTile icon={Banknote} tone="bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300" label={t("stats.billed")}>
-        {summary.money.length === 0
-          ? none
-          : summary.money.map((b) => (
-              <p key={b.currency} className={statValueClass} data-testid={`currency-total-${b.currency}`}>
-                {money(b, b.billed_minor)}
-              </p>
-            ))}
-      </StatTile>
-
-      <StatTile icon={CircleCheck} tone="bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300" label={t("summaryCollected")}>
-        {summary.money.length === 0
-          ? none
-          : summary.money.map((b) => {
-              const rate = b.billed_minor > 0 ? Math.max(0, Math.min(100, Math.round((b.collected_minor / b.billed_minor) * 100))) : 0;
-              return (
-                <div key={b.currency}>
-                  <p className={cn(statValueClass, "text-emerald-700 dark:text-emerald-400")}>{money(b, b.collected_minor)}</p>
-                  <div className="mt-1.5 flex items-center gap-2" title={t("summaryCollectionRate")}>
-                    <span className="bg-muted h-1.5 flex-1 overflow-hidden rounded-full">
-                      <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${rate}%` }} />
-                    </span>
-                    <span className="text-muted-foreground text-xs tabular-nums">{numFmt.format(rate)}%</span>
-                  </div>
-                </div>
-              );
-            })}
-      </StatTile>
-
-      <StatTile icon={Hourglass} tone="bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" label={t("stats.outstanding")}>
-        {summary.money.length === 0
-          ? none
-          : summary.money.map((b) => (
-              <p key={b.currency} className={cn(statValueClass, "text-amber-700 dark:text-amber-300")}>
-                {/* A hand-made bill is owed from the day it is raised: everything unpaid, open bills included. */}
-                {money(b, b.due_minor)}
-              </p>
-            ))}
-      </StatTile>
-
-      {/* Past their date and still unpaid — someone has to chase them. */}
-      {followUpCount > 0 && (
-        <div
-          className="flex items-start gap-3 rounded-2xl border border-red-300 bg-red-50 p-4 shadow-sm sm:col-span-2 xl:col-span-1 dark:border-red-900/60 dark:bg-red-950/30"
-          role="alert"
-          title={t("followUpHint")}
-          data-testid="manual-follow-up-alert"
-        >
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-red-100 text-red-600 dark:bg-red-900/40 dark:text-red-300">
-            <AlertTriangle className="size-5" aria-hidden />
+    <section className="bg-card rounded-2xl border shadow-sm" data-testid="invoice-summary">
+      {/* The bills: how many, how many paid — and the ones to chase. */}
+      <div className="flex flex-col gap-3 border-b p-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-xl">
+            <Receipt className="size-5" aria-hidden />
           </span>
-          <div className="min-w-0 flex-1">
-            <p className="text-xs font-medium text-red-800 dark:text-red-200">{t("stats.followUp")}</p>
-            <p className={cn(statValueClass, "mt-1 text-red-700 dark:text-red-300")} aria-label={t("followUpTitle", { count: followUpCount })}>
-              {numFmt.format(followUpCount)}
+          <div className="min-w-0 flex-1 sm:max-w-sm">
+            <p className="text-muted-foreground text-xs font-medium">{t("stats.count")}</p>
+            <p className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5">
+              <span className="text-2xl leading-none font-bold tabular-nums">{num(summary.counts.all)}</span>
+              <span className="text-muted-foreground text-xs">{t("stats.countSplit", { paid: num(paid), unpaid: num(unpaid) })}</span>
+            </p>
+            <div className="mt-2">
+              <ShareBar done={paid} whole={paid + unpaid} tone="bg-emerald-500" />
+            </div>
+          </div>
+        </div>
+
+        {/* Past their date and still unpaid — someone has to chase them. */}
+        {followUpCount > 0 && (
+          <div
+            className="flex items-center gap-3 rounded-xl border border-red-300 bg-red-50 px-3.5 py-2.5 dark:border-red-900/60 dark:bg-red-950/30"
+            role="alert"
+            title={t("followUpHint")}
+            data-testid="manual-follow-up-alert"
+          >
+            <AlertTriangle className="size-5 shrink-0 text-red-600 dark:text-red-300" aria-hidden />
+            <p className="min-w-0 flex-1 text-sm font-semibold text-red-800 dark:text-red-200">
+              <span className="me-1.5 text-lg font-bold tabular-nums" aria-label={t("followUpTitle", { count: followUpCount })}>
+                {num(followUpCount)}
+              </span>
+              {t("stats.followUp")}
             </p>
             <button
               type="button"
               onClick={onToggleFollowUp}
               aria-pressed={followUpOnly}
-              className="mt-1 text-xs font-semibold text-red-700 underline underline-offset-2 hover:text-red-900 dark:text-red-300"
+              className={cn(
+                "shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors",
+                followUpOnly
+                  ? "border border-red-300 bg-white text-red-700 hover:bg-red-100 dark:border-red-800 dark:bg-transparent dark:text-red-300"
+                  : "bg-red-600 text-white hover:bg-red-700",
+              )}
               data-testid="manual-follow-up-toggle"
             >
               {followUpOnly ? t("followUpShowAll") : t("followUpShowOnly")}
             </button>
           </div>
+        )}
+      </div>
+
+      {/* The money, one card per currency. */}
+      {buckets.length > 0 && (
+        <div className="p-4">
+          <p className="text-muted-foreground mb-2.5 text-xs font-medium">{t("stats.byCurrency")}</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {buckets.map((b) => (
+              <CurrencyMoneyCard key={b.currency} bucket={b} locale={locale} />
+            ))}
+          </div>
         </div>
       )}
-    </div>
+    </section>
   );
 }
 

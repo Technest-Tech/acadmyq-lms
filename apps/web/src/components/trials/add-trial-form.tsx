@@ -3,6 +3,7 @@
 import { CalendarClock, Clock, GraduationCap, Mail, User, UserPlus, Users } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useState } from "react";
+import { StudentClockField, StudentTimeNote, usualClock, useClockZones } from "@/components/trials/student-clock";
 import { dayAsDate } from "@/components/trials/trial-time";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
 import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
+import { academyInstant } from "@/lib/academy-clock";
 import { cn } from "@/lib/utils";
 import { TrialDurationPicker, isTrialDuration } from "./trial-duration-picker";
 
@@ -99,6 +101,11 @@ export function AddTrialForm({
   const [time, setTime] = useState("17:00");
   const [duration, setDuration] = useState(30);
   const [notes, setNotes] = useState("");
+  // Where the student lives ("" = the academy's clock). Follows the phone's country, or an
+  // existing student's, until someone picks one by hand.
+  const zones = useClockZones();
+  const [studentClock, setStudentClock] = useState("");
+  const [clockPicked, setClockPicked] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -132,6 +139,12 @@ export function AddTrialForm({
     };
   }, [who, students]);
 
+  const studentCountry = who === "student" ? (students?.find((s) => s.id === studentId)?.country ?? null) : dialCountry;
+  useEffect(() => {
+    if (clockPicked || !zones) return;
+    setStudentClock(usualClock(zones, studentCountry) ?? "");
+  }, [zones, studentCountry, clockPicked]);
+
   function phone(): string | null {
     // A local number typed with its trunk zero ("010…") must not become "+20010…".
     const digits = localNumber.replace(/^0+/, "");
@@ -158,6 +171,7 @@ export function AddTrialForm({
           : { lead_name: name.trim(), lead_whatsapp: phone(), lead_email: email.trim() || null }),
         local_datetime: `${date} ${time}`,
         timezone: timezone ?? undefined,
+        student_timezone: studentClock || null,
         duration_minutes: duration,
         outcome_notes: notes.trim() || null,
       });
@@ -170,6 +184,7 @@ export function AddTrialForm({
   }
 
   const teacherName = teachers.find((tch) => tch.id === teacherId)?.full_name;
+  const at = date && time ? academyInstant(date, time) : null;
   const personName =
     who === "student" ? students?.find((s) => s.id === studentId)?.full_name : name.trim();
 
@@ -304,6 +319,16 @@ export function AddTrialForm({
         </Field>
       </div>
 
+      <StudentClockField
+        value={studentClock}
+        onChange={(zone) => {
+          setStudentClock(zone);
+          setClockPicked(true);
+        }}
+        at={at}
+        testId="add-trial-clock"
+      />
+
       <TrialDurationPicker
         value={duration}
         onChange={setDuration}
@@ -345,6 +370,7 @@ export function AddTrialForm({
             {personName ? ` · ${personName}` : ""}
             {timezone ? ` · ${timezone.replace(/_/g, " ")}` : ""}
           </p>
+          {at && <StudentTimeNote timezone={studentClock} at={at} className="mt-1 text-xs" />}
         </div>
       )}
 

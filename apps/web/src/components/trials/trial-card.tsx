@@ -23,6 +23,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { TrialRow, TrialStatus } from "@/lib/api";
+import { StudentTimeNote } from "./student-clock";
 import { formatRelativeTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
@@ -198,6 +199,13 @@ export function TrialCard({
               </>
             )}
           </p>
+          {/* The same hour at the student's home, when they live on another clock. */}
+          <StudentTimeNote
+            timezone={trial.student_timezone}
+            country={trial.student_country}
+            at={trial.scheduled_at_utc}
+            className="mt-0.5 flex text-xs"
+          />
         </div>
 
         <span

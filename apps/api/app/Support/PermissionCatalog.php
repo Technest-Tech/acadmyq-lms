@@ -128,6 +128,9 @@ final class PermissionCatalog
         'student_report.submit', 'student_report.review',
         'certificate.read', 'certificate.manage',
         'audit.read',
+        // The academy's Support page: raise a problem or a change request with the platform team,
+        // follow where each one stands and answer the team's questions on it.
+        'support.manage',
         'staff.read', 'staff.create', 'staff.update', 'staff.deactivate',
         // See and set an employee's salary. Without it the staff list and file never carry one.
         'staff.set_salary',
@@ -211,6 +214,7 @@ final class PermissionCatalog
         ['key' => 'staff', 'kind' => 'operations', 'view' => ['staff.read'], 'manage' => ['staff.create', 'staff.update', 'staff.deactivate']],
         ['key' => 'access', 'kind' => 'operations', 'view' => [], 'manage' => ['user.invite', 'role.assign', 'role.manage']],
         ['key' => 'audit', 'kind' => 'operations', 'view' => ['audit.read'], 'manage' => []],
+        ['key' => 'support', 'kind' => 'operations', 'view' => [], 'manage' => ['support.manage']],
 
         ['key' => 'invoices', 'kind' => 'financial', 'view' => ['invoice.read'], 'manage' => ['invoice.create', 'invoice.close', 'invoice.mark_paid', 'invoice.send_link']],
         ['key' => 'receipts', 'kind' => 'financial', 'view' => [], 'manage' => ['receipt.void']],
@@ -391,6 +395,8 @@ final class PermissionCatalog
             'student_report.review',
             'certificate.read', 'certificate.manage',
             'audit.read',
+            // Raise and follow support requests with the platform team.
+            'support.manage',
             'staff.read', 'staff.create', 'staff.update', 'staff.deactivate',
             'staff.set_salary',
             // Video classroom — the owner provisions/manages rooms and views recordings (V-CTL-1),

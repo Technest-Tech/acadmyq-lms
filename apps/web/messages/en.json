@@ -369,7 +369,9 @@
     "calendarCentre": "Calendar",
     "groupsReportsCentre": "Group statistics",
     "whatsapp": "WhatsApp",
-    "adminHelp": "Help videos"
+    "adminHelp": "Help videos",
+    "support": "Support & requests",
+    "adminSupport": "Client requests"
   },
   "navGroup": {
     "general": "General",
@@ -621,7 +623,8 @@
         "lms": "Course platform",
         "tools": "Maintenance",
         "connections": "Connections",
-        "deleted": "Deleted"
+        "deleted": "Deleted",
+        "support": "Requests"
       },
       "videoCardTitle": "Video settings & rooms",
       "videoCardHint": "Tier, room limits, recordings and room logs live in Video Ops for this client.",
@@ -3847,7 +3850,9 @@
       "countSplit": "{paid} paid · {unpaid} unpaid",
       "billed": "Billed",
       "outstanding": "Still owed",
-      "followUp": "Past their date, unpaid"
+      "followUp": "Past their date, unpaid",
+      "byCurrency": "Amounts by currency",
+      "settled": "All collected"
     },
     "card": {
       "raised": "Raised"
@@ -8235,6 +8240,15 @@
       "intro": "<b>{name}</b> with {teacher}",
       "submit": "Save new time",
       "rebookSubmit": "Book again"
+    },
+    "studentClock": {
+      "label": "Student's clock",
+      "academy": "Same as the academy · {place}",
+      "search": "Search a country or city…",
+      "hint": "If the student lives in another country, pick it to see the trial at their time and the gap to the academy.",
+      "at": "Student's time {time}",
+      "gap": "{sign}{hours}h",
+      "sameHour": "Same hour for the student at this date."
     }
   },
   "groups": {
@@ -9037,6 +9051,10 @@
       "treasury": {
         "label": "Treasury & expenses",
         "hint": "Money out, accounts and transfers; closing the day's cash"
+      },
+      "support": {
+        "label": "Support & requests",
+        "hint": "Send a problem or change request to the support team, follow it and answer it"
       }
     }
   },
@@ -9083,7 +9101,8 @@
       "settings": "Settings",
       "receipt": "Receipts",
       "expense": "Expenses",
-      "cashbox": "Cash box"
+      "cashbox": "Cash box",
+      "support": "Support & requests"
     },
     "items": {
       "crm_read": {
@@ -9343,12 +9362,12 @@
         "label": "Manage staff departments"
       },
       "teacher_quality_read": {
-        "label": "View quality reports",
-        "desc": "Read the quality reports written about teachers"
+        "label": "View teacher evaluations",
+        "desc": "Open Teacher performance and read the lesson ratings and conduct notes written about teachers"
       },
       "teacher_quality_manage": {
-        "label": "Write quality reports",
-        "desc": "Judge teachers against the academy's rubric and edit the rubric"
+        "label": "Write teacher evaluations",
+        "desc": "Rate a teacher's lessons and record absences, apologies and rules not kept"
       },
       "teacher_quality_read_own": {
         "label": "View own quality reports",
@@ -9467,8 +9486,8 @@
         "desc": "Choose whether a cancelled or free lesson is still charged to the student or paid to the teacher"
       },
       "teacher_quality_insights": {
-        "label": "Teacher performance dashboard",
-        "desc": "On-time entry, report speed and attendance rates per teacher"
+        "label": "Teacher performance page",
+        "desc": "Each teacher's monthly evaluation: lesson quality, reports, entering lessons and conduct"
       },
       "settings_manage": {
         "label": "Manage academy settings",
@@ -9485,6 +9504,10 @@
       "cashbox_close": {
         "label": "Close the day's cash",
         "desc": "Count an account and close the day (short / over recorded)"
+      },
+      "support_manage": {
+        "label": "Support & requests",
+        "desc": "Send problems and change requests to the support team and follow them"
       }
     }
   },
@@ -10604,22 +10627,45 @@
       "failed": "Something went wrong. Please try again."
     }
   },
-  "teacherInsights": {
-    "title": "Teacher performance",
-    "subtitle": "How every teacher enters their lessons, files reports and shows up — measured from what the system records, never typed in.",
+  "teacherPerformance": {
+    "title": "Teacher Performance",
+    "subtitle": "Each teacher's evaluation for the month: lesson visits, reports after lessons and trials, entering on time, and conduct — in one total.",
     "noAccess": "You don't have access to teacher performance.",
-    "loadError": "Could not load teacher performance.",
-    "periodLabel": "Period",
-    "period": {
-      "week": "This week",
-      "month": "This month",
-      "last30": "Last 30 days",
-      "last90": "Last 90 days"
+    "loadError": "Couldn't load teacher performance.",
+    "close": "Close",
+    "search": "Search for a teacher",
+    "sortBy": "Sort by",
+    "sort": {
+      "total": "Total",
+      "name": "Name"
     },
-    "from": "From",
-    "to": "To",
-    "lateAfter": "Late after",
-    "reportWithin": "Report due within",
+    "empty": "No teachers yet.",
+    "noMatch": "No teacher matches.",
+    "lessonsCount": "{n, plural, =0 {No lessons} one {# lesson} other {# lessons}} this month",
+    "month": {
+      "label": "Month",
+      "previous": "Previous month",
+      "next": "Next month",
+      "current": "This month"
+    },
+    "part": {
+      "quality": "Lesson quality",
+      "reports": "Reports",
+      "entry": "Entering lessons",
+      "conduct": "Conduct"
+    },
+    "tier": {
+      "excellent": "Excellent",
+      "good": "Good",
+      "fair": "Fair",
+      "weak": "Needs attention"
+    },
+    "bucket": {
+      "onTime": "On time",
+      "late": "Late",
+      "missing": "Not written",
+      "missed": "Did not enter"
+    },
     "dur": {
       "min": "{n} min",
       "hm": "{h} h {m} min",
@@ -10627,126 +10673,194 @@
       "dh": "{d} d {h} h",
       "d": "{d} d"
     },
-    "kpi": {
-      "score": "Academy score",
-      "scoreSub": "{n, plural, =0 {No lessons taught in this period} one {Across # teacher who taught in this period} other {Across # teachers who taught in this period}}",
-      "enter": "Entered on time",
-      "enterSub": "{on_time} of {measured} lessons · {avg} after the start on average",
-      "enterEmpty": "Nothing measured yet — teachers need a meeting link",
-      "reports": "Reports on time",
-      "reportsSub": "{on_time} of {due} reports · {avg} after the lesson on average",
-      "reportsEmpty": "No reports due in this period",
-      "attendance": "Teacher attendance",
-      "attendanceSub": "{absent, plural, =0 {No teacher absences} one {# teacher absence} other {# teacher absences}} · students attended {student}",
-      "attendanceEmpty": "No lessons in this period"
+    "tile": {
+      "average": "Average evaluation",
+      "averageSub": "{n, plural, one {# teacher} other {# teachers}}",
+      "visits": "Teachers visited",
+      "visitsValue": "{n} of {due}",
+      "visitsSub": "{n, plural, =0 {No lesson visits yet} one {# lesson visit this month} other {# lesson visits this month}}",
+      "reports": "Reports not written",
+      "reportsSub": "Lessons that ended with no report",
+      "reportsNone": "Every report is in",
+      "notes": "Conduct notes",
+      "notesSub": "Absences, apologies and rules not kept",
+      "notesUnclassified": "{n, plural, one {# cancelled lesson} other {# cancelled lessons}} waiting to be recorded"
     },
-    "tier": {
-      "excellent": "Excellent",
-      "good": "Good",
-      "fair": "Fair",
-      "weak": "Needs work"
-    },
-    "legend": {
-      "onTime": "On time",
-      "late": "Late",
-      "missed": "Never entered",
-      "missing": "Not filed",
-      "taught": "Taught",
-      "studentAbsent": "Student absent",
-      "teacherAbsent": "Teacher absent"
-    },
-    "noLinkBanner": "{n, plural, one {# teacher has} other {# teachers have}} no meeting link, so their entering can't be measured. Add one on the teacher's profile:",
-    "highlights": {
-      "punctual": "Most punctual",
-      "punctualMetric": "{rate} on time · {avg} after the start",
-      "fastest": "Fastest reports",
-      "fastestMetric": "{avg} after the lesson · {rate} on time",
-      "attention": "Needs attention",
-      "attentionMetric": "Score {score} — open to see the lessons behind it",
-      "notEnough": "Not enough lessons yet to call it",
-      "allGood": "Every teacher is scoring 75 or above"
-    },
-    "table": {
-      "title": "All teachers",
-      "hint": "Ranked by score. Click a teacher to see every lesson behind their numbers.",
-      "search": "Search teachers",
-      "sortBy": "Sort by",
-      "sort": {
-        "score": "Score",
-        "join": "Entered on time",
-        "reports": "Reports on time",
-        "attendance": "Attendance",
-        "joinDelay": "Fastest to enter",
-        "reportDelay": "Fastest to report",
-        "lessons": "Most lessons",
-        "name": "Name"
-      },
-      "empty": "No teachers yet.",
-      "noMatch": "No teacher matches your search.",
-      "teacher": "Teacher",
-      "score": "Score",
-      "enter": "Entered on time",
-      "avgEnter": "Avg. entry",
-      "reports": "Reports on time",
-      "avgReport": "Avg. report time",
-      "attendance": "Attendance",
-      "lessons": "Lessons",
-      "noLessons": "No lessons",
-      "notMeasured": "Not measured",
-      "noReports": "None due",
-      "absences": "{n, plural, one {# absence} other {# absences}}"
-    },
-    "chips": {
-      "inactive": "Inactive",
-      "noLink": "No link"
+    "filter": {
+      "label": "Show",
+      "all": "All",
+      "notVisited": "Not visited yet",
+      "attention": "Needs attention"
     },
     "card": {
-      "avgEnter": "Entry: {v}",
-      "avgReport": "Report: {v}",
-      "lessons": "{n, plural, one {# lesson} other {# lessons}}"
+      "total": "This month",
+      "outOf": "{score} of 100",
+      "noTotal": "Nothing to evaluate yet",
+      "noLessons": "No lessons this month",
+      "inactive": "Inactive",
+      "visits": "{n} of {target} visits",
+      "notVisited": "No lesson visited yet",
+      "nothing": "Nothing to measure",
+      "reports": "{n} of {due} on time",
+      "entry": "{n} of {measured} on time",
+      "noLink": "No meeting link",
+      "absences": "{n, plural, one {# absence} other {# absences}}",
+      "apologies": "{n, plural, one {# apology} other {# apologies}}",
+      "violations": "{n, plural, one {# rule not kept} other {# rules not kept}}",
+      "unclassified": "{n, plural, one {# cancelled lesson} other {# cancelled lessons}} to record",
+      "noNotes": "No notes"
+    },
+    "actions": {
+      "visit": "Rate a lesson",
+      "note": "Conduct note",
+      "details": "Details"
     },
     "how": {
-      "title": "How these numbers are measured",
-      "enter": "Entered on time — the teacher's first press of Enter on a lesson, against its start. On time means within {late} min (the button opens {opens} min early, and entering early counts as on time). Only measured from the day the teacher got a meeting link, and never on a cancelled lesson.",
-      "reports": "Reports on time — when the lesson's report was first filed, against the lesson's end. On time means within {within}. Owed by every lesson that went ahead or is still unmarked.",
-      "attendance": "Teacher attendance — of the lessons that were decided, the share the teacher showed up for. A lesson the teacher cancelled is their absence; a student no-show still counts as the teacher attending.",
-      "score": "Score — the plain average of the three rates above that the teacher has data for. No hidden weights.",
-      "unmarked": "{n, plural, one {# lesson} other {# lessons}} in this period still {n, plural, one {has} other {have}} no recorded outcome, so {n, plural, one {it isn't} other {they aren't}} counted in attendance yet."
+      "title": "How the evaluation is calculated",
+      "total": "The month's total is out of 100: lesson quality {quality}%, reports {reports}%, entering lessons {entry}%, conduct {conduct}%.",
+      "quality": "Lesson quality is the average of the lessons the supervisor sat in and rated this month. Each teacher should get {target} a month.",
+      "reports": "A report is owed after every lesson and every trial lesson. Written within {within} of the lesson ending counts in full, later counts half, never written counts nothing. An empty report does not count.",
+      "entry": "Entering is read from the Enter button. Up to {late} minutes after the start counts in full, later counts half, never entering counts nothing. It is only measured for a teacher with a meeting link.",
+      "conduct": "Conduct starts at 100. Each absence takes off {absence}, each apology {apology}, each rule not kept {violation}.",
+      "missing": "A part with nothing to measure — no lesson visited, no meeting link — is left out, and the other parts carry the total."
+    },
+    "settings": {
+      "open": "Evaluation settings",
+      "title": "Evaluation settings",
+      "subtitle": "How a teacher's monthly total is made up.",
+      "cancel": "Cancel",
+      "save": "Save",
+      "sumError": "The four weights must add up to 100.",
+      "needCriterion": "Keep at least one item to rate a lesson on.",
+      "saveError": "Couldn't save the settings.",
+      "weights": "What the total is made of",
+      "weightsHint": "The share of each part in the month's total. The four must add up to 100.",
+      "sum": "Total {n} of 100",
+      "points": "What a conduct note costs",
+      "pointsHint": "Points taken off conduct for each note. A note keeps the points it was written with.",
+      "clocks": "Targets and times",
+      "visitsTarget": "Lesson visits per teacher a month",
+      "lateMinutes": "Entering is late after",
+      "reportWindow": "Report is late after",
+      "criteria": "What a lesson is rated on",
+      "criteriaHint": "The items the supervisor rates out of five when sitting in a lesson.",
+      "criterionPh": "e.g. Explaining and correcting",
+      "addCriterion": "Add an item",
+      "remove": "Remove",
+      "rules": "The academy's rules",
+      "rulesHint": "The rules a teacher is held to. The supervisor picks one when recording a rule not kept.",
+      "rulePh": "e.g. Camera on for the whole lesson",
+      "addRule": "Add a rule"
+    },
+    "visit": {
+      "title": "Rate a lesson",
+      "editTitle": "Edit the lesson rating",
+      "lesson": "Which lesson",
+      "noLesson": "No specific lesson",
+      "date": "Date",
+      "rate": "The rating",
+      "rateHint": "Out of five stars. Leave an item empty if you did not see it.",
+      "rating": {
+        "1": "Weak",
+        "2": "Fair",
+        "3": "Good",
+        "4": "Very good",
+        "5": "Excellent"
+      },
+      "ratingAria": "{n} of 5",
+      "result": "Result",
+      "resultEmpty": "Not rated yet",
+      "resultOf": "{score} of 100",
+      "strengths": "What went well",
+      "strengthsPh": "What the teacher did well in this lesson",
+      "improvements": "What to work on",
+      "improvementsPh": "What the teacher should improve",
+      "cancel": "Cancel",
+      "save": "Save rating",
+      "needOne": "Rate at least one item.",
+      "saveError": "Couldn't save the rating."
+    },
+    "note": {
+      "title": "Conduct note",
+      "editTitle": "Edit the conduct note",
+      "kind": "What happened",
+      "kinds": {
+        "ABSENCE": "Absence",
+        "APOLOGY": "Apology",
+        "VIOLATION": "Rule not kept"
+      },
+      "kindHint": {
+        "ABSENCE": "Missed a lesson without notice",
+        "APOLOGY": "Excused themselves from a lesson",
+        "VIOLATION": "Did not keep one of the academy's rules"
+      },
+      "costs": "−{n} points",
+      "costsNothing": "No points",
+      "lesson": "Which lesson",
+      "noLesson": "No specific lesson",
+      "date": "Date",
+      "rule": "The rule",
+      "ruleOther": "Another rule",
+      "ruleText": "Write the rule",
+      "ruleTextPh": "The rule that was not kept",
+      "details": "Details",
+      "detailsPh": "What happened, in a line or two",
+      "cancel": "Cancel",
+      "save": "Save note",
+      "needRule": "Say which rule was not kept.",
+      "saveError": "Couldn't save the note."
     },
     "detail": {
-      "subtitle": "Every lesson in the period, with when the teacher entered and when the report came in.",
-      "close": "Close",
-      "score": "Performance score",
-      "noScore": "Not enough data for a score",
-      "profile": "Open profile",
-      "enter": "Entered on time",
-      "reports": "Reports on time",
-      "attendance": "Attendance",
-      "avgAfterStart": "Average after the start",
-      "avgWhenLate": "Average when late",
-      "enteredAtAll": "Entered at all",
-      "noneYet": "Nothing to measure in this period.",
-      "noLinkHint": "No meeting link yet — add one on the profile to start measuring.",
-      "avgAfterEnd": "Average after the lesson",
-      "filedAtAll": "Filed at all",
-      "pending": "Still within time",
-      "taughtOf": "Taught (of {n})",
-      "absenceRate": "Absence rate",
-      "studentAttendance": "Student attendance",
-      "log": "Lessons",
+      "subtitle": "Evaluation for {month}",
+      "loading": "Loading…",
+      "back": "Back to the evaluation",
+      "total": "Total for {month}",
+      "noTotal": "Nothing to evaluate this month",
+      "profile": "Teacher's file",
+      "weight": "{n}%",
+      "unclassified": "{n, plural, one {# lesson this teacher cancelled is} other {# lessons this teacher cancelled are}} not recorded yet as an absence or an apology.",
+      "trend": "Last six months",
+      "lists": "Behind the numbers",
+      "tab": {
+        "lessons": "Lessons",
+        "visits": "Lesson ratings",
+        "notes": "Conduct notes"
+      },
+      "quality": {
+        "none": "No lesson was visited this month, so this part is left out of the total.",
+        "visits": "Lessons rated",
+        "visitsOf": "{n} of {target}"
+      },
+      "reports": {
+        "none": "No report was due this month.",
+        "trials": "Trial lessons",
+        "trialsOf": "{n} of {due} on time"
+      },
+      "entry": {
+        "none": "No lesson to measure yet.",
+        "noLink": "This teacher has no meeting link, so entering is not measured."
+      },
+      "conduct": {
+        "none": "No lessons and no notes this month."
+      },
+      "lesson": {
+        "noted": "Recorded",
+        "rate": "Rate",
+        "minutes": "{n} min",
+        "trial": "Trial",
+        "empty": "No lessons this month.",
+        "emptyFilter": "No lessons match."
+      },
       "filter": {
         "all": "All",
-        "lateEntry": "Late entry",
-        "missedEntry": "Never entered",
-        "lateReport": "Late report",
+        "lateEntry": "Entered late",
+        "missedEntry": "Did not enter",
+        "lateReport": "Report late",
         "missingReport": "No report",
-        "absent": "Teacher absent"
+        "trial": "Trials",
+        "cancelled": "Cancelled by teacher"
       },
-      "truncated": "Showing the latest {n} lessons only.",
-      "loading": "Loading lessons…",
-      "empty": "No lessons in this period.",
-      "emptyFilter": "No lessons match this filter.",
-      "minutesShort": "{n}m",
+      "truncated": "Showing the latest {n} lessons.",
       "col": {
         "lesson": "Lesson",
         "student": "Student",
@@ -10757,22 +10871,37 @@
       "join": {
         "on_time": "On time",
         "late": "Late",
-        "missed": "Never entered",
-        "pending": "In progress",
+        "missed": "Did not enter",
+        "pending": "Still on",
         "not_tracked": "Not measured"
       },
       "report": {
         "on_time": "On time",
         "late": "Late",
-        "missing": "Not filed",
-        "pending": "Within time",
+        "missing": "Not written",
+        "pending": "Not due yet",
         "not_needed": "Not needed"
       },
-      "afterStart": "{n} min after start",
-      "beforeStart": "{n} min before start",
-      "atStart": "right at the start",
-      "afterEnd": "{v} after the lesson",
-      "beforeEnd": "before the lesson ended"
+      "afterStart": "{n} min after the start",
+      "beforeStart": "{n} min early",
+      "atStart": "at the start",
+      "afterEnd": "{v} after the end",
+      "beforeEnd": "before the end",
+      "visit": {
+        "empty": "No lesson has been rated this month.",
+        "lessonWith": "Lesson with {name}",
+        "noLesson": "No specific lesson"
+      },
+      "note": {
+        "empty": "No conduct notes this month.",
+        "noDetails": "No details written."
+      },
+      "deleteError": "Couldn't delete.",
+      "by": "By {name}",
+      "keep": "Keep",
+      "confirmDelete": "Confirm delete",
+      "edit": "Edit",
+      "delete": "Delete"
     }
   },
   "blog": {
@@ -13057,6 +13186,192 @@
       "badLink": "Type a link that starts with https://",
       "uploadFailed": "The upload failed. Try again.",
       "saveFailed": "Could not save. Try again."
+    },
+    "reportProblem": "Report a problem"
+  },
+  "support": {
+    "title": "Support & requests",
+    "subtitle": "Every problem or change request you sent us, and where it stands.",
+    "noPermission": "You don't have access to the support page.",
+    "new": "New request",
+    "loadFailed": "Couldn't load your requests.",
+    "failed": "Couldn't save — try again.",
+    "sent": "Request sent — number #{n}",
+    "replied": "Reply sent",
+    "withdrawn": "Request withdrawn",
+    "how": {
+      "send": "You send the problem or change",
+      "review": "We review it and reply",
+      "done": "We deliver it and tell you here"
+    },
+    "kind": {
+      "PROBLEM": "Problem",
+      "CHANGE": "Change request"
+    },
+    "kindHint": {
+      "PROBLEM": "Something isn't working as it should",
+      "CHANGE": "Something you want added or changed"
+    },
+    "status": {
+      "NEW": "Awaiting review",
+      "IN_PROGRESS": "Accepted — in progress",
+      "WAITING": "Waiting for your reply",
+      "DONE": "Done",
+      "REJECTED": "Declined",
+      "CANCELLED": "Withdrawn"
+    },
+    "urgent": "Urgent",
+    "tiles": {
+      "all": "All",
+      "open": "Open",
+      "waiting": "Waiting for you",
+      "closed": "Closed"
+    },
+    "empty": "No requests yet. Any problem you hit or change you need — send it from here and follow it step by step.",
+    "emptyFilter": "No requests here.",
+    "number": "#{n}",
+    "sentBy": "Sent by {name}",
+    "loggedByTeam": "Logged by the support team",
+    "team": "Support team",
+    "you": "You",
+    "updated": "Updated {when}",
+    "back": "All requests",
+    "page": "From page {page}",
+    "noDetails": "No details.",
+    "unread": "New reply",
+    "event": {
+      "NEW": "Back to review",
+      "IN_PROGRESS": "Accepted — work has started",
+      "WAITING": "The support team is waiting for your reply",
+      "DONE": "Marked as done",
+      "REJECTED": "Declined",
+      "CANCELLED": "Withdrawn",
+      "reopened": "Reopened",
+      "answered": "Answered — back with the support team"
+    },
+    "waitingBanner": "The support team asked you something — your reply sends it back to them.",
+    "closedNote": "This request is closed. If you need something else, send a new request.",
+    "reopenHint": "Replying will reopen this request.",
+    "withdraw": "Withdraw request",
+    "withdrawConfirm": "Press again to confirm",
+    "composer": {
+      "placeholder": "Write a reply or add details…",
+      "attach": "Attach a screenshot",
+      "send": "Send",
+      "remove": "Remove {name}",
+      "tooBig": "{name} is larger than 5 MB.",
+      "tooMany": "Up to {n} files at a time.",
+      "empty": "Write a reply or attach a file."
+    },
+    "form": {
+      "title": "New request",
+      "description": "Say clearly what you need, and attach a screenshot if you can — it cuts the time to a fix a lot.",
+      "kind": "Request type",
+      "titleLabel": "Title",
+      "titlePlaceholder": {
+        "PROBLEM": "e.g. The bills page shows nothing",
+        "CHANGE": "e.g. Add a phone column to the students list"
+      },
+      "body": "Details",
+      "bodyPlaceholder": {
+        "PROBLEM": "What did you do? What did you see? When did it start?",
+        "CHANGE": "What exactly do you want? Why do you need it?"
+      },
+      "urgent": "Urgent — it's blocking work",
+      "files": "Screenshots (optional)",
+      "filesHint": "Up to 3 images or a PDF, 5 MB each.",
+      "page": "From page {page}",
+      "submit": "Send request",
+      "cancel": "Cancel",
+      "titleRequired": "Write a short title."
+    }
+  },
+  "adminSupport": {
+    "title": "Client requests",
+    "subtitle": "Every client's problems and change requests in one place — review, accept or decline, and reply.",
+    "clientSubtitle": "Every problem and request from this client, and what we did for them.",
+    "noPermission": "You don't have access to client requests.",
+    "loadFailed": "Couldn't load the requests.",
+    "failed": "Couldn't save — try again.",
+    "saved": "Saved",
+    "refresh": "Refresh",
+    "tiles": {
+      "UNREAD": "Needs you",
+      "OPEN": "Open",
+      "NEW": "New",
+      "IN_PROGRESS": "In progress",
+      "WAITING": "Waiting for client",
+      "DONE": "Done",
+      "REJECTED": "Declined",
+      "ALL": "All"
+    },
+    "status": {
+      "NEW": "New",
+      "IN_PROGRESS": "In progress",
+      "WAITING": "Waiting for client",
+      "DONE": "Done",
+      "REJECTED": "Declined",
+      "CANCELLED": "Withdrawn"
+    },
+    "search": "Search title, details or client…",
+    "kindAll": "All types",
+    "empty": "No requests here.",
+    "col": {
+      "client": "Client",
+      "request": "Request",
+      "status": "Status",
+      "updated": "Last activity"
+    },
+    "loggedBy": "Logged by {name}",
+    "openClient": "Client page",
+    "back": "All requests",
+    "pager": {
+      "prev": "Previous",
+      "next": "Next",
+      "of": "Page {page} of {pages}"
+    },
+    "action": {
+      "accept": "Accept",
+      "ask": "Ask for details",
+      "done": "Mark done",
+      "reject": "Decline",
+      "reopen": "Reopen"
+    },
+    "reply": {
+      "placeholder": "Write your reply to the client… (you can press Accept or Mark done with it)",
+      "internalPlaceholder": "Internal note — the client never sees it…",
+      "internal": "Internal note (hidden from the client)",
+      "send": "Send reply",
+      "saveNote": "Save note"
+    },
+    "needsWords": {
+      "WAITING": "Write the question the client should answer, then press “Ask for details”.",
+      "REJECTED": "Write the reason — the client reads it — then press “Decline”."
+    },
+    "internalTag": "Internal",
+    "markUrgent": "Mark urgent",
+    "markNormal": "Not urgent",
+    "switchKind": "Change to {kind}",
+    "event": {
+      "NEW": "Back to review",
+      "IN_PROGRESS": "Accepted",
+      "WAITING": "Asked the client for details",
+      "DONE": "Marked done",
+      "REJECTED": "Declined",
+      "CANCELLED": "Withdrawn by the client",
+      "reopened": "Reopened by the client",
+      "answered": "The client answered"
+    },
+    "log": {
+      "button": "Log work",
+      "title": "Log for a client",
+      "description": "Log a problem you fixed or a change you made for a client — it shows on their support page and lights their badge.",
+      "client": "Client",
+      "clientPlaceholder": "Choose the client",
+      "status": "Status",
+      "submit": "Log it",
+      "done": "Logged on {name}'s page",
+      "clientRequired": "Choose the client."
     }
   }
 }

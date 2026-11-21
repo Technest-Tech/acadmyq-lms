@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   LayoutDashboard,
   LibraryBig,
+  MessagesSquare,
   PlugZap,
   ReceiptText,
   Settings2,
@@ -31,6 +32,7 @@ import { ClientDomainsCard } from "@/components/clients/client-domains-card";
 import { ClientSettingsTab } from "@/components/clients/client-settings";
 import { ClientDeletedTab } from "@/components/clients/client-deleted";
 import { ClientToolsTab } from "@/components/clients/client-tools";
+import { SupportInbox } from "@/components/support/support-inbox";
 import { LEGACY_CLIENT_TABS, type ClientTab } from "@/components/clients/client-summary";
 import { ClientXpayCard } from "@/components/clients/client-xpay-card";
 import { FeaturesCard } from "@/components/clients/features-card";
@@ -140,6 +142,7 @@ export function ClientScreen({ clientId }: { clientId: string }) {
       ...(holdsLms ? [{ key: "lms" as const, label: t("tabs.lms"), icon: LibraryBig }] : []),
       { key: "connections", label: t("tabs.connections"), icon: PlugZap },
       ...(hasTools ? [{ key: "tools" as const, label: t("tabs.tools"), icon: Wrench }] : []),
+      ...(canManage ? [{ key: "support" as const, label: t("tabs.support"), icon: MessagesSquare }] : []),
       ...(canManage ? [{ key: "deleted" as const, label: t("tabs.deleted"), icon: ArchiveRestore }] : []),
       { key: "settings", label: t("tabs.settings"), icon: Settings2 },
     ],
@@ -334,6 +337,8 @@ export function ClientScreen({ clientId }: { clientId: string }) {
       )}
 
       {tab === "tools" && <ClientToolsTab clientId={clientId} />}
+
+      {tab === "support" && <SupportInbox academyId={clientId} academyName={data.client.name} />}
 
       {tab === "deleted" && <ClientDeletedTab clientId={clientId} />}
 

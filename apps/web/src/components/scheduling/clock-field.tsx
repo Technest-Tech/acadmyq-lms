@@ -112,7 +112,9 @@ export function ClockField<S extends ClockSlot>({
 
   const tiedName = tied ? clockName(tied, locale, zones?.countries) : "";
   const academyName = clockName(academyTz, locale, zones?.countries, zones?.country);
-  const suggested = studentTimezone && studentTimezone !== academyTz ? studentTimezone : null;
+  // The student's clock: the one on file, else their country's usual one.
+  const studentZone = studentTimezone ?? (studentCountry ? (zones?.countries[studentCountry]?.[0]?.timezone ?? null) : null);
+  const suggested = studentZone && studentZone !== academyTz ? studentZone : null;
 
   return (
     <div className={cn("space-y-2", className)} data-testid="clock-field">

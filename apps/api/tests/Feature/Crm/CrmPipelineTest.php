@@ -265,3 +265,15 @@ it('puts a deleted parent into the CRM as a former parent, lost, with the reason
     $this->deleteJson("/api/guardians/{$other}", ['reason' => 'Done'])->assertOk()->assertJsonPath('lead_id', null);
 });
 
+
+it('books a lead\'s trial with the clock the lead lives on', function () {
+    $id = $this->postJson("/api/crm/leads/{$this->lead}/trial", [
+        'teacher_id' => $this->teacher,
+        'local_datetime' => '2026-06-16 17:00',
+        'student_timezone' => 'Asia/Kuwait',
+        'duration_minutes' => 30,
+    ])->assertCreated()->json('trialId');
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('trials')->where('id', $id)->value('student_timezone'))->toBe('Asia/Kuwait');
+});

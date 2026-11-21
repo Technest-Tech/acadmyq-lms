@@ -278,13 +278,16 @@ export function TimeGridView({
         }
       }
     };
+    // An interrupted gesture (the browser took it over, the window lost focus) is not a drop:
+    // nothing moves.
+    const onCancel = () => setDragState(null);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
-    window.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointercancel", onCancel);
     return () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
-      window.removeEventListener("pointercancel", onUp);
+      window.removeEventListener("pointercancel", onCancel);
     };
   }, [
     drag,
@@ -298,6 +301,11 @@ export function TimeGridView({
 
   const beginDrag = useCallback(
     (e: React.PointerEvent, s: CalendarSession, day: string) => {
+      // Mouse only. On a phone a lesson block fills most of the screen, and a finger swiping to
+      // scroll the week picked lessons up and saved them wherever it was lifted: Ana Muslim,
+      // 20 Nov 2026, ten lessons moved in 76 seconds, some onto another day or into the past.
+      // A finger opens the lesson (tap) and moves it from there.
+      if (e.pointerType !== "mouse") return;
       if (!canDrag || !isDraggable(s) || e.button !== 0) return;
       const startMin = minutesIntoDay(s.scheduled_at_utc, tz);
       setDragState({
@@ -676,7 +684,8 @@ function EventBlock({
         "group/ev absolute z-10 flex flex-col overflow-hidden rounded-lg border text-start shadow-sm transition-[box-shadow,transform] hover:z-30 hover:shadow-md focus-visible:z-30 focus-visible:ring-2 focus-visible:ring-offset-1 focus-visible:outline-none",
         STATUS_CHIP[s.status],
         voided && "opacity-70",
-        draggable && "cursor-grab touch-none active:cursor-grabbing",
+        // No `touch-none`: a finger on a block must still scroll the calendar.
+        draggable && "cursor-grab active:cursor-grabbing",
         dragging && "opacity-40",
       )}
       style={{

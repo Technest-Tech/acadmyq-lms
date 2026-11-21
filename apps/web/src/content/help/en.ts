@@ -238,6 +238,51 @@ const en: HelpContent = {
     tips: ["A teacher who still has students cannot be deactivated until those students are given to another teacher."],
   },
 
+  "teacher-performance": {
+    title: "Teacher performance",
+    summary: "Each teacher's evaluation for the month, made of four parts: lesson quality, reports, entering lessons and conduct.",
+    tasks: {
+      read: {
+        title: "How do I read a teacher's evaluation?",
+        steps: [
+          "Open [[Teacher Performance]] from the menu. Each teacher is a card with the month's total out of 100.",
+          "Under the total are the four parts it is made of: lesson quality, reports, entering lessons and conduct.",
+          "Press [[Details]] on a card to see the lessons, lesson ratings and conduct notes behind the number.",
+          "Use the arrows beside the month to open an earlier month.",
+        ],
+        note: "A part with nothing to measure, such as a teacher no one has visited yet, is left out of the total.",
+      },
+      visit: {
+        title: "How do I rate a lesson I sat in?",
+        steps: [
+          "Press [[Rate a lesson]] on the teacher's card.",
+          "Pick the lesson you sat in, then give each item its stars out of five.",
+          "Write what went well and what to work on.",
+          "Press [[Save rating]]. The teacher's lesson quality for the month is the average of these ratings.",
+        ],
+      },
+      note: {
+        title: "How do I record an absence, an apology or a rule not kept?",
+        steps: [
+          "Press [[Conduct note]] on the teacher's card.",
+          "Choose what happened: [[Absence]], [[Apology]] or [[Rule not kept]]. Each one shows the points it takes off.",
+          "Pick the lesson it is about, or leave it and set the date.",
+          "Write the details and press [[Save note]].",
+        ],
+        note: "A lesson the teacher cancelled waits in their details until you record it as an absence or an apology.",
+      },
+      settings: {
+        title: "How do I change how the evaluation is calculated?",
+        steps: [
+          "Press [[Evaluation settings]] at the top of the page.",
+          "Set the share of each of the four parts. They must add up to 100.",
+          "Set the points each kind of note takes off, the items a lesson is rated on, and the academy's rules.",
+          "Press [[Save]].",
+        ],
+      },
+    },
+  },
+
   staff: {
     title: "Team & permissions",
     summary:
@@ -936,6 +981,32 @@ const en: HelpContent = {
           "Under [[Export your data]], download the Excel file.",
         ],
         note: "Only the academy's owner sees this tab.",
+      },
+    },
+  },
+  support: {
+    title: "Support & requests",
+    summary: "Send us any problem you hit or change you need, and follow each one here until it is done.",
+    tasks: {
+      send: {
+        title: "How do I report a problem or ask for a change?",
+        steps: [
+          "Press [[New request]].",
+          "Choose [[Problem]] if something is not working, or [[Change request]] if you want something added or changed.",
+          "Write a short title and the details: what you did, what you saw, and when it started.",
+          "Attach a screenshot if you can — it speeds the fix up a lot.",
+          "Press [[Send request]].",
+        ],
+        note: "Switch on “Urgent” only when the problem is stopping your work.",
+      },
+      follow: {
+        title: "How do I follow my request?",
+        steps: [
+          "Every request shows where it stands: [[Awaiting review]], [[Accepted — in progress]], [[Waiting for your reply]] or [[Done]].",
+          "When the support team replies, a number appears next to the page in the menu.",
+          "Open the request to read the reply, and answer from the box under the conversation.",
+        ],
+        note: "If a solved problem comes back, reply on the same request and it reopens.",
       },
     },
   },

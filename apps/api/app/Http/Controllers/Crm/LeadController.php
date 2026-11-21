@@ -458,6 +458,7 @@ final class LeadController extends Controller
             'scheduled_at_utc' => ['sometimes', 'nullable', 'date'],
             'local_datetime' => ['sometimes', 'nullable', 'string'],
             'timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
+            'student_timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
             'duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
             'notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
@@ -474,6 +475,7 @@ final class LeadController extends Controller
             'lead_name' => $lead->full_name,
             'lead_whatsapp' => $lead->whatsapp_phone,
             'timezone' => $timezone,
+            'student_timezone' => $data['student_timezone'] ?? null,
             'duration_minutes' => $duration,
             'outcome_notes' => $data['notes'] ?? null,
         ], $startUtc, $this->ctx()->userId, $this->ctx()->role);

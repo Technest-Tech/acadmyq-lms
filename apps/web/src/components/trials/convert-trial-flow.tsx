@@ -120,6 +120,8 @@ export function ConvertTrialFlow({
         intent="enrolled"
         initialFullName={trial.display_name ?? trial.lead_name ?? undefined}
         initialPhone={trial.contact_whatsapp ?? trial.lead_whatsapp}
+        initialCountry={trial.student_country}
+        initialClock={trial.student_timezone}
         onCreated={handleCreated}
         onCancel={onCancel}
       />

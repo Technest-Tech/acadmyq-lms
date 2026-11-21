@@ -10,6 +10,7 @@ use App\Http\Controllers\Scheduling\Concerns\InteractsWithScheduling;
 use App\Services\AttendanceService;
 use App\Services\Enrolment\EnrolmentHandoff;
 use App\Support\Audit;
+use App\Support\CountryClocks;
 use App\Support\DataTable;
 use App\Support\DoneBy;
 use App\Support\LeadTimeline;
@@ -298,6 +299,7 @@ final class TrialController extends Controller
             'scheduled_at_utc' => ['sometimes', 'nullable', 'date'],
             'local_datetime' => ['sometimes', 'nullable', 'string'],
             'timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
+            'student_timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
             'duration_minutes' => ['required', 'integer', 'min:1', 'max:600'],
             'outcome_notes' => ['sometimes', 'nullable', 'string', 'max:2000'],
         ]);
@@ -313,6 +315,7 @@ final class TrialController extends Controller
             'lead_whatsapp' => $data['lead_whatsapp'] ?? null,
             'lead_email' => $data['lead_email'] ?? null,
             'timezone' => $timezone,
+            'student_timezone' => $data['student_timezone'] ?? null,
             'duration_minutes' => $duration,
             'outcome_notes' => $data['outcome_notes'] ?? null,
         ], $startUtc, $this->ctx()->userId, $this->ctx()->role);
@@ -343,6 +346,7 @@ final class TrialController extends Controller
             'scheduled_at_utc' => ['sometimes', 'nullable', 'date'],
             'local_datetime' => ['sometimes', 'nullable', 'string'],
             'timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
+            'student_timezone' => ['sometimes', 'nullable', 'string', 'timezone'],
             'duration_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:600'],
         ]);
 
@@ -368,6 +372,14 @@ final class TrialController extends Controller
         if (! empty($data['duration_minutes']) && (int) $data['duration_minutes'] !== (int) $trial->duration_minutes) {
             $before['duration_minutes'] = (int) $trial->duration_minutes;
             $after['duration_minutes'] = (int) $data['duration_minutes'];
+        }
+        // Where the student lives — sent empty to say "the academy's own clock".
+        if (array_key_exists('student_timezone', $data)) {
+            $zone = TrialBooking::studentClock($data['student_timezone'], $this->academyTimezone($academyId));
+            if ($zone !== ($trial->student_timezone ?? null)) {
+                $before['student_timezone'] = $trial->student_timezone ?? null;
+                $after['student_timezone'] = $zone;
+            }
         }
 
         if ($after === []) {
@@ -622,12 +634,13 @@ final class TrialController extends Controller
             ->whereNull('tr.deleted_at')
             ->select([
                 'tr.id', 'tr.teacher_id', 'tr.student_id', 'tr.lead_id', 'tr.lead_name',
-                'tr.lead_whatsapp', 'tr.lead_email', 'tr.timezone', 'tr.scheduled_at_utc',
+                'tr.lead_whatsapp', 'tr.lead_email', 'tr.timezone', 'tr.student_timezone', 'tr.scheduled_at_utc',
                 'tr.duration_minutes', 'tr.status', 'tr.outcome_notes',
                 'tr.converted_student_id', 'tr.created_at',
                 't.full_name as teacher_name',
                 's.full_name as student_name',
                 's.whatsapp_phone as student_whatsapp',
+                's.country as student_home_country',
                 'cl.full_name as crm_lead_name',
                 'cl.whatsapp_phone as crm_lead_whatsapp',
                 'cl.source as crm_source',
@@ -656,6 +669,14 @@ final class TrialController extends Controller
         // The number to call — whoever the trial is for.
         $r->contact_whatsapp = $r->student_whatsapp ?? $r->crm_lead_whatsapp ?? $r->lead_whatsapp;
         unset($r->student_whatsapp, $r->crm_lead_whatsapp);
+        // The clock the student lives on: the one picked for this trial, else an existing student's
+        // country's usual one. Null = the academy's own; the board only prints a different hour.
+        $zone = $r->student_timezone ?? CountryClocks::usual($r->student_home_country ?? null);
+        $r->student_timezone = $zone !== null && $zone !== (string) $r->timezone ? $zone : null;
+        $r->student_country = $r->student_timezone !== null
+            ? (CountryClocks::countryOf($r->student_timezone) ?? ($r->student_home_country ?? null))
+            : ($r->student_home_country ?? null);
+        unset($r->student_home_country);
         $r->is_lead = $r->student_id === null;
         $r->from_crm = $r->lead_id !== null;
         $r->needs_decision = $r->status === 'SCHEDULED' && $start->copy()->addMinutes($r->duration_minutes)->lte(now());

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, ChevronDown, Compass, LifeBuoy, Lightbulb, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, Compass, LifeBuoy, Lightbulb, MessageSquareWarning, X } from "lucide-react";
 import Link from "next/link";
 import { useTranslations } from "next-intl";
 import { useEffect, useId, useRef, useState } from "react";
@@ -50,6 +50,13 @@ export function HelpDrawer({
   const topic = topicId === null ? null : (HELP_TOPICS.find((item) => item.id === topicId) ?? null);
   const tasks = topic === null ? [] : tasksFor(topic, viewer);
   const text = topic === null ? null : (content?.[topic.id] ?? null);
+  // Whoever can raise support requests gets a way out when the steps do not answer it: the
+  // new-request form, already pointed at the page they are on.
+  const canReport = viewer.permissions.includes("support.manage");
+  const reportHref =
+    typeof window === "undefined"
+      ? "/support?new=1"
+      : `/support?new=1&page=${encodeURIComponent(window.location.pathname + window.location.search)}`;
 
   // Which question is open. The one that was asked for; else the first, so the sheet never opens
   // on a wall of closed rows.
@@ -226,6 +233,17 @@ export function HelpDrawer({
             <LifeBuoy className="size-4" aria-hidden />
             {t("allGuides")}
           </Link>
+          {canReport && (
+            <Link
+              href={reportHref}
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5 rounded-lg py-1.5 text-sm font-semibold transition-colors"
+              data-testid="help-report-problem"
+            >
+              <MessageSquareWarning className="size-4" aria-hidden />
+              {t("reportProblem")}
+            </Link>
+          )}
           {topic !== null && !onPage && (
             <Link
               href={topic.href}

@@ -35,6 +35,7 @@ import {
   LogOut,
   Menu,
   MessageCircle,
+  MessagesSquare,
   Newspaper,
   NotebookPen,
   NotebookText,
@@ -102,6 +103,7 @@ import { getEnrolmentSummary } from "@/lib/enrolment-api";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
 import { roleLabel } from "@/lib/roles";
 import { getSubscriptionsSummary } from "@/lib/subscriptions-api";
+import { getSupportInboxSummary, getSupportSummary } from "@/lib/support-api";
 import { cn } from "@/lib/utils";
 
 type NavKey =
@@ -171,6 +173,8 @@ type NavKey =
   | "plan"
   | "financialStats"
   | "audit"
+  | "support"
+  | "adminSupport"
   | "settings"
   | "whatsapp"
   | "platformSettings"
@@ -463,13 +467,14 @@ const NAV: ReadonlyArray<{
     href: "/supervision",
     group: "people",
   },
-  // Teacher performance: how each teacher enters, reports and attends — measured from the Enter
-  // button, the report log and attendance, so it sits with the people it measures, not with pay.
+  // Teacher performance: each teacher's monthly evaluation — lesson ratings, reports, entering
+  // on time and conduct — so it sits with the people it measures, not with pay. Shown to whoever
+  // holds the scorecard (teacher_quality.insights) or reads quality (teacher_quality.read, the
+  // supervisor who writes the ratings); the either-or is applied where the list is filtered.
   {
     key: "teacherQuality",
     icon: Gauge,
-    // A statistics page (PermissionCatalog::STATISTICS) — not the quality reports themselves.
-    permission: "teacher_quality.insights",
+    permission: null,
     href: "/teacher-quality",
     group: "people",
   },
@@ -779,6 +784,14 @@ const NAV: ReadonlyArray<{
     group: "platform",
   },
   {
+    // Every client's problems and change requests, and our answers on them (2026-11-21).
+    key: "adminSupport",
+    icon: MessagesSquare,
+    permission: "platform.manage",
+    href: "/admin/support",
+    group: "platform",
+  },
+  {
     // The videos behind the in-app help (src/content/help): one slot per page tour and per task.
     key: "adminHelp",
     icon: LifeBuoy,
@@ -827,6 +840,14 @@ const NAV: ReadonlyArray<{
     href: "/audit",
     group: "system",
   },
+  // The academy's problems and change requests to the platform team, and where each one stands.
+  {
+    key: "support",
+    icon: LifeBuoy,
+    permission: "support.manage",
+    href: "/support",
+    group: "system",
+  },
   // Team & permissions: the people who sign in AND the roles they sign in as, one page with two
   // tabs (/staff, /staff?tab=roles). /roles redirects there. Shown to whoever holds either half —
   // see the filter below.
@@ -866,6 +887,7 @@ const PLATFORM_ONLY_KEYS: ReadonlySet<NavKey> = new Set<NavKey>(["platformSettin
 const PLATFORM_NAV: readonly NavKey[] = [
   "adminHome", // Overview
   "clients", // THE hub — roster, client pages, wizard
+  "adminSupport", // every client's problems and change requests — review, accept / decline, reply
   "adminFinance", // Accounts — every client's agreement, dues, proofs, payments, reminders, prices
   "adminHealth", // System health — clients that need stepping in for + cron, queue, jobs, gateway
   "adminAutomation", // WhatsApp Ops (gateway health/activity)
@@ -1037,6 +1059,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [bookingCount, setBookingCount] = useState(0);
   // Platform view: clients with something critically wrong + critical faults in the machine itself.
   const [healthCount, setHealthCount] = useState(0);
+  // Support: answers from the platform team nobody here has read (academy) / requests with something
+  // we have not read (platform view).
+  const [supportCount, setSupportCount] = useState(0);
+  const [supportInboxCount, setSupportInboxCount] = useState(0);
   const [trialCount, setTrialCount] = useState(0);
   const [enrolCount, setEnrolCount] = useState(0);
   const [groupOwedCount, setGroupOwedCount] = useState(0);
@@ -1241,6 +1267,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     };
     // Not re-read on every route change like the cheap badges: the timer is enough.
   }, [session, can]);
+
+  // Support badges. The academy's counts answers from the platform team it has not opened; the
+  // platform view counts requests with something the team has not read. Both re-read the moment a
+  // request is opened, answered or raised on this tab (`support:changed`), not only on the timer.
+  useEffect(() => {
+    if (session === null) {
+      setSupportCount(0);
+      setSupportInboxCount(0);
+      return;
+    }
+    const platform = session.role === "SUPER_ADMIN" && session.academyId === null && can("platform.manage");
+    const academy = !platform && session.academyId !== null && can("support.manage");
+    if (!platform) setSupportInboxCount(0);
+    if (!academy) setSupportCount(0);
+    if (!platform && !academy) return;
+
+    let alive = true;
+    const refresh = () =>
+      platform
+        ? getSupportInboxSummary()
+            .then((s) => alive && setSupportInboxCount(s.unread ?? 0))
+            .catch(() => {})
+        : getSupportSummary()
+            .then((s) => alive && setSupportCount(s.unread ?? 0))
+            .catch(() => {});
+    const stop = pollWhileVisible(refresh, 120_000);
+    window.addEventListener("support:changed", refresh);
+    return () => {
+      alive = false;
+      stop();
+      window.removeEventListener("support:changed", refresh);
+    };
+  }, [session, can, pathname]);
 
   // Bookings badge (docs/lms/13): requests nobody has picked up yet. Derived, like the sales badge —
   // it clears when someone moves the request to "contacted", not when they glance at the inbox.
@@ -1451,6 +1510,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const items = NAV.filter((item) => {
     if (item.permission !== null && !can(item.permission)) return false;
     if (item.key === "staff" && !can("staff.read") && !can("role.manage")) return false;
+    if (item.key === "teacherQuality" && !can("teacher_quality.insights") && !can("teacher_quality.read")) return false;
     if (
       item.key === "whatsapp" &&
       !can("settings.manage") &&
@@ -1604,6 +1664,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
     if (key === "adminHealth" && healthCount > 0) {
       return { count: healthCount, label: `${healthCount} critical problems` };
+    }
+    if (key === "adminSupport" && supportInboxCount > 0) {
+      return { count: supportInboxCount, label: `${supportInboxCount} client requests to read` };
+    }
+    if (key === "support" && supportCount > 0) {
+      return { count: supportCount, label: `${supportCount} new replies from support` };
     }
     if (key === "lmsBookings" && bookingCount > 0) {
       return {

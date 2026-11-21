@@ -235,6 +235,8 @@ export function StudentForm({
   fixedGuardianId,
   initialFullName,
   initialPhone,
+  initialCountry,
+  initialClock,
   intent,
   onCreated,
   onCancel,
@@ -244,6 +246,10 @@ export function StudentForm({
   initialFullName?: string;
   /** Prefill the phone from a stored E.164 number, split into dial-code + local. */
   initialPhone?: string | null;
+  /** Where the student lives, when already known (a trial booked on their clock). */
+  initialCountry?: string | null;
+  /** The clock they keep there — a country with several (US, Canada, Australia) needs the city. */
+  initialClock?: string | null;
   /** Fix the lifecycle the student starts in; omit to let the user choose — see the note above. */
   intent?: Intent;
   /** `packageOpened` is true when the save also opened a lesson package for them. */
@@ -272,7 +278,7 @@ export function StudentForm({
   const [fullName, setFullName] = useState(initialFullName ?? "");
   const [dialCountry, setDialCountry] = useState(initialSplit.dialCountry);
   const [localNumber, setLocalNumber] = useState(initialSplit.localNumber);
-  const [country, setCountry] = useState(defaults.country);
+  const [country, setCountry] = useState(initialCountry || defaults.country);
   const [selfGuardian, setSelfGuardian] = useState(false);
   // With a family on the record, the student's own numbers are the exception: folded away.
   const [ownPhones, setOwnPhones] = useState(false);
@@ -1076,7 +1082,7 @@ export function StudentForm({
                   value={timezone}
                   slots={slots}
                   studentCountry={country || null}
-                  studentTimezone={null}
+                  studentTimezone={initialClock && country === initialCountry ? initialClock : null}
                   disabled={busy}
                   onChange={(tz, next) => {
                     setTimezone(tz);

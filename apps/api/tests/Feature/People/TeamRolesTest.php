@@ -221,14 +221,16 @@ it('still lets the owner charge a late cancellation', function () {
 
 // ── Statistics, quality money, settings, package alerts ─────────────────────
 
-it('keeps the statistics pages from a supervisor', function () {
+it('keeps the supervision statistics from a supervisor', function () {
     Sanctum::actingAs($this->supervisor);
     $this->getJson('/api/supervision/stats?from=2026-06-01&to=2026-06-07')->assertForbidden();
-    $this->getJson('/api/teacher-insights?from=2026-06-01&to=2026-06-07')->assertForbidden();
+    // Teacher performance is no longer only a scorecard: the supervisor writes the lesson visits
+    // and conduct notes on it (teacher_quality.read / .manage), so the page opens for them.
+    $this->getJson('/api/teacher-performance?month=2026-06')->assertOk();
 
     Sanctum::actingAs($this->owner);
     $this->getJson('/api/supervision/stats?from=2026-06-01&to=2026-06-07')->assertOk();
-    $this->getJson('/api/teacher-insights?from=2026-06-01&to=2026-06-07')->assertOk();
+    $this->getJson('/api/teacher-performance?month=2026-06')->assertOk();
 });
 
 it('shows a supervisor the quality judgement but not what it docked', function () {

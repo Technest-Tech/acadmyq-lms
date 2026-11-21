@@ -4530,135 +4530,244 @@ export function getTeacherPunctuality(
   return apiFetch(`/api/teachers/${teacherId}/punctuality?${qs.toString()}`);
 }
 
-// ── Teacher performance (GET /api/teacher-insights) ────────────────────────────────────────
-// The Teacher Quality page: per teacher, Enter punctuality (from the lesson's start), report speed
-// (first filing, from the lesson's end) and attendance. Every rate sits beside the counts it is
-// made of; rates are over DECIDED lessons only and null when there is nothing to decide.
+// ── Teacher performance (GET /api/teacher-performance) ─────────────────────────────────────
+// The monthly evaluation page: four parts per teacher, each 0–100 or null when there was nothing
+// to measure, and one weighted total. Quality and conduct are typed in by the supervisor; reports
+// and entry are read from what the system records. On time earns a lesson in full, late half.
 
-export interface InsightJoin {
-  measured: number;
-  entered: number;
-  on_time: number;
-  late: number;
-  missed: number;
-  pending: number;
-  on_time_rate: number | null;
-  entered_rate: number | null;
-  /** Minutes after the start, entering early counted as zero. */
-  avg_delay_minutes: number | null;
-  avg_late_minutes: number | null;
+export type ConductKind = "ABSENCE" | "APOLOGY" | "VIOLATION";
+export type PerformancePart = "quality" | "reports" | "entry" | "conduct";
+
+export interface PerformanceCriterion {
+  id: string;
+  name: string;
 }
 
-export interface InsightReports {
-  due: number;
-  filed: number;
-  on_time: number;
-  late: number;
-  missing: number;
-  pending: number;
-  on_time_rate: number | null;
-  filed_rate: number | null;
-  /** Minutes after the lesson ended, filing before the end counted as zero. */
-  avg_delay_minutes: number | null;
+export interface PerformanceSettings {
+  /** Percent of the total each part carries; the four add up to 100. */
+  weights: Record<PerformancePart, number>;
+  /** Points a note of each kind takes off conduct. */
+  points: Record<ConductKind, number>;
+  /** Lesson visits a teacher should get in a month. */
+  visits_target: number;
+  late_minutes: number;
+  report_minutes: number;
+  criteria: PerformanceCriterion[];
+  rules: string[];
 }
 
-export interface InsightAttendance {
-  lessons: number;
-  attended: number;
-  free: number;
-  student_absent: number;
-  /** Lessons the teacher cancelled — their absences. */
-  teacher_absent: number;
-  student_cancelled: number;
-  unmarked: number;
-  in_progress: number;
-  teacher_attendance_rate: number | null;
-  teacher_absence_rate: number | null;
-  student_attendance_rate: number | null;
+export interface PerformanceAbilities {
+  /** Record, edit and delete notes and lesson visits. */
+  manage: boolean;
+  /** Change the weights, points and lists. */
+  settings: boolean;
 }
 
-export interface InsightScores {
-  /** Plain mean of the on-time entry, on-time report and attendance rates the teacher has data for. */
-  score: number | null;
-  join: InsightJoin;
-  reports: InsightReports;
-  attendance: InsightAttendance;
+export interface PerformanceScores {
+  total: number | null;
+  quality: { score: number | null; visits: number; target: number };
+  reports: {
+    score: number | null;
+    due: number;
+    on_time: number;
+    late: number;
+    missing: number;
+    pending: number;
+    /** The share of the above that are trial lessons. */
+    trial_due: number;
+    trial_on_time: number;
+    trial_late: number;
+    trial_missing: number;
+  };
+  entry: {
+    score: number | null;
+    measured: number;
+    on_time: number;
+    late: number;
+    missed: number;
+    pending: number;
+  };
+  conduct: {
+    score: number | null;
+    points: number;
+    absences: number;
+    apologies: number;
+    violations: number;
+    /** Lessons the teacher cancelled that nobody has called an absence or an apology yet. */
+    unclassified: number;
+  };
+  lessons: {
+    total: number;
+    taught: number;
+    student_absent: number;
+    teacher_cancelled: number;
+    student_cancelled: number;
+    unmarked: number;
+    trials: number;
+  };
 }
 
-export interface InsightTeacher extends InsightScores {
+export interface PerformanceTeacher extends PerformanceScores {
   id: string;
   name: string;
   is_active: boolean;
+  /** false = no meeting link, so entry is not measured. */
   has_meeting_url: boolean;
-  /** null = never had a meeting link, so Enter is not measured. */
-  tracking_since: string | null;
 }
 
-export interface InsightThresholds {
-  late_minutes: number;
-  report_minutes: number;
-  opens_minutes_before: number;
+export interface PerformanceSummary {
+  teachers: number;
+  /** Mean of the teachers' totals. */
+  average: number | null;
+  visits: number;
+  /** Teachers who taught this month and got at least one visit, out of `visits_due`. */
+  visited: number;
+  visits_due: number;
+  reports_missing: number;
+  notes: number;
+  unclassified: number;
 }
 
-export interface TeacherInsights {
-  window: { from: string; to: string; timezone: string };
-  thresholds: InsightThresholds;
-  totals: InsightScores;
-  teachers: InsightTeacher[];
+export interface TeacherPerformance {
+  /** YYYY-MM, a calendar month of the academy. */
+  month: string;
+  timezone: string;
+  settings: PerformanceSettings;
+  can: PerformanceAbilities;
+  summary: PerformanceSummary;
+  teachers: PerformanceTeacher[];
 }
 
-export type InsightJoinBucket = "not_tracked" | "on_time" | "late" | "missed" | "pending";
-export type InsightReportBucket = "not_needed" | "on_time" | "late" | "missing" | "pending";
+export type PerformanceJoinBucket = "not_tracked" | "on_time" | "late" | "missed" | "pending";
+export type PerformanceReportBucket = "not_needed" | "on_time" | "late" | "missing" | "pending";
 
-export interface InsightLesson {
+export interface PerformanceLesson {
   id: string;
   scheduled_at_utc: string;
   local_date: string;
   duration_minutes: number;
   status: SessionStatus;
   student_name: string | null;
-  join_bucket: InsightJoinBucket;
+  is_trial: boolean;
+  /** A conduct note already names this lesson. */
+  noted: boolean;
+  join_bucket: PerformanceJoinBucket;
   first_joined_at: string | null;
   /** Minutes from the start — negative when the teacher entered early. */
   join_delay_minutes: number | null;
   presses: number;
-  report_bucket: InsightReportBucket;
+  report_bucket: PerformanceReportBucket;
   reported_at: string | null;
-  /** Minutes from the end — negative when filed before the lesson ended. */
+  /** Minutes from the end — negative when written before the lesson ended. */
   report_delay_minutes: number | null;
 }
 
-export interface TeacherInsightLessons {
-  window: { from: string; to: string; timezone: string };
-  thresholds: InsightThresholds;
-  teacher: Omit<InsightTeacher, keyof InsightScores>;
-  lessons: InsightLesson[];
+export interface ConductNote {
+  id: string;
+  teacher_id: string;
+  kind: ConductKind;
+  occurred_on: string;
+  session_id: string | null;
+  lesson_at: string | null;
+  lesson_student: string | null;
+  /** The rule that was not kept (VIOLATION only). */
+  rule: string | null;
+  note: string | null;
+  points: number;
+  author_name: string | null;
+  created_at: string | null;
+}
+
+export interface LessonVisit {
+  id: string;
+  teacher_id: string;
+  visited_on: string;
+  session_id: string | null;
+  lesson_at: string | null;
+  lesson_student: string | null;
+  /** 0–100: the ratings out of five, averaged. */
+  score: number;
+  items: { criterion_id: string; name: string; rating: number }[];
+  strengths: string | null;
+  improvements: string | null;
+  author_name: string | null;
+  created_at: string | null;
+}
+
+export interface PerformanceTrendPoint {
+  month: string;
+  total: number | null;
+  quality: number | null;
+  reports: number | null;
+  entry: number | null;
+  conduct: number | null;
+}
+
+export interface TeacherPerformanceDetail {
+  month: string;
+  timezone: string;
+  settings: PerformanceSettings;
+  can: PerformanceAbilities;
+  teacher: PerformanceTeacher;
+  trend: PerformanceTrendPoint[];
+  lessons: PerformanceLesson[];
   truncated: boolean;
+  notes: ConductNote[];
+  visits: LessonVisit[];
 }
 
-export interface TeacherInsightsParams {
-  from: string;
-  to: string;
-  late_minutes?: number;
-  report_minutes?: number;
+export interface ConductNoteInput {
+  kind: ConductKind;
+  occurred_on?: string | null;
+  session_id?: string | null;
+  rule?: string | null;
+  note?: string | null;
 }
 
-function insightsQuery(params: TeacherInsightsParams): string {
-  const qs = new URLSearchParams({ from: params.from, to: params.to });
-  if (params.late_minutes !== undefined) qs.set("late_minutes", String(params.late_minutes));
-  if (params.report_minutes !== undefined) qs.set("report_minutes", String(params.report_minutes));
-  return qs.toString();
+export interface LessonVisitInput {
+  visited_on?: string | null;
+  session_id?: string | null;
+  ratings: { criterion_id: string; rating: number }[];
+  strengths?: string | null;
+  improvements?: string | null;
 }
 
-export function getTeacherInsights(params: TeacherInsightsParams): Promise<TeacherInsights> {
-  return apiFetch(`/api/teacher-insights?${insightsQuery(params)}`);
+export function getTeacherPerformance(month: string): Promise<TeacherPerformance> {
+  return apiFetch(`/api/teacher-performance?month=${month}`);
 }
 
-export function getTeacherInsightLessons(
-  teacherId: string,
-  params: TeacherInsightsParams,
-): Promise<TeacherInsightLessons> {
-  return apiFetch(`/api/teacher-insights/teachers/${teacherId}?${insightsQuery(params)}`);
+export function getTeacherPerformanceDetail(teacherId: string, month: string): Promise<TeacherPerformanceDetail> {
+  return apiFetch(`/api/teacher-performance/teachers/${teacherId}?month=${month}`);
+}
+
+export function updatePerformanceSettings(
+  settings: PerformanceSettings,
+): Promise<{ settings: PerformanceSettings; can: PerformanceAbilities }> {
+  return apiFetch("/api/teacher-performance/settings", { method: "PUT", body: JSON.stringify(settings) });
+}
+
+export function createConductNote(teacherId: string, input: ConductNoteInput): Promise<{ note: ConductNote }> {
+  return apiFetch(`/api/teacher-performance/teachers/${teacherId}/notes`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateConductNote(id: string, input: ConductNoteInput): Promise<{ note: ConductNote }> {
+  return apiFetch(`/api/teacher-performance/notes/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteConductNote(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/api/teacher-performance/notes/${id}`, { method: "DELETE" });
+}
+
+export function createLessonVisit(teacherId: string, input: LessonVisitInput): Promise<{ visit: LessonVisit }> {
+  return apiFetch(`/api/teacher-performance/teachers/${teacherId}/visits`, { method: "POST", body: JSON.stringify(input) });
+}
+
+export function updateLessonVisit(id: string, input: LessonVisitInput): Promise<{ visit: LessonVisit }> {
+  return apiFetch(`/api/teacher-performance/visits/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function deleteLessonVisit(id: string): Promise<{ deleted: boolean }> {
+  return apiFetch(`/api/teacher-performance/visits/${id}`, { method: "DELETE" });
 }
 
 /**
@@ -6320,6 +6429,9 @@ export interface TrialRow {
   display_name: string | null;
   is_lead: boolean;
   timezone: string;
+  /** The clock the student lives on, when it is not the academy's (picked on the trial, else an existing student's country). */
+  student_timezone?: string | null;
+  student_country?: string | null;
   scheduled_at_utc: string;
   duration_minutes: number;
   status: TrialStatus;
@@ -6373,6 +6485,8 @@ export interface TrialInput {
   local_datetime?: string;
   scheduled_at_utc?: string;
   timezone?: string | null;
+  /** Where the student lives (a zone); null/"" = the academy's own clock. */
+  student_timezone?: string | null;
   duration_minutes: number;
   outcome_notes?: string | null;
 }
@@ -6661,6 +6775,8 @@ export interface LeadTrialInput {
   /** Local wall-clock "YYYY-MM-DD HH:mm", read in `timezone` (the academy's by default). */
   local_datetime: string;
   timezone?: string | null;
+  /** Where the lead lives (a zone); null = the academy's own clock. */
+  student_timezone?: string | null;
   duration_minutes: number;
   notes?: string | null;
 }

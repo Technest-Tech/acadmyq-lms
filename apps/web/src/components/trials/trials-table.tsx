@@ -10,6 +10,7 @@ import { type ColumnDef, DataTable } from "@/components/ui/data-table";
 import { listTrials, type TrialRow, type TrialStatus } from "@/lib/api";
 import { formatLocalDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { StudentTimeNote } from "./student-clock";
 
 const STATUS_TONE: Record<TrialStatus, string> = {
   SCHEDULED: "bg-blue-500/10 text-blue-700 ring-blue-500/20 dark:text-blue-400",
@@ -154,6 +155,7 @@ export function TrialsTable({
               <span className="tabular-nums">
                 {formatLocalDateTime(row.scheduled_at_utc, locale)}
               </span>
+              <StudentTimeNote timezone={row.student_timezone} country={row.student_country} at={row.scheduled_at_utc} className="text-[11px]" />
               {row.needs_decision && (
                 <span className="text-[11px] font-semibold text-rose-600 dark:text-rose-400">
                   {t("table.needsDecision")}

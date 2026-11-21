@@ -3,9 +3,11 @@
 import { CalendarClock, Clock } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useState } from "react";
+import { StudentClockField } from "@/components/trials/student-clock";
 import { dayIn, hmIn } from "@/components/trials/trial-time";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { academyInstant } from "@/lib/academy-clock";
 import { ApiError, updateTrial, type TrialRow } from "@/lib/api";
 import { TrialDurationPicker, isTrialDuration } from "./trial-duration-picker";
 
@@ -37,6 +39,7 @@ export function RescheduleTrialForm({
   const [date, setDate] = useState(() => dayIn(trial.scheduled_at_utc, timezone));
   const [time, setTime] = useState(() => hmIn(trial.scheduled_at_utc, timezone));
   const [duration, setDuration] = useState(trial.duration_minutes);
+  const [studentClock, setStudentClock] = useState(trial.student_timezone ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -49,6 +52,7 @@ export function RescheduleTrialForm({
       const res = await updateTrial(trial.id, {
         local_datetime: `${date} ${time}`,
         timezone,
+        student_timezone: studentClock || null,
         duration_minutes: duration,
         ...(rebook ? { status: "SCHEDULED" as const } : {}),
       });
@@ -102,6 +106,13 @@ export function RescheduleTrialForm({
           />
         </div>
       </div>
+
+      <StudentClockField
+        value={studentClock}
+        onChange={setStudentClock}
+        at={date && time ? academyInstant(date, time) : null}
+        testId="reschedule-trial-clock"
+      />
 
       <TrialDurationPicker
         value={duration}
