@@ -496,47 +496,107 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     expect(sent).not.toHaveProperty("subscription");
   });
 
-  it("opens the first package on the bill paid before the student was added, and insists on a bill once ticked", async () => {
+  it("finds the hand-made bill under the student's name and opens the first package on it", async () => {
     vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "bill-1" });
     vi.mocked(api.listPaidBills).mockResolvedValue({
-      bills: [{ id: "bill-1", payer_name: "Omar Newcomer", from_family: false, description: "First package", total_minor: 70000, currency: "EGP", raised_on: "2026-11-10" }],
+      bills: [
+        { id: "bill-1", payer_name: "Yusuf", from_family: false, description: "First package", total_minor: 70000, amount_paid_minor: 0, currency: "EGP", raised_on: "2026-11-10" },
+      ],
     });
     const user = userEvent.setup();
-    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"], extraPermissions: ["invoice.mark_paid"] });
     await fillActiveStudent(user);
     await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
     await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
 
-    // Nothing is asked until the box is ticked.
+    // Nothing is asked until the box is ticked; then by the student's name.
     expect(api.listPaidBills).not.toHaveBeenCalled();
     await user.click(screen.getByTestId("paid-first-toggle"));
     const picker = await screen.findByTestId("paid-first-bill");
+    expect(vi.mocked(api.listPaidBills).mock.calls.at(-1)![0]).toMatchObject({ name: "Yusuf" });
 
-    // Ticked with no bill named: refused, because a package with no bill would be billed later.
-    await user.click(screen.getByRole("button", { name: "Add student" }));
-    expect(await screen.findByText(enMessages.students.form.paidFirstRequired)).toBeInTheDocument();
-    expect(api.createStudent).not.toHaveBeenCalled();
-
-    await user.selectOptions(picker, "bill-1");
-    // The bill is for another amount than the package: said, not blocked.
+    // Picked by itself; not paid yet, so it will be marked paid — and how the money came in is asked.
+    expect(picker).toHaveValue("bill-1");
+    expect(screen.getByTestId("paid-first-outcome")).toHaveTextContent(enMessages.packages.form.paidFirstUnpaid);
     expect(screen.getByTestId("paid-first-differs")).toBeInTheDocument();
+    await user.selectOptions(screen.getByTestId("paid-first-method"), "BANK_TRANSFER");
     await user.click(screen.getByRole("button", { name: "Add student" }));
 
     await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(api.createStudent).mock.calls[0]![0].package).toMatchObject({ paid_invoice_id: "bill-1", price_minor: 80000 });
+    expect(vi.mocked(api.createStudent).mock.calls[0]![0].package).toMatchObject({
+      paid_first: true,
+      paid_invoice_id: "bill-1",
+      paid_method: "BANK_TRANSFER",
+      price_minor: 80000,
+    });
+  });
+
+  it("opens the first package on a new paid bill when no hand-made bill has the name", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "i1" });
+    vi.mocked(api.listPaidBills).mockResolvedValue({ bills: [] });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"], extraPermissions: ["invoice.mark_paid"] });
+    await fillActiveStudent(user);
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+    await user.click(screen.getByTestId("paid-first-toggle"));
+
+    expect(await screen.findByTestId("paid-first-none")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(api.createStudent).mock.calls[0]![0].package;
+    expect(sent).toMatchObject({ paid_first: true, paid_method: "CASH" });
+    expect(sent).not.toHaveProperty("paid_invoice_id");
+  });
+
+  it("never picks a family bill for another amount, and asks no method for a bill already paid", async () => {
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "fam-2" });
+    vi.mocked(api.listPaidBills).mockResolvedValue({
+      bills: [
+        { id: "fam-1", payer_name: "Guardian One", from_family: true, description: "Books", total_minor: 15000, amount_paid_minor: 0, currency: "EGP", raised_on: "2026-11-08" },
+        { id: "fam-2", payer_name: "Guardian One", from_family: true, description: "First package", total_minor: 80000, amount_paid_minor: 80000, currency: "EGP", raised_on: "2026-11-09" },
+      ],
+    });
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"], extraPermissions: ["invoice.mark_paid"] });
+    await fillActiveStudent(user);
+    await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
+    await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
+    await user.click(screen.getByTestId("paid-first-toggle"));
+
+    // The family's bill for exactly the package price, already paid: nothing more to record.
+    expect(await screen.findByTestId("paid-first-bill")).toHaveValue("fam-2");
+    expect(screen.queryByTestId("paid-first-method")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    const sent = vi.mocked(api.createStudent).mock.calls[0]![0].package;
+    expect(sent).toMatchObject({ paid_first: true, paid_invoice_id: "fam-2" });
+    expect(sent).not.toHaveProperty("paid_method");
+  });
+
+  it("does not offer \"first package already paid\" to someone who cannot mark bills paid", async () => {
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
+    await fillActiveStudent(user);
+    expect(screen.getByLabelText(enMessages.packages.form.lessons)).toBeInTheDocument();
+    expect(screen.queryByTestId("paid-first-toggle")).not.toBeInTheDocument();
   });
 
   it("sends no paid bill when the box is left alone", async () => {
     vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s1", guardianId: "g1", packageId: "p1", packageInvoiceId: "i1" });
     const user = userEvent.setup();
-    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"] });
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages"], extraPermissions: ["invoice.mark_paid"] });
     await fillActiveStudent(user);
     await user.type(screen.getByLabelText(enMessages.packages.form.lessons), "8");
     await user.type(screen.getByLabelText(enMessages.packages.form.price), "800");
     await user.click(screen.getByRole("button", { name: "Add student" }));
 
     await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
-    expect(vi.mocked(api.createStudent).mock.calls[0]![0].package).not.toHaveProperty("paid_invoice_id");
+    const sent = vi.mocked(api.createStudent).mock.calls[0]![0].package;
+    expect(sent).not.toHaveProperty("paid_invoice_id");
+    expect(sent).not.toHaveProperty("paid_first");
   });
 
   it("still sells a Quran student monthly when that card is picked", async () => {

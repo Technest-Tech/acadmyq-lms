@@ -3,10 +3,7 @@
 import { academyTimeZone } from "@/lib/academy-clock";
 import {
   AlertTriangle,
-  CalendarClock,
   CircleCheck,
-  Clock,
-  FileText,
   ListChecks,
   Lock,
   Plus,
@@ -43,7 +40,6 @@ import {
 import { type ExcelColumn } from "@/lib/export-excel";
 import { avatarTone, initials } from "@/lib/avatar";
 import { formatMoney, formatNumber } from "@/lib/money";
-import { numeralLocale } from "@/lib/numerals";
 import { cn } from "@/lib/utils";
 
 // ── Invoice list row shape (mirrors the API response) ──────────────────────────
@@ -492,176 +488,37 @@ function AmountCell({ row }: { row: InvoiceRow }) {
   );
 }
 
-/**
- * A hand-made bill in one cell (Ahmed 2026-11-17 — "the most used list now"): who pays, the
- * children it is for, and what it is for (its first line, "+N" when there are more).
- */
-function BillCell({ row }: { row: InvoiceRow }) {
+/** What a hand-made bill is for: its first line, "+N" when there are more. */
+function DescriptionCell({ row }: { row: InvoiceRow }) {
   const t = useTranslations("invoices");
   const extra = Math.max(0, (row.line_count ?? 1) - 1);
+  if (!row.description) return <span className="text-muted-foreground">—</span>;
   return (
-    <div className="min-w-0 max-w-sm space-y-1.5">
-      <PayerCell row={row} />
-      {row.description && (
-        <p className="text-foreground/80 ps-12 text-xs leading-snug" data-testid={`invoice-description-${row.id}`}>
-          <span className="line-clamp-2">{row.description}</span>
-          {extra > 0 && <span className="text-muted-foreground"> · {t("moreLines", { count: extra })}</span>}
-        </p>
-      )}
-      {row.children.length > 0 && (
-        <div className="flex flex-wrap gap-1 ps-12">
-          {row.children.map((name) => (
-            <span key={name} className="bg-muted/60 rounded-full px-2 py-0.5 text-[11px] font-medium">
-              {name}
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** One labelled fact on a bill card: every card carries the same rows, so a grid of them lines up. */
-function CardFact({ icon: Icon, label, children }: { icon: typeof Clock; label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-3 py-2">
-      <dt className="text-muted-foreground flex shrink-0 items-center gap-1.5">
-        <Icon className="size-3.5 shrink-0" aria-hidden />
-        {label}
-      </dt>
-      <dd className="min-w-0 truncate text-end font-medium">{children}</dd>
-    </div>
+    <p className="max-w-64 text-sm leading-snug" title={row.description} data-testid={`invoice-description-${row.id}`}>
+      <span className="line-clamp-2">{row.description}</span>
+      {extra > 0 && <span className="text-muted-foreground text-xs"> · {t("moreLines", { count: extra })}</span>}
+    </p>
   );
 }
 
 /**
- * A hand-made bill as one small card (Ahmed 2026-11-17: the table read badly — "cards, each small,
- * with the basics", then "tidier, and a good-looking card"). Four fixed zones, the same on every
- * card so a page of them reads as a grid: who pays · the money and how much of it is in · three
- * labelled facts (what for, pay by, raised) · the bill's actions.
+ * The hand-made bills' table (Ahmed 2026-11-22: "a table, not cards"): who pays, for which
+ * children, what for, the money, the pay-by date, where it stands and when it was raised. The row's
+ * actions sit in the table's own actions column.
  */
-function BillCard({ row, onView, onChanged }: { row: InvoiceRow; onView: () => void; onChanged: () => void }) {
-  const t = useTranslations("invoices");
-  const locale = useLocale();
-  const name = payerLabel(row);
-  const money = (amount: number) => formatMoney({ amount, currency: row.currency }, locale);
-
-  // A voided bill owes nothing, whatever its total still says.
-  const voided = row.status === "VOID";
-  const due = voided ? 0 : Math.max(0, row.total_minor - row.amount_paid_minor);
-  const paid = !voided && row.total_minor > 0 && due === 0;
-  const paidShare = voided || row.total_minor <= 0 ? 0 : Math.min(100, Math.round((row.amount_paid_minor / row.total_minor) * 100));
-
-  const extra = Math.max(0, (row.line_count ?? 1) - 1);
-  const created = new Date(row.created_at);
-  const days = Math.max(1, Math.floor((Date.now() - created.getTime()) / 86_400_000));
-  const who = [t(row.guardian_name !== null ? "payerGuardian" : "payerTyped"), ...row.children].join(" · ");
-
-  return (
-    <div className="flex flex-1 flex-col" data-testid={`invoice-card-${row.id}`}>
-      {/* Who pays, and where the bill stands. */}
-      <div className="flex items-center gap-3 px-4 pt-4">
-        <span
-          className={cn(
-            "flex size-10 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white shadow-sm",
-            avatarTone(name),
-          )}
-          aria-hidden
-        >
-          {initials(name)}
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold leading-tight">{name}</p>
-          <p className="text-muted-foreground mt-0.5 truncate text-xs" title={who}>
-            {who}
-          </p>
-        </div>
-        <span className="shrink-0 self-start">
-          <InvoiceStatusBadge status={row.status} />
-        </span>
-      </div>
-
-      {/* The money: the total, what is still owed, and how much of it is in. */}
-      <div className="bg-muted/40 mx-4 mt-3.5 rounded-xl px-3.5 py-3">
-        <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
-          <span className={cn("text-xl font-bold break-words tabular-nums", voided && "text-muted-foreground line-through")}>
-            {money(row.total_minor)}
-          </span>
-          {paid ? (
-            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">{t("paidInFull")}</span>
-          ) : row.amount_paid_minor > 0 && due > 0 ? (
-            <span className="text-xs font-semibold text-amber-700 tabular-nums dark:text-amber-300">
-              {t("dueAmount", { amount: money(due) })}
-            </span>
-          ) : null}
-        </div>
-        <div className="bg-border/70 mt-2.5 h-1.5 overflow-hidden rounded-full" aria-hidden>
-          <div
-            className={cn("h-full rounded-full", paid ? "bg-emerald-500" : "bg-amber-500")}
-            style={{ width: `${paidShare}%` }}
-          />
-        </div>
-      </div>
-
-      {/* The same three facts on every card. */}
-      <dl className="divide-border/60 divide-y px-4 py-1.5 text-xs">
-        <CardFact icon={FileText} label={t("liDescription")}>
-          {row.description ? (
-            <span title={row.description} data-testid={`invoice-description-${row.id}`}>
-              {row.description}
-              {extra > 0 && <span className="text-muted-foreground font-normal"> · {t("moreLines", { count: extra })}</span>}
-            </span>
-          ) : (
-            <span className="text-muted-foreground font-normal">—</span>
-          )}
-        </CardFact>
-        <CardFact icon={CalendarClock} label={t("due.label")}>
-          {row.due_on ? (
-            <DueDateChip dueOn={row.due_on} settled={isSettled(row)} testId={`invoice-due-${row.id}`} inline />
-          ) : (
-            <span className="text-muted-foreground font-normal">{t("due.none")}</span>
-          )}
-        </CardFact>
-        <CardFact icon={Clock} label={t("card.raised")}>
-          <span className="tabular-nums">
-            {new Intl.DateTimeFormat(numeralLocale(locale), { day: "numeric", month: "short", year: "numeric", timeZone: academyTimeZone() }).format(created)}
-          </span>
-        </CardFact>
-      </dl>
-
-      {/* What to do with it — and, a day on and still unpaid, that someone has to chase it. */}
-      <div className="bg-muted/25 mt-auto flex items-center justify-between gap-2 rounded-b-2xl border-t px-4 py-2.5">
-        {row.needs_follow_up ? (
-          <span
-            className="inline-flex min-w-0 items-center gap-1 text-xs font-semibold text-red-600 dark:text-red-400"
-            data-testid={`invoice-follow-up-${row.id}`}
-          >
-            <AlertTriangle className="size-3.5 shrink-0" aria-hidden />
-            <span className="truncate">
-              {t("followUpRow", { ago: new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-days, "day") })}
-            </span>
-          </span>
-        ) : (
-          <span aria-hidden />
-        )}
-        <InvoiceRowActions row={row} onView={onView} onChanged={onChanged} />
-      </div>
-    </div>
-  );
-}
-
-/** What the hand-made bills can be sorted by (the cards draw themselves: {@link BillCard}). */
 function useManualColumns(): ColumnDef<InvoiceRow>[] {
   const t = useTranslations("invoices");
   return [
-    { key: "bill", header: t("colBill"), sortKey: "payer_name", render: (row) => <BillCell row={row} /> },
+    { key: "payer", header: t("colGuardian"), sortKey: "payer_name", render: (row) => <PayerCell row={row} /> },
+    { key: "children", header: t("colChildren"), render: (row) => <ChildrenCell row={row} /> },
+    { key: "description", header: t("liDescription"), render: (row) => <DescriptionCell row={row} /> },
+    { key: "amount", header: t("colTotal"), sortKey: "total_minor", className: "text-end", render: (row) => <AmountCell row={row} /> },
     {
       key: "due_on",
       header: t("due.label"),
       sortKey: "due_on",
       render: (row) => <DueDateChip dueOn={row.due_on} settled={isSettled(row)} testId={`invoice-due-${row.id}`} />,
     },
-    { key: "amount", header: t("colTotal"), sortKey: "total_minor", className: "text-end", render: (row) => <AmountCell row={row} /> },
     { key: "status", header: t("colStatus"), render: (row) => <InvoiceStatusBadge status={row.status} /> },
     { key: "created", header: t("colCreated"), sortKey: "created_at", render: (row) => <CreatedCell row={row} /> },
   ];
@@ -807,7 +664,7 @@ const STATUS_FILTER_OPTIONS = (
 const INPUT_CLASS =
   "border-input bg-background focus:border-primary focus:ring-primary/15 h-8 rounded-lg border px-3 text-sm outline-none transition-colors focus:ring-3";
 
-// ── Automatic invoices tab (the original Sprint 7 dashboard, scoped to kind=AUTO) ─
+// ── Automatic invoices tab (the original Sprint 7 dashboard: the lesson bills, source=lessons) ─
 
 function AutomaticTab() {
   const t = useTranslations("invoices");
@@ -832,12 +689,12 @@ function AutomaticTab() {
   const columns = useInvoiceColumns();
   const exportColumns = useInvoiceExportColumns();
 
-  // Summary tracks the active period filters + the global refresh token (kind=AUTO).
+  // Summary tracks the active period filters + the global refresh token (source=lessons).
   useEffect(() => {
     let cancelled = false;
     setSummary(null);
     getInvoiceSummary({
-      kind: "AUTO",
+      source: "lessons",
       ...(periodYear ? { period_year: periodYear } : {}),
       ...(periodMonth ? { period_month: periodMonth } : {}),
     })
@@ -862,7 +719,9 @@ function AutomaticTab() {
         ...q,
         filter: {
           ...(q.filter ?? {}),
-          kind: "AUTO",
+          // The lesson bills: the automatic ones, and the few that became MANUAL on the way (re-issued
+          // without the package lessons, moved with a child) — they are on no other list.
+          source: "lessons",
           ...(periodYear ? { period_year: periodYear } : {}),
           ...(periodMonth ? { period_month: periodMonth } : {}),
         },
@@ -1001,7 +860,7 @@ function AutomaticTab() {
   );
 }
 
-// ── Manual invoices tab (create + list operator-driven bills, kind=MANUAL) ────────
+// ── Manual invoices tab (create + list the bills typed at the desk, source=hand) ────────
 
 function ManualTab({
   followUpCount,
@@ -1051,7 +910,7 @@ function ManualTab({
   useEffect(() => {
     let cancelled = false;
     setSummary(null);
-    getInvoiceSummary({ kind: "MANUAL" })
+    getInvoiceSummary({ kind: "MANUAL", source: "hand" })
       .then((res) => {
         if (!cancelled) setSummary(res);
       })
@@ -1071,7 +930,9 @@ function ManualTab({
     (q: DataTableQuery): Promise<ListResult<InvoiceRow>> => {
       const merged: DataTableQuery = {
         ...q,
-        filter: { ...(q.filter ?? {}), kind: "MANUAL", ...(followUpOnly ? { follow_up: "1" } : {}) },
+        // Only what the desk typed: a package's or a subscription's bill is MANUAL too, but those
+        // are chased on their own Due pages (Ahmed 2026-11-22).
+        filter: { ...(q.filter ?? {}), kind: "MANUAL", source: "hand", ...(followUpOnly ? { follow_up: "1" } : {}) },
       };
       return apiFetch(`/api/invoices${toQueryString(merged)}`);
     },
@@ -1087,27 +948,51 @@ function ManualTab({
         onToggleFollowUp={() => setFollowUpOnly((v) => !v)}
       />
 
-        <DataTable<InvoiceRow>
-          fetcher={fetcher}
-          columns={columns}
-          getRowId={(row) => row.id}
-          searchable
-          filters={[STATUS_FILTER_OPTIONS(t, centre), dueFilter]}
-          defaultSort="-created_at"
-          onRowClick={(row) => setSelectedId(row.id)}
-          rowClassName={(row) =>
-            row.needs_follow_up ? "border-red-300 bg-red-50/60 dark:border-red-900/60 dark:bg-red-950/20" : undefined
-          }
-          renderCard={(row) => <BillCard row={row} onView={() => setSelectedId(row.id)} onChanged={refreshAll} />}
-          emptyMessage={t("manualEmpty")}
-          testId="manual-invoices-table"
-          exportConfig={{
-            fileName: "invoices-manual",
-            sheetName: t("tabs.manual"),
-            columns: exportColumns,
-          }}
-          refreshToken={refreshToken}
-        />
+      <section className="bg-card overflow-hidden rounded-2xl border shadow-sm">
+        <div className="relative border-b">
+          <div className="from-primary/[0.07] via-primary/[0.025] flex items-center gap-3 bg-gradient-to-r to-transparent px-5 py-4">
+            <div className="bg-primary/10 ring-primary/15 flex size-10 shrink-0 items-center justify-center rounded-xl ring-1">
+              <ListChecks className="text-primary size-5" aria-hidden />
+            </div>
+            <div className="min-w-0">
+              <h2 className="flex items-center gap-2 text-sm font-bold tracking-tight">
+                {t("panelManual")}
+                <Octagram className="text-gold/60 size-2 shrink-0" />
+              </h2>
+              <p className="text-muted-foreground mt-0.5 text-xs">{t("panelManualHint")}</p>
+            </div>
+          </div>
+          <span
+            className="via-gold/45 absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent to-transparent"
+            aria-hidden
+          />
+        </div>
+        <div className="p-4">
+          <DataTable<InvoiceRow>
+            fetcher={fetcher}
+            columns={columns}
+            getRowId={(row) => row.id}
+            searchable
+            filters={[STATUS_FILTER_OPTIONS(t, centre), dueFilter]}
+            defaultSort="-created_at"
+            onRowClick={(row) => setSelectedId(row.id)}
+            rowClassName={(row) =>
+              row.needs_follow_up ? "bg-red-50/60 dark:bg-red-950/20" : undefined
+            }
+            rowActions={(row) => (
+              <InvoiceRowActions row={row} onView={() => setSelectedId(row.id)} onChanged={refreshAll} />
+            )}
+            emptyMessage={t("manualEmpty")}
+            testId="manual-invoices-table"
+            exportConfig={{
+              fileName: "invoices-manual",
+              sheetName: t("tabs.manual"),
+              columns: exportColumns,
+            }}
+            refreshToken={refreshToken}
+          />
+        </div>
+      </section>
 
       <QuickBillModal
         open={createOpen}

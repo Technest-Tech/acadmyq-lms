@@ -1014,6 +1014,7 @@ class ShowcaseAcademySeeder extends Seeder
                 'amount_paid_minor' => 0,
                 'public_token' => $this->token('manual:'.$m['student']),
                 'kind' => 'MANUAL',
+                'hand_made' => true,
                 'sent_at' => $issuedAt,
                 'sent_channel' => 'WHATSAPP',
                 'created_at' => $issuedAt,

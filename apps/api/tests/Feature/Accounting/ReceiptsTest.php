@@ -734,3 +734,36 @@ it('moves a bill paid under a typed name, and its receipt, to the family when th
             ->and(DB::table('lesson_packages')->where('student_id', $res->json('studentId'))->value('invoice_id'))->toBe($bill);
     });
 });
+
+it('records a receipt on the family when "first package already paid" opens on an unpaid bill or a new one', function () {
+    acctSwitch($this, true);
+    Sanctum::actingAs($this->owner);
+
+    // Found by name but never marked paid: the receipt is written now, on the family's account.
+    $bill = $this->postJson('/api/invoices/quick', ['payer_name' => 'Hana Newcomer', 'amount_minor' => 40000, 'currency' => 'EGP', 'description' => 'First package'])->assertCreated()->json('id');
+    $found = $this->postJson('/api/students', [
+        'full_name' => 'Hana Newcomer', 'guardian_id' => $this->celineParent, 'status' => 'REGULAR',
+        'package' => ['label' => '8 hours', 'hours' => 8, 'price_minor' => 40000, 'currency' => 'EGP', 'paid_first' => true, 'paid_invoice_id' => $bill, 'paid_method' => 'BANK_TRANSFER'],
+    ])->assertCreated();
+    expect($found->json('packageInvoiceId'))->toBe($bill);
+
+    // Nothing found: the package's own bill, paid by a receipt too.
+    $fresh = $this->postJson('/api/students', [
+        'full_name' => 'Yara Walkin', 'guardian_id' => $this->celineParent, 'status' => 'REGULAR',
+        'package' => ['label' => '4 hours', 'hours' => 4, 'price_minor' => 20000, 'currency' => 'EGP', 'paid_first' => true],
+    ])->assertCreated();
+
+    acctTenant($this->academy, function () use ($bill, $fresh): void {
+        foreach ([[$bill, 40000, 'BANK_TRANSFER'], [$fresh->json('packageInvoiceId'), 20000, 'CASH']] as [$id, $amount, $method]) {
+            $invoice = DB::table('invoices')->where('id', $id)->first();
+            $receipt = DB::table('receipts as r')->join('receipt_allocations as ra', 'ra.receipt_id', '=', 'r.id')
+                ->where('ra.invoice_id', $id)->whereNull('r.voided_at')->first(['r.guardian_id', 'r.method', 'ra.amount_minor']);
+            expect((int) $invoice->amount_paid_minor)->toBe($amount)
+                ->and($invoice->guardian_id)->toBe($this->celineParent)
+                ->and($receipt)->not->toBeNull()
+                ->and($receipt->guardian_id)->toBe($this->celineParent)
+                ->and($receipt->method)->toBe($method)
+                ->and((int) $receipt->amount_minor)->toBe($amount);
+        }
+    });
+});

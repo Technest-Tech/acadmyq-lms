@@ -518,6 +518,8 @@ final class Invoicing implements BillingHook
             'id' => $invoiceId,
             'academy_id' => $academyId,
             'kind' => 'MANUAL',
+            // Typed at the desk: listed under Custom bills (a package's bill is MANUAL too, but not this).
+            'hand_made' => true,
             'guardian_id' => $guardianId,
             'student_id' => $studentId,
             // A typed name for a payer who is not on the books — only when neither link is set.
@@ -683,6 +685,8 @@ final class Invoicing implements BillingHook
             'id' => $invoiceId,
             'academy_id' => $academyId,
             'kind' => 'MANUAL',
+            // An advance is raised at the desk too: it is one of the Custom bills.
+            'hand_made' => true,
             'guardian_id' => null,
             'student_id' => $studentId,
             'period_year' => (int) $period->year,

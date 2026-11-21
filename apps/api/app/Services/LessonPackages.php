@@ -12,6 +12,7 @@ use App\Support\PublicInvoiceToken;
 use App\Support\StudentStatus;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -1547,10 +1548,13 @@ final class LessonPackages
 
         // Paid before the student existed: the bill is there from the first day, which is what
         // ON_START means — whatever the academy's usual timing, nothing more is billed at the end.
+        // On the hand-made bill the desk raised for it when one is named, else on a new bill; either
+        // way it is marked paid below, so the block never shows as due.
         $paidBill = ($data['paid_invoice_id'] ?? null) !== null && $data['paid_invoice_id'] !== ''
-            ? $this->adoptablePaidBill($academyId, (string) $data['paid_invoice_id'], $studentId, $currency)
+            ? $this->adoptableFirstBill($academyId, (string) $data['paid_invoice_id'], $studentId, $currency)
             : null;
-        if ($paidBill !== null) {
+        $paidFirst = $paidBill !== null || (bool) ($data['paid_first'] ?? false);
+        if ($paidFirst) {
             $billTiming = 'ON_START';
         }
 
@@ -1698,6 +1702,10 @@ final class LessonPackages
             ]);
         }
 
+        if ($paidFirst && $invoiceId !== null) {
+            $this->settleFirstPackageBill($invoiceId, $academyId, (string) ($data['paid_method'] ?? 'CASH'), $actorUserId, $actorRole);
+        }
+
         $this->flagUnpaidPredecessors($academyId, $studentId, $packageId);
 
         Audit::log(
@@ -1717,7 +1725,8 @@ final class LessonPackages
                 'currency' => $currency,
                 'bill_timing' => $billTiming,
                 'invoice_id' => $invoiceId,
-                'paid_before_enrolment' => $paidBill !== null,
+                'paid_before_enrolment' => $paidFirst,
+                'paid_on_hand_made_bill' => $paidBill !== null,
                 'opened_automatically' => (bool) ($data['opened_automatically'] ?? false),
             ],
         );
@@ -3020,20 +3029,22 @@ final class LessonPackages
     }
 
     /**
-     * The hand-made bills a first package may stand on: raised by hand before the student was on
-     * file (a typed name, or the student's own family), paid in full, and nobody else's — not a
-     * lesson's, a group's, a subscription's or another package's bill.
+     * The hand-made bills a first package may stand on: typed at the desk (`hand_made`) before the
+     * student was on file — under a typed name, or on the student's own family — and nobody
+     * else's: not a lesson's, a group's, a subscription's or another package's bill. Paid or not:
+     * ticking "first package already paid" says the money came in, so an unpaid one is marked paid
+     * when the package opens on it ({@see settleFirstPackageBill()}).
      *
      * @return Builder rows of `invoices` aliased `inv`
      */
-    public function paidBillsToAdopt(string $academyId, ?string $guardianId)
+    public function firstPackageBills(string $academyId, ?string $guardianId)
     {
         return DB::table('invoices as inv')
             ->where('inv.academy_id', $academyId)
             ->where('inv.kind', 'MANUAL')
+            ->where('inv.hand_made', true)
             ->where('inv.status', '!=', 'VOID')
             ->where('inv.total_minor', '>', 0)
-            ->whereColumn('inv.amount_paid_minor', '>=', 'inv.total_minor')
             ->whereNull('inv.student_id')
             ->where(fn ($q) => $q
                 ->where(fn ($typed) => $typed->whereNull('inv.guardian_id')->whereNotNull('inv.payer_name'))
@@ -3048,26 +3059,111 @@ final class LessonPackages
             ->whereNotExists(fn ($e) => $e->selectRaw('1')->from('centre_subscriptions as cs')->whereColumn('cs.invoice_id', 'inv.id'));
     }
 
-    /** The paid bill named for a new package, or a 422 saying why it cannot be the one. */
-    private function adoptablePaidBill(string $academyId, string $invoiceId, string $studentId, string $currency): object
+    /**
+     * The bills "first package already paid" finds by itself (Ahmed, 2026-11-22): one typed under
+     * the student's name or the parent's — the same name once spacing, case, tashkeel and the
+     * alef / taa marbuta / alef maqsura spellings are set aside — and the chosen parent's own
+     * hand-made bills. `match` says which; name matches first, then the newest.
+     *
+     * @param  list<string>  $names  the student's name, the parent's
+     * @return Collection<int, object>
+     */
+    public function firstPackageMatches(string $academyId, ?string $guardianId, array $names, ?string $currency)
+    {
+        $names = array_values(array_filter(array_map(static fn ($n) => trim((string) $n), $names), static fn ($n) => $n !== ''));
+        $nameKey = self::nameKeySql('inv.payer_name');
+        $nameIn = $names === [] ? 'false' : "{$nameKey} in (".implode(', ', array_fill(0, count($names), self::nameKeySql('?'))).')';
+
+        return $this->firstPackageBills($academyId, $guardianId)
+            ->where(fn ($q) => $q
+                ->where(fn ($typed) => $typed->whereNull('inv.guardian_id')->whereRaw($nameIn, $names))
+                ->when($guardianId !== null, fn ($own) => $own->orWhere('inv.guardian_id', $guardianId)))
+            ->when($currency !== null && $currency !== '', fn ($q) => $q->where('inv.currency', strtoupper((string) $currency)))
+            ->leftJoin('guardians as g', 'g.id', '=', 'inv.guardian_id')
+            ->orderByRaw('(inv.guardian_id is null) desc')
+            ->orderByDesc('inv.created_at')
+            ->limit(20)
+            ->get([
+                'inv.id', 'inv.total_minor', 'inv.amount_paid_minor', 'inv.currency', 'inv.created_at', 'inv.guardian_id',
+                DB::raw('coalesce(inv.payer_name, g.full_name) as payer_name'),
+                DB::raw('(select li.description from invoice_line_items li where li.invoice_id = inv.id order by li.created_at, li.id limit 1) as description'),
+            ]);
+    }
+
+    /**
+     * A person's name as one comparable key, in SQL: trimmed, lower-cased, tashkeel and tatweel
+     * dropped, runs of spaces made one, and أ/إ/آ/ٱ → ا, ة → ه, ى → ي. `$expr` is a column or `?`.
+     */
+    private static function nameKeySql(string $expr): string
+    {
+        return "translate(regexp_replace(regexp_replace(lower(btrim({$expr})), '[\u064B-\u0652\u0640]', '', 'g'), '\s+', ' ', 'g'), 'أإآٱةى', 'ااااهي')";
+    }
+
+    /** The hand-made bill named for a new package, or a 422 saying why it cannot be the one. */
+    private function adoptableFirstBill(string $academyId, string $invoiceId, string $studentId, string $currency): object
     {
         $guardianId = DB::table('students')->where('id', $studentId)->value('guardian_id');
-        $bill = $this->paidBillsToAdopt($academyId, $guardianId !== null ? (string) $guardianId : null)
+        $bill = $this->firstPackageBills($academyId, $guardianId !== null ? (string) $guardianId : null)
             ->where('inv.id', $invoiceId)
             ->first(['inv.id', 'inv.guardian_id', 'inv.payer_name', 'inv.currency', 'inv.total_minor']);
 
         if ($bill === null) {
             throw ValidationException::withMessages([
-                'package.paid_invoice_id' => ['Choose a hand-made bill that is paid in full and not tied to anyone else. / اختر فاتورة يدوية مدفوعة بالكامل وغير مرتبطة بطالب آخر.'],
+                'package.paid_invoice_id' => ['Choose a hand-made bill that is not tied to anyone else. / اختر فاتورة يدوية غير مرتبطة بطالب آخر.'],
             ]);
         }
         if (strtoupper((string) $bill->currency) !== $currency) {
             throw ValidationException::withMessages([
-                'package.paid_invoice_id' => ["That bill was paid in {$bill->currency}, not {$currency}. / هذه الفاتورة مدفوعة بعملة {$bill->currency} وليست {$currency}."],
+                'package.paid_invoice_id' => ["That bill is in {$bill->currency}, not {$currency}. / هذه الفاتورة بعملة {$bill->currency} وليست {$currency}."],
             ]);
         }
 
         return $bill;
+    }
+
+    /**
+     * "First package already paid": whatever the package's bill still owes is recorded as paid —
+     * a receipt where the academy keeps receipts, the classic mark-paid everywhere else — so the
+     * block never reaches the Due page. Nothing owed (paid already, or a free block): nothing done.
+     *
+     * @param  'CASH'|'BANK_TRANSFER'|'OTHER'  $method
+     */
+    private function settleFirstPackageBill(string $invoiceId, string $academyId, string $method, ?string $actorUserId, ?string $actorRole): void
+    {
+        $bill = DB::table('invoices')->where('id', $invoiceId)->lockForUpdate()->first();
+        $owed = (int) $bill->total_minor - (int) $bill->amount_paid_minor;
+        if ($owed <= 0) {
+            return;
+        }
+
+        $note = 'First package paid before the student was added / الباقة الأولى مدفوعة قبل إضافة الطالب';
+
+        if (Ledger::enabledFor($academyId)) {
+            app(Ledger::class)->record($academyId, [], $owed, (string) $bill->currency, [
+                'invoice_id' => $invoiceId,
+                'method' => $method,
+                'note' => $note,
+                'received_by' => $actorUserId,
+                'actor_role' => $actorRole,
+            ]);
+
+            return;
+        }
+
+        DB::table('invoices')->where('id', $invoiceId)->update([
+            'status' => 'PAID',
+            'amount_paid_minor' => (int) $bill->total_minor,
+            'paid_at' => now(),
+            'payment_method' => $method,
+            'payment_reason' => $note,
+            'updated_at' => now(),
+        ]);
+        Audit::log('invoice.marked_paid', 'invoice', $invoiceId, $academyId, $actorUserId, $actorRole, after: [
+            'status' => 'PAID',
+            'payment_method' => $method,
+            'amount_paid_minor' => (int) $bill->total_minor,
+            'first_package_paid' => true,
+        ]);
     }
 
     /**

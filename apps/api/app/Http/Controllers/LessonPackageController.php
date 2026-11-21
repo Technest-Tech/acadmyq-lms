@@ -257,26 +257,29 @@ final class LessonPackageController extends Controller
     }
 
     /**
-     * GET /api/packages/paid-bills?guardian_id= — the hand-made bills a NEW student's first package
-     * may stand on: paid in full before the student was on file, under a typed name or the chosen
-     * family ({@see LessonPackages::paidBillsToAdopt}). Feeds "the first package is already paid" on
-     * the new-student form, so the block opens on that bill instead of raising a second one.
+     * GET /api/packages/paid-bills?name=&parent_name=&guardian_id=&currency= — the hand-made bills
+     * "first package already paid" on the new-student form finds by itself: typed under the
+     * student's or the parent's name, or raised on the chosen parent ({@see
+     * LessonPackages::firstPackageMatches}). The form preselects the first; the package opens on it
+     * and marks it paid. None found: the package raises its own bill, marked paid.
      */
     public function paidBills(Request $request, LessonPackages $packages): JsonResponse
     {
         Gate::authorize('package.manage');
 
-        $data = $request->validate(['guardian_id' => ['sometimes', 'nullable', 'uuid']]);
+        $data = $request->validate([
+            'guardian_id' => ['sometimes', 'nullable', 'uuid'],
+            'name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'parent_name' => ['sometimes', 'nullable', 'string', 'max:255'],
+            'currency' => ['sometimes', 'nullable', 'string', 'size:3'],
+        ]);
 
-        $rows = $packages->paidBillsToAdopt((string) app(AuthContext::class)->academyId, $data['guardian_id'] ?? null)
-            ->leftJoin('guardians as g', 'g.id', '=', 'inv.guardian_id')
-            ->orderByDesc('inv.created_at')
-            ->limit(100)
-            ->get([
-                'inv.id', 'inv.total_minor', 'inv.currency', 'inv.paid_at', 'inv.created_at', 'inv.guardian_id',
-                DB::raw('coalesce(inv.payer_name, g.full_name) as payer_name'),
-                DB::raw('(select li.description from invoice_line_items li where li.invoice_id = inv.id order by li.created_at, li.id limit 1) as description'),
-            ]);
+        $rows = $packages->firstPackageMatches(
+            (string) app(AuthContext::class)->academyId,
+            $data['guardian_id'] ?? null,
+            [(string) ($data['name'] ?? ''), (string) ($data['parent_name'] ?? '')],
+            $data['currency'] ?? null,
+        );
 
         return response()->json(['bills' => $rows->map(fn (object $r): array => [
             'id' => (string) $r->id,
@@ -284,9 +287,10 @@ final class LessonPackageController extends Controller
             'from_family' => $r->guardian_id !== null,
             'description' => $r->description !== null ? (string) $r->description : null,
             'total_minor' => (int) $r->total_minor,
+            'amount_paid_minor' => (int) $r->amount_paid_minor,
             'currency' => (string) $r->currency,
             'raised_on' => substr((string) $r->created_at, 0, 10),
-        ])->all()]);
+        ])->values()->all()]);
     }
 
     /**

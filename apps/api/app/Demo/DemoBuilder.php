@@ -684,6 +684,7 @@ abstract class DemoBuilder
             'id' => $id,
             'academy_id' => $this->academyId,
             'kind' => 'MANUAL',
+            'hand_made' => true,
             'guardian_id' => $this->guardians[$student['guardian']]['id'],
             'student_id' => null,
             'period_year' => $now->year,

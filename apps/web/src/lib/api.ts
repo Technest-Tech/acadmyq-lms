@@ -3394,8 +3394,12 @@ export interface StudentInput {
     bill_timing?: PackageBillTiming;
     starts_on?: string;
     expires_on?: string | null;
-    /** Paid on a hand-made bill before the student was added: that bill becomes the package's. */
+    /** "First package already paid": the package's bill is marked paid, never listed as due. */
+    paid_first?: boolean;
+    /** The hand-made bill raised for it before the student was added: it becomes the package's. */
     paid_invoice_id?: string;
+    /** How the money came in, when a payment has to be recorded. */
+    paid_method?: "CASH" | "BANK_TRANSFER" | "OTHER";
   };
 }
 
@@ -4874,12 +4878,19 @@ export interface InvoiceSummary {
 }
 
 export function getInvoiceSummary(
-  q: { period_year?: string; period_month?: string; kind?: string } = {},
+  q: {
+    period_year?: string;
+    period_month?: string;
+    kind?: string;
+    /** `hand` = only the bills typed at the desk; `lessons` = the automatic (lesson) bills. */
+    source?: "hand" | "lessons";
+  } = {},
 ): Promise<InvoiceSummary> {
   const params = new URLSearchParams();
   if (q.period_year) params.set("period_year", q.period_year);
   if (q.period_month) params.set("period_month", q.period_month);
   if (q.kind) params.set("kind", q.kind);
+  if (q.source) params.set("source", q.source);
   const s = params.toString();
   return apiFetch(`/api/invoices/summary${s ? `?${s}` : ""}`);
 }
@@ -4936,7 +4947,11 @@ export type QuickBillInput = {
   | { payer_name: string; student_id?: never; guardian_id?: never }
 );
 
-/** A hand-made bill paid in full before its student was on file (`GET /api/packages/paid-bills`). */
+/**
+ * A hand-made bill "first package already paid" found under the new student's (or parent's) name,
+ * or raised on the chosen parent (`GET /api/packages/paid-bills`). Paid or not: the package opens
+ * on it and marks it paid.
+ */
 export interface PaidBill {
   id: string;
   payer_name: string;
@@ -4944,14 +4959,25 @@ export interface PaidBill {
   from_family: boolean;
   description: string | null;
   total_minor: number;
+  amount_paid_minor: number;
   currency: string;
   raised_on: string;
 }
 
-/** The paid bills a new student's first package may stand on, instead of raising a second bill. */
-export function listPaidBills(guardianId?: string): Promise<{ bills: PaidBill[] }> {
-  const query = guardianId ? `?guardian_id=${encodeURIComponent(guardianId)}` : "";
-  return apiFetch(`/api/packages/paid-bills${query}`);
+/** The hand-made bills matching a new student's name (or the parent's), in the package's currency. */
+export function listPaidBills(q: {
+  name?: string;
+  parentName?: string;
+  guardianId?: string;
+  currency?: string;
+}): Promise<{ bills: PaidBill[] }> {
+  const params = new URLSearchParams();
+  if (q.name?.trim()) params.set("name", q.name.trim());
+  if (q.parentName?.trim()) params.set("parent_name", q.parentName.trim());
+  if (q.guardianId) params.set("guardian_id", q.guardianId);
+  if (q.currency) params.set("currency", q.currency);
+  const s = params.toString();
+  return apiFetch(`/api/packages/paid-bills${s ? `?${s}` : ""}`);
 }
 
 /** Set (or clear, with null) a hand-made bill's pay-by date. */

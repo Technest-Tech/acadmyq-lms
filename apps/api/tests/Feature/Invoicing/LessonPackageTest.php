@@ -1920,15 +1920,17 @@ it('a centre adds a subscription for a subject the student is only now starting:
 | The first package was paid before the student was on file
 |--------------------------------------------------------------------------
 |
-| The desk raises a hand-made bill under a typed name, the family pays it, and only then is the
-| student added. The package opens ON that bill: no second bill, nothing on the Due page.
+| The desk raises a hand-made bill under a typed name, the family pays, and only then is the
+| student added. "First package already paid" finds that bill by name and opens the package ON it,
+| marked paid; none found, the package raises its own bill, marked paid. Never on the Due page
+| (Ahmed 2026-11-17, matching by name 2026-11-22).
 */
 
 /** A hand-made bill under a typed name, paid in full unless told otherwise. */
-function paidNameBill(string $payer = 'Pia Newcomer', int $amountMinor = 400000, bool $pay = true): string
+function paidNameBill(string $payer = 'Pia Newcomer', int $amountMinor = 400000, bool $pay = true, string $currency = 'EGP'): string
 {
     $id = test()->postJson('/api/invoices/quick', [
-        'payer_name' => $payer, 'amount_minor' => $amountMinor, 'currency' => 'EGP', 'description' => 'First package',
+        'payer_name' => $payer, 'amount_minor' => $amountMinor, 'currency' => $currency, 'description' => 'First package',
     ])->assertCreated()->json('id');
 
     if ($pay) {
@@ -1942,16 +1944,17 @@ it('opens the first package on the bill paid before the student was added', func
     Sanctum::actingAs($this->owner);
     $bill = paidNameBill();
 
-    $listed = collect($this->getJson('/api/packages/paid-bills')->assertOk()->json('bills'));
+    $listed = collect($this->getJson('/api/packages/paid-bills?name=Pia%20Newcomer')->assertOk()->json('bills'));
     expect($listed->pluck('id')->all())->toBe([$bill])
         ->and($listed[0]['payer_name'])->toBe('Pia Newcomer')
-        ->and($listed[0]['total_minor'])->toBe(400000);
+        ->and($listed[0]['total_minor'])->toBe(400000)
+        ->and($listed[0]['amount_paid_minor'])->toBe(400000);
 
     $res = $this->postJson('/api/students', [
         'full_name' => 'Pia Newcomer',
         'guardian_id' => $this->guardian,
         'status' => 'REGULAR',
-        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000, 'currency' => 'EGP', 'paid_invoice_id' => $bill],
+        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000, 'currency' => 'EGP', 'paid_first' => true, 'paid_invoice_id' => $bill],
     ])->assertCreated();
 
     $studentId = $res->json('studentId');
@@ -1971,19 +1974,78 @@ it('opens the first package on the bill paid before the student was added', func
     Sanctum::actingAs($this->owner);
     $due = collect($this->getJson('/api/packages?scope=due')->assertOk()->json('packages'))->pluck('student_id');
     expect($due)->not->toContain($studentId)
-        ->and($this->getJson('/api/packages/paid-bills')->assertOk()->json('bills'))->toBe([]);
+        ->and($this->getJson('/api/packages/paid-bills?name=Pia%20Newcomer')->assertOk()->json('bills'))->toBe([]);
 });
 
-it('refuses a bill that is unpaid, in another currency or already a package bill, and creates nobody', function () {
+it('finds the bill by the student or parent name however it was spelt, and nobody else\'s', function () {
     Sanctum::actingAs($this->owner);
-    $unpaid = paidNameBill('Not Yet', pay: false);
+    $fatma = paidNameBill('  فاطمة   أحمد ', pay: false);
+    $parent = paidNameBill('إسراء محمود');
+    paidNameBill('فاطمة أحمدين');
+    paidNameBill('فاطمه احمد', currency: 'USD');
+
+    $find = fn (string $query) => collect($this->getJson('/api/packages/paid-bills?'.$query)->assertOk()->json('bills'))->pluck('id')->all();
+
+    expect($find('name='.urlencode('فاطمه احمد').'&currency=EGP'))->toBe([$fatma])
+        ->and($find('name='.urlencode('Someone Else').'&parent_name='.urlencode('اسراء محمود').'&currency=EGP'))->toBe([$parent])
+        ->and($find('name='.urlencode('Nobody Here')))->toBe([])
+        // No name at all: nothing is guessed.
+        ->and($find('currency=EGP'))->toBe([]);
+});
+
+it('marks the found bill paid when the money came in but nobody had marked it', function () {
+    Sanctum::actingAs($this->owner);
+    $bill = paidNameBill('Not Yet', pay: false);
+
+    $res = $this->postJson('/api/students', [
+        'full_name' => 'Not Yet', 'guardian_id' => $this->guardian, 'status' => 'REGULAR',
+        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000, 'currency' => 'EGP', 'paid_first' => true, 'paid_invoice_id' => $bill, 'paid_method' => 'BANK_TRANSFER'],
+    ])->assertCreated();
+    expect($res->json('packageInvoiceId'))->toBe($bill);
+
+    $this->asAcademy($this->academy);
+    $invoice = DB::table('invoices')->where('id', $bill)->first();
+    expect($invoice->status)->toBe('PAID')
+        ->and((int) $invoice->amount_paid_minor)->toBe(400000)
+        ->and($invoice->payment_method)->toBe('BANK_TRANSFER')
+        // Still the desk's own bill: it stays on Custom bills.
+        ->and((bool) $invoice->hand_made)->toBeTrue();
+});
+
+it('raises the package bill already paid when no hand-made bill was found, and keeps it off Custom bills', function () {
+    Sanctum::actingAs($this->owner);
+
+    $res = $this->postJson('/api/students', [
+        'full_name' => 'Walk In', 'guardian_id' => $this->guardian, 'status' => 'REGULAR',
+        'package' => ['label' => '8 hours', 'hours' => 8, 'price_minor' => 160000, 'currency' => 'EGP', 'bill_timing' => 'ON_COMPLETION', 'paid_first' => true],
+    ])->assertCreated();
+
+    $studentId = $res->json('studentId');
+    $billId = $res->json('packageInvoiceId');
+    expect($billId)->not->toBeNull();
+
+    $this->asAcademy($this->academy);
+    $bill = DB::table('invoices')->where('id', $billId)->first();
+    expect($bill->status)->toBe('PAID')
+        ->and((int) $bill->amount_paid_minor)->toBe(160000)
+        ->and($bill->payment_method)->toBe('CASH')
+        ->and((bool) $bill->hand_made)->toBeFalse()
+        // Billed on start, whatever was asked: the money is already in.
+        ->and(DB::table('lesson_packages')->where('student_id', $studentId)->value('bill_timing'))->toBe('ON_START');
+
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    expect(collect($this->getJson('/api/packages?scope=due')->assertOk()->json('packages'))->pluck('student_id'))->not->toContain($studentId)
+        ->and(collect($this->getJson('/api/invoices?filter[source]=hand')->assertOk()->json('rows'))->pluck('id'))->not->toContain($billId);
+});
+
+it('refuses a bill in another currency or already a package bill, and creates nobody', function () {
+    Sanctum::actingAs($this->owner);
 
     $attempt = fn (array $package) => $this->postJson('/api/students', [
         'full_name' => 'Refused Rami', 'guardian_id' => $this->guardian, 'status' => 'REGULAR',
-        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000] + $package,
+        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000, 'paid_first' => true] + $package,
     ]);
-
-    $attempt(['currency' => 'EGP', 'paid_invoice_id' => $unpaid])->assertStatus(422)->assertJsonValidationErrors('package.paid_invoice_id');
 
     $paid = paidNameBill('Paid Pia');
     $attempt(['currency' => 'USD', 'paid_invoice_id' => $paid])->assertStatus(422)->assertJsonValidationErrors('package.paid_invoice_id');
@@ -1993,6 +2055,24 @@ it('refuses a bill that is unpaid, in another currency or already a package bill
 
     $this->asAcademy($this->academy);
     expect(DB::table('students')->where('full_name', 'Refused Rami')->count())->toBe(1);
+});
+
+it('lists only the bills typed at the desk under Custom bills, not package bills', function () {
+    Sanctum::actingAs($this->owner);
+    $quick = paidNameBill('Desk Bill', 50000, pay: false);
+    $package = ($this->openPackage)(10, 200000);
+
+    $this->clearTenantContext();
+    Sanctum::actingAs($this->owner);
+    $hand = collect($this->getJson('/api/invoices?filter[kind]=MANUAL&filter[source]=hand')->assertOk()->json('rows'))->pluck('id');
+    $lessons = collect($this->getJson('/api/invoices?filter[source]=lessons')->assertOk()->json('rows'))->pluck('id');
+    expect($hand->all())->toBe([$quick])
+        ->and($lessons)->not->toContain($package['invoice_id'])
+        ->and($lessons)->not->toContain($quick);
+
+    $summary = $this->getJson('/api/invoices/summary?kind=MANUAL&source=hand')->assertOk();
+    expect($summary->json('counts.all'))->toBe(1)
+        ->and($summary->json('money.0.billed_minor'))->toBe(50000);
 });
 
 // ─── Paying packages ahead (Ahmed 2026-11-17) ────────────────────────────────
@@ -2242,4 +2322,29 @@ it('corrects a sealed salary month in place when the teacher\'s share of a cance
         ->and($payout->finalized_at)->not->toBeNull()
         // The student's side did not move: it still counts.
         ->and(DB::table('lesson_package_credits')->where('session_id', $cancelled)->exists())->toBeTrue();
+});
+
+it('marks the bills typed at the desk as hand-made when the column arrives, and nothing else', function () {
+    Sanctum::actingAs($this->owner);
+    $typed = paidNameBill('Old Desk Bill', 30000, pay: false);
+    $adopted = paidNameBill('Pia Newcomer');
+    $this->postJson('/api/students', [
+        'full_name' => 'Pia Newcomer', 'guardian_id' => $this->guardian, 'status' => 'REGULAR',
+        'package' => ['label' => '20 hours', 'hours' => 20, 'price_minor' => 400000, 'currency' => 'EGP', 'paid_first' => true, 'paid_invoice_id' => $adopted],
+    ])->assertCreated();
+    $package = ($this->openPackage)(10, 200000);
+
+    // As the bills stood before the column existed.
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->update(['hand_made' => false]);
+    $this->clearTenantContext();
+
+    $migration = require database_path('migrations/2026_11_29_000001_invoices_hand_made.php');
+    expect($migration->fill())->toBe(2)
+        ->and($migration->fill())->toBe(0);
+
+    $this->asAcademy($this->academy);
+    $hand = DB::table('invoices')->where('hand_made', true)->pluck('id')->all();
+    expect($hand)->toEqualCanonicalizing([$typed, $adopted])
+        ->and($hand)->not->toContain($package['invoice_id']);
 });

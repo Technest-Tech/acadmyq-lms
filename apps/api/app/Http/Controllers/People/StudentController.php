@@ -184,6 +184,11 @@ final class StudentController extends Controller
         }
         // The level must be one of ours and on — checked before the first write like everything else.
         app(StudentLevels::class)->assertUsable($data['level_id'] ?? null);
+        // "First package already paid" marks the package's bill paid: whoever cannot mark a bill
+        // paid cannot say so here either.
+        if ($package !== null && ((bool) ($package['paid_first'] ?? false) || ! empty($package['paid_invoice_id']))) {
+            Gate::authorize('invoice.mark_paid');
+        }
 
         // Every write below in one unit: the request transaction COMMITS what was written before a
         // refusal further down (an inactive teacher, a package that will not open), which left a
@@ -252,6 +257,8 @@ final class StudentController extends Controller
                     'expires_on' => $package['expires_on'] ?? null,
                     'auto_renew' => (bool) ($package['auto_renew'] ?? true),
                     'paid_invoice_id' => $package['paid_invoice_id'] ?? null,
+                    'paid_first' => (bool) ($package['paid_first'] ?? false),
+                    'paid_method' => $package['paid_method'] ?? 'CASH',
                     // A brand-new student has no earlier package to carry hours from.
                     'carry_over' => false,
                 ], $this->ctx()->userId, $this->ctx()->role);
@@ -1326,8 +1333,11 @@ final class StudentController extends Controller
             $rules['package.expires_on'] = ['sometimes', 'nullable', 'date', 'after_or_equal:package.starts_on'];
             $rules['package.auto_renew'] = ['sometimes', 'boolean'];
             $rules['package.lesson_minutes'] = ['sometimes', 'nullable', 'integer', 'min:5', 'max:600'];
-            // Paid on a hand-made bill before the student was on file: that bill is the package's.
+            // Paid before the student was on file: on the hand-made bill raised for it (that bill
+            // becomes the package's), or — none found — on the package's own bill; marked paid.
             $rules['package.paid_invoice_id'] = ['sometimes', 'nullable', 'uuid'];
+            $rules['package.paid_first'] = ['sometimes', 'boolean'];
+            $rules['package.paid_method'] = ['sometimes', 'nullable', Rule::in(['CASH', 'BANK_TRANSFER', 'OTHER'])];
         }
 
         return $request->validate($rules);

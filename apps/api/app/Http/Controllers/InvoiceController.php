@@ -34,14 +34,16 @@ final class InvoiceController extends Controller
     public const FOLLOW_UP_HOURS = 24;
 
     /**
-     * The bill needs chasing: a hand-made one (quick, itemized or advance) still owing money the
-     * day after its pay-by date (`due_on`) — or, without one, {@see FOLLOW_UP_HOURS} after it was
-     * raised. A package's own bill is MANUAL too, but the due-packages page and its badge already
-     * chase those, so they are left out here rather than counted twice. Its two bindings are
-     * {@see followUpBindings()}: the academy's today, then the raised-before cutoff.
+     * The bill needs chasing: a hand-made one (quick, itemized or advance — `hand_made`) still owing
+     * money the day after its pay-by date (`due_on`) — or, without one, {@see FOLLOW_UP_HOURS} after
+     * it was raised. A package's own bill is MANUAL too, but the due-packages page and its badge
+     * already chase those, so they are left out here rather than counted twice (a hand-made bill a
+     * first package was opened on included). Its two bindings are {@see followUpBindings()}: the
+     * academy's today, then the raised-before cutoff.
      */
     private const FOLLOW_UP_SQL = <<<'SQL'
         (inv.kind = 'MANUAL'
+         and inv.hand_made
          and inv.status in ('OPEN', 'CLOSED', 'PARTIALLY_PAID')
          and inv.total_minor > inv.amount_paid_minor
          and (case when inv.due_on is not null then inv.due_on < cast(? as date)
@@ -50,6 +52,24 @@ final class InvoiceController extends Controller
          and not exists (select 1 from lesson_packages lp where lp.overdraft_invoice_id = inv.id)
          and not exists (select 1 from centre_subscriptions cs where cs.invoice_id = inv.id))
         SQL;
+
+    /**
+     * Which list a bill belongs on (`source`, list + summary). `hand` = Custom bills: only what the
+     * desk typed ({@see Invoicing::createManualInvoice()}, advance), never a package's, a centre
+     * subscription's or a re-issued lesson bill, though all of those are MANUAL as well (Ahmed,
+     * 2026-11-22). `lessons` = the automatic bills plus the lesson bills that changed kind on the
+     * way (re-issued without package lessons, moved with a child) — package and subscription bills
+     * have their own due pages, so they are on neither list.
+     */
+    private const SOURCE_SQL = [
+        'hand' => '(inv.hand_made)',
+        'lessons' => <<<'SQL'
+            (inv.kind = 'AUTO'
+             or (inv.kind = 'MANUAL' and not inv.hand_made
+                 and not exists (select 1 from lesson_packages lp where lp.invoice_id = inv.id or lp.overdraft_invoice_id = inv.id)
+                 and not exists (select 1 from centre_subscriptions cs where cs.invoice_id = inv.id)))
+            SQL,
+    ];
 
     /**
      * The bill can be deleted outright: one an operator typed by hand (a custom bill — free-form
@@ -188,6 +208,11 @@ final class InvoiceController extends Controller
             'filters' => [
                 'status' => fn ($q, $v) => $this->whereStatus($q, (string) $v),
                 'kind' => fn ($q, $v) => $q->where('inv.kind', $v),
+                'source' => function ($q, $v): void {
+                    if (isset(self::SOURCE_SQL[(string) $v])) {
+                        $q->whereRaw(self::SOURCE_SQL[(string) $v]);
+                    }
+                },
                 'follow_up' => function ($q, $v): void {
                     if ((string) $v === '1') {
                         $q->whereRaw(self::FOLLOW_UP_SQL, self::followUpBindings());
@@ -574,10 +599,13 @@ final class InvoiceController extends Controller
     {
         Gate::authorize('invoice.read');
 
-        $base = DB::table('invoices');
+        $base = DB::table('invoices as inv');
 
         if ($request->filled('kind')) {
             $base->where('kind', (string) $request->query('kind'));
+        }
+        if (isset(self::SOURCE_SQL[(string) $request->query('source', '')])) {
+            $base->whereRaw(self::SOURCE_SQL[(string) $request->query('source')]);
         }
         if ($request->filled('period_year')) {
             $base->where('period_year', (int) $request->query('period_year'));

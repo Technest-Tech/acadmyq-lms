@@ -381,8 +381,18 @@ export function StudentForm({
   const guardianCurrency =
     (addingParent ? parentCurrency : (guardians.find((g) => g.id === (fixedGuardianId ?? guardianId))?.currency ?? "")) || defaults.currency;
   const terms = usePackageTerms({ defaultCurrency: guardianCurrency });
-  // Paid before being added: the package opens on that paid bill instead of raising a second one.
-  const paidFirst = usePaidFirstPackage(selfGuardian || addingParent ? "" : (fixedGuardianId ?? guardianId));
+  // Paid before being added: the package opens on the hand-made bill found under the student's (or
+  // parent's) name, marked paid — or on a bill of its own, marked paid. Never on the Due page.
+  const chosenGuardianId = selfGuardian || addingParent ? "" : (fixedGuardianId ?? guardianId);
+  const paidFirst = usePaidFirstPackage({
+    name: fullName,
+    parentName: addingParent ? parentName : (guardians.find((g) => g.id === chosenGuardianId)?.full_name ?? ""),
+    guardianId: chosenGuardianId,
+    currency: terms.currency,
+    priceMinor: terms.priceMinor,
+  });
+  // It marks a bill paid, so it is offered to whoever may do that.
+  const canMarkPaid = can("invoice.mark_paid");
   // A centre's block: the subject is one of the teacher links above, or a new one.
   const subscriptionDraft = useStudentSubscriptionDraft(teacherLinks.map((l) => ({ teacher_id: l.teacher_id, course: l.course.trim() || null })));
 
@@ -539,8 +549,9 @@ export function StudentForm({
       setError(t("form.packageTermsRequired"));
       return false;
     }
-    if (showPackage && onPackage && !paidFirst.valid) {
-      setError(t("form.paidFirstRequired"));
+    // Still looking for the paid bill: saving now would raise a second one beside it.
+    if (showPackage && onPackage && canMarkPaid && paidFirst.loading) {
+      setError(t("form.paidFirstWait"));
       return false;
     }
     if (showPackage && onSubscription && !subscriptionDraft.valid) {
@@ -605,7 +616,7 @@ export function StudentForm({
         // The package path opens the package in the same request, which also creates the
         // student's package-billing subscription — so it sends no `subscription` of its own.
         ...(showPackage && onPackage
-          ? { package: { ...terms.toPayload(), ...(paidFirst.paidInvoiceId !== null ? { paid_invoice_id: paidFirst.paidInvoiceId } : {}) } }
+          ? { package: { ...terms.toPayload(), ...(canMarkPaid ? paidFirst.toPayload() : {}) } }
           : {}),
         // A centre's block travels as `subscription` too (docs/centre-profile/01 "API contract").
         ...(showPackage && onSubscription ? { subscription: subscriptionDraft.toPayload() } : {}),
@@ -1261,7 +1272,7 @@ export function StudentForm({
             ) : onPackage ? (
               <>
                 <PackageTermsFields terms={terms} idPrefix="new-student-pkg" simple />
-                <PaidFirstPackageField state={paidFirst} priceMinor={terms.priceMinor} idPrefix="new-student-pkg" />
+                {canMarkPaid && <PaidFirstPackageField state={paidFirst} priceMinor={terms.priceMinor} idPrefix="new-student-pkg" />}
               </>
             ) : groupsOnly ? null : (
               <MonthlyTermsFields terms={monthly} idPrefix="new-student-monthly" />
