@@ -59,6 +59,7 @@ import {
 import { useCapability } from "@/lib/capabilities";
 import { groupLessonsAsSessions, attendedGroupLessons } from "@/lib/group-calendar";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
+import { academyCurrency, commonCurrency, partsText, sumAs, totalIn, useDashboardRates, type CurrencyAmount } from "@/lib/dashboard-money";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { numeralLocale } from "@/lib/numerals";
 import { formatRelativeTime } from "@/lib/time";
@@ -196,7 +197,22 @@ export function ModernDashboard() {
     void load();
   }, [load]);
 
-  const currency = session?.academy?.defaultCurrency || invoices?.money[0]?.currency || "EGP";
+  // Money in ONE currency: the academy's, every other converted at today's rate (lib/dashboard-money).
+  // It used to read the academy's currency row and, when there was none, print another currency's
+  // figure under the academy's symbol: dollars shown as Egyptian pounds.
+  const invMoney = useMemo(() => invoices?.money ?? [], [invoices]);
+  const revenueAmounts = useMemo<CurrencyAmount[]>(
+    () => (revenue ?? []).flatMap((r) => (r?.rows ?? []).map((row) => ({ currency: row.currency, minor: row.revenue_minor }))),
+    [revenue],
+  );
+  const currency = academyCurrency(session?.academy?.defaultCurrency, [
+    ...invMoney.map((m) => ({ currency: m.currency, minor: m.billed_minor })),
+    ...revenueAmounts,
+  ]);
+  const { fx, pending: fxPending } = useDashboardRates([
+    ...invMoney.filter((m) => m.due_minor !== 0).map((m) => m.currency),
+    ...revenueAmounts.filter((a) => a.minor !== 0).map((a) => a.currency),
+  ]);
   const money = (minor: number, cur = currency) => formatMoney({ amount: minor, currency: cur }, locale, { trimZeroDecimals: true });
   const timeOf = (iso: string) =>
     new Intl.DateTimeFormat(numeralLocale(locale), { hour: "2-digit", minute: "2-digit", timeZone: academyTimeZone() }).format(new Date(iso));
@@ -222,15 +238,22 @@ export function ModernDashboard() {
   }, [week, t]);
   const weekTotal = weekSlices.reduce((sum, s) => sum + s.value, 0);
 
-  // ── Six months of revenue in the academy's currency ──
+  // ── Six months of revenue in one currency ──
+  // Every currency of a month added up (converted when there are several); with no rates, only the
+  // academy's own currency, so the line never mixes units.
+  const chartCurrency = commonCurrency(revenueAmounts, currency, fx);
+  const seriesCurrency = chartCurrency ?? currency;
+  const chartConverted = chartCurrency !== null && new Set(revenueAmounts.filter((a) => a.minor !== 0).map((a) => a.currency)).size > 1;
   const series = useMemo(() => {
     if (revenue === null) return [];
     return lastSixMonths().map((m, i) => {
-      const rows = revenue[i]?.rows ?? [];
-      const row = rows.find((r) => r.currency === currency) ?? rows[0];
-      return { month: `${m.year}-${String(m.month).padStart(2, "0")}`, value: row?.revenue_minor ?? 0 };
+      const rows = (revenue[i]?.rows ?? []).filter((r) => chartCurrency !== null || r.currency === currency);
+      return {
+        month: `${m.year}-${String(m.month).padStart(2, "0")}`,
+        value: sumAs(rows.map((r) => ({ currency: r.currency, minor: r.revenue_minor })), seriesCurrency, fx),
+      };
     });
-  }, [revenue, currency]);
+  }, [revenue, currency, chartCurrency, seriesCurrency, fx]);
   const latest = series[series.length - 1]?.value ?? 0;
   const previous = series[series.length - 2]?.value ?? 0;
   const monthChange = previous > 0 ? Math.round(((latest - previous) / previous) * 100) : null;
@@ -248,7 +271,12 @@ export function ModernDashboard() {
   );
 
   // ── Up to four numbers, each only for someone who may read it ──
-  const due = invoices?.money.find((m) => m.currency === currency) ?? invoices?.money[0] ?? null;
+  const due = invoices === null ? null : totalIn(invMoney.map((m) => ({ currency: m.currency, minor: m.due_minor })), currency, fx);
+  const dueNote = [
+    invoices && invoices.counts.OPEN > 0 ? t("kpi.openBills", { count: invoices.counts.OPEN }) : null,
+    due && due.minor === null ? tDash("finance.noRate", { parts: partsText(due.parts, locale) }) : null,
+    due && due.minor !== null && due.converted ? tDash("finance.converted", { parts: partsText(due.parts, locale) }) : null,
+  ].filter((n): n is string => n !== null);
   const kpis: Kpi[] = [];
   if (can("student.read")) {
     kpis.push({ key: "students", Icon: GraduationCap, tone: "violet", label: t("kpi.students"), value: studentsTotal, loading, href: "/students" });
@@ -280,10 +308,10 @@ export function ModernDashboard() {
       Icon: Wallet,
       tone: "rose",
       label: t("kpi.due"),
-      value: due === null ? null : due.due_minor,
-      display: due === null ? undefined : money(due.due_minor, due.currency),
-      note: invoices && invoices.counts.OPEN > 0 ? t("kpi.openBills", { count: invoices.counts.OPEN }) : undefined,
-      loading,
+      value: due === null ? null : due.minor,
+      display: due === null || due.minor === null ? undefined : money(due.minor, due.currency),
+      note: dueNote.length > 0 ? dueNote.join(" · ") : undefined,
+      loading: loading || fxPending,
       href: accountingOn ? "/accounting/arrears" : "/invoices",
     });
   }
@@ -412,7 +440,7 @@ export function ModernDashboard() {
                 title={t("revenue.title")}
                 end={<span className="text-muted-foreground text-xs font-semibold">{t("revenue.period")}</span>}
               />
-              {revenue === null ? (
+              {revenue === null || fxPending ? (
                 <div className="bg-muted mt-4 h-60 animate-pulse rounded-xl" />
               ) : !hasRevenue ? (
                 <p className="text-muted-foreground py-20 text-center text-sm">{t("revenue.empty")}</p>
@@ -420,19 +448,22 @@ export function ModernDashboard() {
                 <>
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
                     <p className="text-2xl font-extrabold tracking-tight tabular-nums sm:text-[1.75rem]" data-testid="revenue-latest">
-                      {money(latest)}
+                      {money(latest, seriesCurrency)}
                     </p>
                     <DeltaChip value={monthChange} />
                     <span className="text-muted-foreground text-xs">{t("revenue.thisMonth")}</span>
                   </div>
                   <TrendChart
                     points={series}
-                    format={(v) => money(v)}
+                    format={(v) => money(v, seriesCurrency)}
                     unitsPerAxisStep={100}
                     monthLabel={monthFormatter(locale, true)}
                     shortMonthLabel={monthFormatter(locale, false)}
                     label={t("revenue.title")}
                   />
+                  {chartConverted && (
+                    <p className="text-muted-foreground mt-1 text-[11px]">{tDash("finance.chartCurrency", { currency: seriesCurrency })}</p>
+                  )}
                 </>
               )}
             </div>

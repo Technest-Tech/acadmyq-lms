@@ -58,6 +58,7 @@ import {
   type CentreTrend,
   type TrendMonths,
 } from "@/lib/centre-dashboard-api";
+import { academyCurrency, commonCurrency, sumAs, totalIn, useDashboardRates, type CurrencyAmount } from "@/lib/dashboard-money";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { formatRelativeTime } from "@/lib/time";
 
@@ -145,8 +146,22 @@ export function CentreDashboard() {
     };
   }, [showNumbers, months]);
 
-  const currency = session?.academy?.defaultCurrency || trend?.collected?.[0]?.currency || "EGP";
-  const owed = money?.owed.find((r) => r.currency === currency) ?? money?.owed[0] ?? null;
+  // Money in ONE currency: the academy's, every other converted at today's rate (lib/dashboard-money).
+  // The chart used to take the academy's currency row and, when there was none, draw another
+  // currency's months under the academy's symbol.
+  const collectedAmounts = useMemo<CurrencyAmount[]>(
+    () => (trend?.collected ?? []).flatMap((r) => r.by_month.map((m) => ({ currency: r.currency, minor: m.amount_minor }))),
+    [trend],
+  );
+  const owedAmounts = useMemo<CurrencyAmount[]>(() => (money?.owed ?? []).map((r) => ({ currency: r.currency, minor: r.due_minor })), [money]);
+  const currency = academyCurrency(session?.academy?.defaultCurrency, collectedAmounts);
+  const { fx, pending: fxPending } = useDashboardRates([
+    ...collectedAmounts.filter((a) => a.minor !== 0).map((a) => a.currency),
+    ...owedAmounts.filter((a) => a.minor !== 0).map((a) => a.currency),
+  ]);
+  const owedTotal = totalIn(owedAmounts, currency, fx);
+  // Families still owing: each currency's row counts its own payers.
+  const owedPayers = (money?.owed ?? []).reduce((sum, r) => sum + r.payers, 0);
 
   const unmarked = (numbers?.today.group_unmarked ?? 0) + (numbers?.today.private_unmarked ?? 0);
   const rate = numbers?.week.attendance_rate ?? null;
@@ -157,23 +172,29 @@ export function CentreDashboard() {
   // ── The chart: money for someone on receipts who may read it, otherwise the lessons held ──
   // Until the months arrive, the permission decides, so the card's title does not change under the reader.
   const showMoney = accountingOn && trend?.collected !== null;
+  const chartCurrency = commonCurrency(collectedAmounts, currency, fx);
+  const seriesCurrency = chartCurrency ?? currency;
   const series = useMemo(() => {
     if (trend === null) return [];
     if (showMoney) {
-      const row = trend.collected?.find((r) => r.currency === currency) ?? trend.collected?.[0];
+      const rows = (trend.collected ?? []).filter((r) => chartCurrency !== null || r.currency === currency);
       return trend.months.map((month) => ({
         month,
-        value: row?.by_month.find((m) => m.month === month)?.amount_minor ?? 0,
+        value: sumAs(
+          rows.map((r) => ({ currency: r.currency, minor: r.by_month.find((m) => m.month === month)?.amount_minor ?? 0 })),
+          seriesCurrency,
+          fx,
+        ),
       }));
     }
     return trend.lessons.map((l) => ({ month: l.month, value: l.count }));
-  }, [trend, showMoney, currency]);
+  }, [trend, showMoney, currency, chartCurrency, seriesCurrency, fx]);
 
   const latest = series[series.length - 1]?.value ?? 0;
   const previous = series[series.length - 2]?.value ?? 0;
   const monthChange = previous > 0 ? Math.round(((latest - previous) / previous) * 100) : null;
   const hasData = series.some((p) => p.value > 0);
-  const moneyText = (minor: number) => formatMoney({ amount: minor, currency }, locale, { trimZeroDecimals: true });
+  const moneyText = (minor: number, cur = seriesCurrency) => formatMoney({ amount: minor, currency: cur }, locale, { trimZeroDecimals: true });
   const chartText = (value: number) => (showMoney ? moneyText(value) : formatNumber(value, locale));
 
   // A student who joined this month is an active student: the ring is their status, and how many are
@@ -216,7 +237,7 @@ export function CentreDashboard() {
         Icon: AlarmClock,
         tone: "rose",
         label: t("followUp.arrears"),
-        count: owed?.payers ?? 0,
+        count: owedPayers,
         unit: t("followUp.family"),
         href: "/accounting/arrears",
       });
@@ -397,7 +418,7 @@ export function CentreDashboard() {
                   />
                 }
               />
-              {trend === null && !trendFailed ? (
+              {(trend === null && !trendFailed) || (showMoney && fxPending) ? (
                 <div className="bg-muted mt-4 h-60 animate-pulse rounded-xl" />
               ) : !hasData ? (
                 <p className="text-muted-foreground py-20 text-center text-sm">{showMoney ? t("trend.emptyMoney") : t("trend.emptyLessons")}</p>
@@ -408,9 +429,9 @@ export function CentreDashboard() {
                       {chartText(latest)}
                     </p>
                     <DeltaChip value={monthChange} />
-                    {showMoney && owed && owed.due_minor > 0 && (
+                    {showMoney && owedTotal.minor !== null && owedTotal.minor > 0 && (
                       <Link href="/accounting/arrears" className="text-muted-foreground hover:text-foreground ms-auto text-xs font-medium transition-colors">
-                        {t("trend.owed", { amount: moneyText(owed.due_minor) })}
+                        {t("trend.owed", { amount: moneyText(owedTotal.minor, owedTotal.currency) })}
                       </Link>
                     )}
                   </div>

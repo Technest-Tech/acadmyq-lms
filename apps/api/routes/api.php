@@ -1009,6 +1009,10 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // centre switch — a Quran academy keeps its own dashboard and never calls this.
     Route::middleware('entitled:centre')->get('/dashboard/centre', [CentreDashboardController::class, 'show']);
     Route::middleware('entitled:centre')->get('/dashboard/centre/trend', [CentreDashboardController::class, 'trend']);
+    // Rates for the home screen's money cards: an academy billing in several currencies reads one
+    // total in its own currency. Behind no module, since every dashboard shows money; the controller
+    // asks for a money reader (invoice.read or payout.read).
+    Route::get('/dashboard/exchange-rates', [ExchangeRateController::class, 'dashboard']);
 
     // ── Levels / grades (docs/centre-profile, Phase 2.1) ─────────────────────────────────────
     // The academy's own ordered list of levels (Settings, specialization.manage to change), the

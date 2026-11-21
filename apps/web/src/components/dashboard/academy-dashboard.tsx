@@ -59,6 +59,16 @@ import {
   type ProfitSummary,
   type ProfitSummaryRow,
 } from "@/lib/api";
+import {
+  academyCurrency,
+  commonCurrency,
+  partsText,
+  sumAs,
+  totalIn,
+  useDashboardRates,
+  type CurrencyAmount,
+  type MoneyTotal,
+} from "@/lib/dashboard-money";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { bookedTrialsAsLessons, mergeWeekTrials, type WeekTrial } from "@/lib/week-trials";
@@ -533,13 +543,15 @@ export interface StatCardProps {
   isMoney?: boolean;
   moneyAmount?: number;
   moneyCurrency?: string;
+  /** A small muted line under the figure: the real per-currency amounts behind a converted total. */
+  note?: string;
   locale: string;
 }
 
 export function StatCard({
   Icon, color, label, value, sub, loading, href, alert,
   trend, spark, sparkData, progress, progressLabel, isMoney,
-  moneyAmount, moneyCurrency, locale,
+  moneyAmount, moneyCurrency, note, locale,
 }: StatCardProps) {
   const c = COLORS[color] ?? COLORS.slate!;
   const showSpark = !loading && spark && sparkData && sparkData.length > 1;
@@ -587,6 +599,7 @@ export function StatCard({
             </p>
             <p className="mt-0.5 text-sm font-semibold text-foreground/80">{label}</p>
             {sub && <p className={cn("mt-0.5 text-xs font-medium", c.text)}>{sub}</p>}
+            {note && <p className="mt-1 text-[11px] leading-snug break-words text-muted-foreground">{note}</p>}
           </>
         )}
       </div>
@@ -839,7 +852,8 @@ export function AcademyDashboard() {
     graceHours: number;
   } | null>(null);
   const [invoiceSummary, setInvoiceSummary] = useState<InvoiceSummary | null>(null);
-  const [profitMonths, setProfitMonths] = useState<MonthPoint[]>([]);
+  // Six months of revenue and salaries, every currency of each month kept (the chart converts them).
+  const [profitResults, setProfitResults] = useState<{ year: number; month: number; rows: ProfitSummaryRow[] }[]>([]);
   // Current-month profit broken out per currency — drives the teacher-salary and net-profit
   // admin KPI cards (payouts = total teacher salaries; profit = revenue after discounts − salaries).
   const [monthProfit, setMonthProfit] = useState<ProfitSummaryRow[] | null>(null);
@@ -965,12 +979,9 @@ export function AcademyDashboard() {
           ? getProfitSummary(m.year, m.month).catch(() => null)
           : Promise.resolve(null)
       )).then((results) => {
-        const pts: MonthPoint[] = months.map((m, i) => {
-          const r = results[i] as ProfitSummary | null;
-          const row = r?.rows?.[0];
-          return { year: m.year, month: m.month, revenue: row?.revenue_minor ?? 0, payouts: row?.payouts_minor ?? 0 };
-        });
-        setProfitMonths(pts);
+        // Every currency of every month: reading only `rows[0]` charted whichever currency the
+        // server happened to list first, a different one from month to month.
+        setProfitResults(months.map((m, i) => ({ year: m.year, month: m.month, rows: (results[i] as ProfitSummary | null)?.rows ?? [] })));
         // The last entry is the current month — keep its full per-currency breakdown for the
         // teacher-salary and net-profit cards.
         const current = results[results.length - 1] as ProfitSummary | null;
@@ -998,10 +1009,57 @@ export function AcademyDashboard() {
   // Derived values
   const pendingCount = (pending?.length ?? 0) + groupOwed;
   const openInvoices = invoiceSummary?.counts.OPEN ?? 0;
-  const bucket = invoiceSummary?.money[0];
-  const collectionRate = bucket?.billed_minor
-    ? Math.round((bucket.collected_minor / bucket.billed_minor) * 100)
+
+  // ── Money, in ONE currency ──
+  // The cards used to read `money[0]`, the currency with the biggest RAW sum: Egyptian pounds beat
+  // dollars on raw numbers, so an academy paid mostly in dollars saw only its pound slice, under a
+  // pound sign. Now each card is the whole, converted into the academy's currency at today's rate,
+  // with the real amounts per currency written under it (lib/dashboard-money).
+  const invMoney = useMemo(() => invoiceSummary?.money ?? [], [invoiceSummary]);
+  const invPart = useCallback(
+    (key: "billed_minor" | "collected_minor" | "outstanding_minor" | "due_minor"): CurrencyAmount[] =>
+      invMoney.map((m) => ({ currency: m.currency, minor: m[key] })),
+    [invMoney],
+  );
+  const profitAmounts = useMemo<CurrencyAmount[]>(
+    () => profitResults.flatMap((p) => p.rows.flatMap((r) => [
+      { currency: r.currency, minor: r.revenue_minor },
+      { currency: r.currency, minor: r.payouts_minor },
+    ])),
+    [profitResults],
+  );
+  const { fx, pending: fxPending } = useDashboardRates([
+    ...invMoney.map((m) => m.currency),
+    ...profitResults.flatMap((p) => p.rows.map((r) => r.currency)),
+  ]);
+  const homeCurrency = academyCurrency(session?.academy?.defaultCurrency, [...invPart("billed_minor"), ...profitAmounts]);
+  const collected = totalIn(invPart("collected_minor"), homeCurrency, fx);
+  const billed = totalIn(invPart("billed_minor"), homeCurrency, fx);
+  const outstanding = totalIn(invPart("outstanding_minor"), homeCurrency, fx);
+  const totalDue = totalIn(invPart("due_minor"), homeCurrency, fx);
+  const billCurrency = commonCurrency(invPart("billed_minor"), homeCurrency, fx);
+  const billedIn = billCurrency === null ? 0 : sumAs(invPart("billed_minor"), billCurrency, fx);
+  const collectionRate = billCurrency !== null && billedIn > 0
+    ? Math.round((sumAs(invPart("collected_minor"), billCurrency, fx) / billedIn) * 100)
     : 0;
+
+  // The six-month chart in one currency too: revenue and salaries can only stand side by side, and
+  // a month against the month before, when they are counted in the same unit. With no rates and
+  // several currencies, it keeps the academy's own currency rather than mixing units.
+  const chartCurrency = commonCurrency(profitAmounts, homeCurrency, fx);
+  const chartConverted = chartCurrency !== null && new Set(profitAmounts.filter((a) => a.minor !== 0).map((a) => a.currency)).size > 1;
+  const profitMonths = useMemo<MonthPoint[]>(() => {
+    const cur = chartCurrency ?? homeCurrency;
+    return profitResults.map((p) => {
+      const rows = chartCurrency === null ? p.rows.filter((r) => r.currency === homeCurrency) : p.rows;
+      return {
+        year: p.year,
+        month: p.month,
+        revenue: sumAs(rows.map((r) => ({ currency: r.currency, minor: r.revenue_minor })), cur, fx),
+        payouts: sumAs(rows.map((r) => ({ currency: r.currency, minor: r.payouts_minor })), cur, fx),
+      };
+    });
+  }, [profitResults, chartCurrency, homeCurrency, fx]);
   const revSparkData = useMemo(() => profitMonths.map((p) => p.revenue), [profitMonths]);
 
   // Month-over-month revenue change — drives the trend badge on the revenue analytics card.
@@ -1041,28 +1099,41 @@ export function AcademyDashboard() {
     [weekSessions, trialStudentIds, bookedTrials],
   );
 
-  // Total amount owed per currency across every academy that has bills (all-time, non-VOID).
-  const dueByCurrency = useMemo(
-    () => (invoiceSummary?.money ?? []).filter((m) => m.due_minor > 0),
-    [invoiceSummary],
-  );
-  // Teacher salaries (payouts) and net profit for the current month, per currency.
-  const salariesByCurrency = useMemo(
-    () => (monthProfit ?? []).filter((r) => r.payouts_minor > 0),
-    [monthProfit],
-  );
-  const profitByCurrency = useMemo(
-    () => (monthProfit ?? []).filter((r) => r.revenue_minor > 0 || r.payouts_minor > 0),
-    [monthProfit],
-  );
-  // Money cards always render (per product choice) even before any invoice exists. When there is
-  // no invoice bucket to read a currency from, fall back to the academy's payout/earnings currency
-  // so the placeholder "0" still formats sensibly instead of guessing a hard-coded currency.
-  const fallbackCurrency =
-    bucket?.currency ??
-    monthProfit?.find((r) => r.currency)?.currency ??
-    myEarnings?.currency ??
-    "EGP";
+  // This month's teacher salaries, and the net profit: revenue minus salaries in ONE currency. Per
+  // currency it read nonsense: dollars in with no dollar salaries = a dollar "profit", pound
+  // salaries with few pound fees = a pound "loss".
+  const monthRevenue = useMemo<CurrencyAmount[]>(() => (monthProfit ?? []).map((r) => ({ currency: r.currency, minor: r.revenue_minor })), [monthProfit]);
+  const monthPayouts = useMemo<CurrencyAmount[]>(() => (monthProfit ?? []).map((r) => ({ currency: r.currency, minor: r.payouts_minor })), [monthProfit]);
+  const salaries = totalIn(monthPayouts, homeCurrency, fx);
+  const profitCurrency = commonCurrency([...monthRevenue, ...monthPayouts], homeCurrency, fx);
+  const netProfit: MoneyTotal | null =
+    profitCurrency === null || !(monthProfit ?? []).some((r) => r.revenue_minor > 0 || r.payouts_minor > 0)
+      ? null
+      : {
+          currency: profitCurrency,
+          minor: sumAs(monthRevenue, profitCurrency, fx) - sumAs(monthPayouts, profitCurrency, fx),
+          converted: new Set([...monthRevenue, ...monthPayouts].filter((a) => a.minor !== 0).map((a) => a.currency)).size > 1,
+          parts: [],
+          missing: [],
+        };
+  // The line under a money card: what a converted total was made of, or each currency on its own
+  // when there is no rate to add them up with.
+  const moneyNote = (total: MoneyTotal): string | undefined => {
+    if (total.minor === null) return t("finance.noRate", { parts: partsText(total.parts, locale) });
+    if (!total.converted) return undefined;
+    if (total.parts.length === 0) return t("finance.chartCurrency", { currency: total.currency });
+    const base = t("finance.converted", { parts: partsText(total.parts, locale) });
+    return total.missing.length > 0 ? `${base} · ${t("finance.missing", { list: total.missing.join("، ") })}` : base;
+  };
+  const moneyProps = (total: MoneyTotal) => ({
+    value: null,
+    isMoney: total.minor !== null,
+    moneyAmount: total.minor ?? undefined,
+    moneyCurrency: total.currency,
+    note: moneyNote(total),
+  });
+  const ldMoney = ldInv || fxPending;
+  const ldProfitMoney = ldProfit || fxPending;
   const canInvoice = can("invoice.read");
   const invoiceCount = invoiceSummary?.counts.all ?? 0;
   const studentLimit = entitlements?.limits?.students ?? null;
@@ -1334,12 +1405,9 @@ export function AcademyDashboard() {
                 Icon={Wallet}
                 color="teal"
                 label={t("finance.collected")}
-                value={null}
-                isMoney
-                moneyAmount={bucket?.collected_minor ?? 0}
-                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                {...moneyProps(collected)}
                 sub={`${collectionRate}% ${t("kpi.collectionRate")}`}
-                loading={ldInv}
+                loading={ldMoney}
                 href={canInvoice ? "/invoices" : undefined}
                 trend={revenueTrend}
                 sparkData={revSparkData.length > 1 ? revSparkData : undefined}
@@ -1350,12 +1418,9 @@ export function AcademyDashboard() {
                 Icon={BarChart3}
                 color="emerald"
                 label={t("finance.billed")}
-                value={null}
-                isMoney
-                moneyAmount={bucket?.billed_minor ?? 0}
-                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                {...moneyProps(billed)}
                 sub={t("kpi.totalBilledSub")}
-                loading={ldInv}
+                loading={ldMoney}
                 href={canInvoice ? "/financial-statistics" : undefined}
                 locale={locale}
               />
@@ -1363,14 +1428,11 @@ export function AcademyDashboard() {
                 Icon={Clock}
                 color="rose"
                 label={t("finance.outstanding")}
-                value={null}
-                isMoney
-                moneyAmount={bucket?.outstanding_minor ?? 0}
-                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                {...moneyProps(outstanding)}
                 sub={t("kpi.outstandingSub")}
-                loading={ldInv}
+                loading={ldMoney}
                 href={canInvoice ? "/invoices" : undefined}
-                alert={(bucket?.outstanding_minor ?? 0) > 0}
+                alert={outstanding.parts.some((p) => p.minor > 0)}
                 locale={locale}
               />
               <StatCard
@@ -1390,63 +1452,52 @@ export function AcademyDashboard() {
                 color="teal"
                 label={t("kpi.avgInvoice")}
                 value={null}
-                isMoney
-                moneyAmount={invoiceCount > 0 ? Math.round((bucket?.billed_minor ?? 0) / invoiceCount) : 0}
-                moneyCurrency={bucket?.currency ?? fallbackCurrency}
+                isMoney={billed.minor !== null}
+                moneyAmount={billed.minor !== null && invoiceCount > 0 ? Math.round(billed.minor / invoiceCount) : 0}
+                moneyCurrency={billed.currency}
+                note={billed.converted && billed.minor !== null ? t("finance.chartCurrency", { currency: billed.currency }) : undefined}
                 sub={t("kpi.avgInvoiceSub")}
-                loading={ldInv}
+                loading={ldMoney}
                 href={canInvoice ? "/financial-statistics" : undefined}
                 locale={locale}
               />
-              {can("invoice.read") && !ldInv && dueByCurrency.map((m) => (
+              {can("invoice.read") && !ldMoney && totalDue.parts.some((p) => p.minor > 0) && (
                 <StatCard
-                  key={`due-${m.currency}`}
                   Icon={ReceiptText}
                   color="gold"
-                  label={`${t("kpi.totalDue")} · ${m.currency}`}
-                  value={null}
-                  isMoney
-                  moneyAmount={m.due_minor}
-                  moneyCurrency={m.currency}
+                  label={t("kpi.totalDue")}
+                  {...moneyProps(totalDue)}
                   sub={t("kpi.totalDueSub")}
                   loading={false}
                   href="/invoices"
                   alert
                   locale={locale}
                 />
-              ))}
-              {can("payout.read") && !ldProfit && salariesByCurrency.map((r) => (
+              )}
+              {can("payout.read") && !ldProfitMoney && salaries.parts.length > 0 && (
                 <StatCard
-                  key={`salary-${r.currency}`}
                   Icon={Wallet}
                   color="rose"
-                  label={`${t("kpi.teacherSalaries")} · ${r.currency}`}
-                  value={null}
-                  isMoney
-                  moneyAmount={r.payouts_minor}
-                  moneyCurrency={r.currency}
+                  label={t("kpi.teacherSalaries")}
+                  {...moneyProps(salaries)}
                   sub={t("kpi.teacherSalariesSub")}
                   loading={false}
                   href="/payroll"
                   locale={locale}
                 />
-              ))}
-              {can("payout.read") && !ldProfit && profitByCurrency.map((r) => (
+              )}
+              {can("payout.read") && !ldProfitMoney && netProfit !== null && (
                 <StatCard
-                  key={`profit-${r.currency}`}
                   Icon={BarChart3}
-                  color={r.profit_minor >= 0 ? "emerald" : "rose"}
-                  label={`${t("kpi.netProfit")} · ${r.currency}`}
-                  value={null}
-                  isMoney
-                  moneyAmount={r.profit_minor}
-                  moneyCurrency={r.currency}
+                  color={(netProfit.minor ?? 0) >= 0 ? "emerald" : "rose"}
+                  label={t("kpi.netProfit")}
+                  {...moneyProps(netProfit)}
                   sub={t("kpi.netProfitSub")}
                   loading={false}
                   href="/financial-statistics"
                   locale={locale}
                 />
-              ))}
+              )}
           </div>
 
           {/* Analytics: revenue chart + invoice mix */}
@@ -1463,12 +1514,17 @@ export function AcademyDashboard() {
                 }
               />
               <div className="mt-4">
-                {ldProfit ? (
+                {ldProfitMoney ? (
                   <div className="flex h-44 items-center justify-center">
                     <Spin className="h-6 w-6 text-muted-foreground" />
                   </div>
                 ) : profitMonths.length > 0 ? (
-                  <RevenueBarChart data={profitMonths} locale={locale} />
+                  <>
+                    <RevenueBarChart data={profitMonths} locale={locale} />
+                    {chartConverted && chartCurrency !== null && (
+                      <p className="mt-1 text-[11px] text-muted-foreground">{t("finance.chartCurrency", { currency: chartCurrency })}</p>
+                    )}
+                  </>
                 ) : (
                   <div className="flex h-44 items-center justify-center text-xs text-muted-foreground">
                     {t("empty.noData")}
@@ -1476,17 +1532,17 @@ export function AcademyDashboard() {
                 )}
               </div>
 
-              {bucket && !ldInv && (
+              {invMoney.length > 0 && !ldMoney && (
                 <div className="mt-4 grid grid-cols-3 divide-x rounded-xl bg-muted/40 text-center">
                   {[
-                    { label: t("finance.billed"), val: bucket.billed_minor, color: "text-foreground" },
-                    { label: t("finance.collected"), val: bucket.collected_minor, color: "text-emerald-600 dark:text-emerald-400" },
-                    { label: t("finance.outstanding"), val: bucket.outstanding_minor, color: bucket.outstanding_minor > 0 ? "text-rose-500" : "text-muted-foreground" },
-                  ].map(({ label, val, color }) => (
+                    { label: t("finance.billed"), total: billed, color: "text-foreground" },
+                    { label: t("finance.collected"), total: collected, color: "text-emerald-600 dark:text-emerald-400" },
+                    { label: t("finance.outstanding"), total: outstanding, color: (outstanding.minor ?? 0) > 0 ? "text-rose-500" : "text-muted-foreground" },
+                  ].map(({ label, total, color }) => (
                     <div key={label} className="px-4 py-3">
                       <p className="text-[10px] uppercase tracking-wider text-muted-foreground">{label}</p>
-                      <p className={cn("mt-0.5 text-sm font-bold tabular-nums", color)}>
-                        {formatMoney({ amount: val, currency: bucket.currency }, locale)}
+                      <p className={cn("mt-0.5 text-sm font-bold break-words tabular-nums", color)}>
+                        {total.minor === null ? "—" : formatMoney({ amount: total.minor, currency: total.currency }, locale)}
                       </p>
                     </div>
                   ))}
@@ -1508,15 +1564,15 @@ export function AcademyDashboard() {
                 </div>
               </div>
 
-              {bucket && !ldInv && (
+              {invMoney.length > 0 && !ldMoney && billCurrency !== null && (
                 <div className="rounded-xl border bg-card p-5">
                   <SectionHeader icon={<Wallet className="h-4 w-4" />} title={t("finance.collectionRate")} />
                   <div className="mt-3 flex justify-center">
                     <CollectionGauge rate={collectionRate} />
                   </div>
                   <p className="mt-1 text-center text-xs text-muted-foreground">
-                    {formatMoney({ amount: bucket.collected_minor, currency: bucket.currency }, locale)} {t("finance.ofBilled")}{" "}
-                    {formatMoney({ amount: bucket.billed_minor, currency: bucket.currency }, locale)}
+                    {formatMoney({ amount: sumAs(invPart("collected_minor"), billCurrency, fx), currency: billCurrency }, locale)} {t("finance.ofBilled")}{" "}
+                    {formatMoney({ amount: billedIn, currency: billCurrency }, locale)}
                   </p>
                 </div>
               )}

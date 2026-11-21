@@ -193,7 +193,11 @@
       "collectionRate": "Collection Rate",
       "outstandingNote": "pending collection",
       "invoiceBreakdown": "Invoice Breakdown",
-      "ofBilled": "of"
+      "ofBilled": "of",
+      "converted": "At today's rate, from: {parts}",
+      "noRate": "No exchange rate right now: {parts}",
+      "missing": "Excludes {list} (no exchange rate)",
+      "chartCurrency": "Amounts in {currency} at today's rate"
     },
     "week": {
       "title": "This Week's Lessons",

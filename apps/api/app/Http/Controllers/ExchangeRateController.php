@@ -77,6 +77,24 @@ final class ExchangeRateController extends Controller
     {
         Gate::authorize('invoice.read');
 
+        return $this->allRates();
+    }
+
+    /**
+     * GET /api/dashboard/exchange-rates: the same full list for the home screen. The dashboard's money
+     * cards used to show only the first currency's slice (EGP, whose raw numbers are the biggest), so
+     * an academy billing in dollars and pounds read a wrong total. Anyone who sees a money card may
+     * read the rates: bills (invoice.read) or salaries (payout.read).
+     */
+    public function dashboard(): JsonResponse
+    {
+        abort_unless(Gate::any(['invoice.read', 'payout.read']), 403);
+
+        return $this->allRates();
+    }
+
+    private function allRates(): JsonResponse
+    {
         $cfg = config('services.exchange');
         $home = strtoupper((string) $cfg['home_currency']);
         $cacheKey = "fx_rates_all:{$home}";

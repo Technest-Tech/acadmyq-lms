@@ -39,11 +39,15 @@ const api = {
   getProfitSummary: vi.fn(),
   listMyPayouts: vi.fn(),
   listTrials: vi.fn(),
+  rates: vi.fn(),
 };
 vi.mock("@/lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/api")>();
   return {
     ...actual,
+    // lib/dashboard-money reads today's rates through apiFetch.
+    apiFetch: async (path: string, init?: RequestInit) =>
+      path === "/api/dashboard/exchange-rates" ? api.rates() : actual.apiFetch(path, init),
     listStudents: (q: unknown) => api.listStudents(q),
     listTeachers: (q: unknown) => api.listTeachers(q),
     getPendingAttendance: () => api.getPendingAttendance(),
@@ -114,6 +118,7 @@ beforeEach(() => {
   }));
   api.listMyPayouts.mockReset().mockResolvedValue({ rows: [] });
   api.listTrials.mockReset().mockResolvedValue({ rows: [], total: 0 });
+  api.rates.mockReset().mockResolvedValue({ home: "EGP", available: true, stale: false, as_of: 1, source: "x", rates: [{ currency: "USD", to_home: 50 }] });
 });
 
 describe("DashboardHome — the modern look for a Quran academy", () => {
@@ -144,6 +149,33 @@ describe("DashboardHome — the modern look for a Quran academy", () => {
     expect(await within(trials).findByText("Huda (trial)")).toBeInTheDocument();
     expect(screen.getByTestId("week-ring")).toBeInTheDocument();
     expect(await screen.findByTestId("revenue-latest")).toBeInTheDocument();
+  });
+
+  it("adds dollars and pounds up in the academy's currency, never one currency's slice", async () => {
+    api.getInvoiceSummary.mockResolvedValue({
+      counts: { all: 30, OPEN: 3, CLOSED: 5, PAID: 20, PARTIALLY_PAID: 2 },
+      money: [
+        { currency: "EGP", billed_minor: 9_000_000, collected_minor: 6_000_000, outstanding_minor: 1_000_000, due_minor: 2_500_000 },
+        { currency: "USD", billed_minor: 400_000, collected_minor: 300_000, outstanding_minor: 50_000, due_minor: 100_000 },
+      ],
+    });
+    // A dollar-only month list: it used to be drawn under the pound sign.
+    api.getProfitSummary.mockImplementation(async (year: number, month: number) => ({
+      year,
+      month,
+      rows: [
+        { currency: "USD", revenue_minor: 200_000, payouts_minor: 0, profit_minor: 0 },
+        { currency: "EGP", revenue_minor: 1_000_000, payouts_minor: 0, profit_minor: 0 },
+      ],
+    }));
+    render(withAuth(owner(), <DashboardHome />));
+    const egp = (minor: number) => formatMoney({ amount: minor, currency: "EGP" }, "ar", { trimZeroDecimals: true });
+    // Owed: 25,000 EGP + $1,000 (50,000 EGP) = 75,000 EGP.
+    const dueCard = (await screen.findByText(t.kpi.due)).closest("[data-testid=kpi-card]") as HTMLElement;
+    await vi.waitFor(() => expect(dueCard.textContent).toContain(egp(7_500_000)));
+    // This month's revenue: $2,000 (100,000 EGP) + 10,000 EGP.
+    await vi.waitFor(() => expect(screen.getByTestId("revenue-latest").textContent).toBe(egp(11_000_000)));
+    expect(api.rates).toHaveBeenCalledTimes(1);
   });
 
   it("lists the trials booked on the Trials page among this week's trials, not just trial lessons", async () => {

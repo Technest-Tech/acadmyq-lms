@@ -193,7 +193,11 @@
       "collectionRate": "معدّل التحصيل",
       "outstandingNote": "في انتظار التحصيل",
       "invoiceBreakdown": "توزيع الفواتير",
-      "ofBilled": "من"
+      "ofBilled": "من",
+      "converted": "بسعر صرف اليوم، من: {parts}",
+      "noRate": "تعذّر جلب سعر الصرف الآن: {parts}",
+      "missing": "لا يشمل {list} (بدون سعر صرف)",
+      "chartCurrency": "المبالغ بـ{currency} بسعر صرف اليوم"
     },
     "week": {
       "title": "دروس هذا الأسبوع",
