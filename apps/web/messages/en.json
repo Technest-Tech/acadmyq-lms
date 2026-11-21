@@ -4208,6 +4208,29 @@
       }
     },
     "emptyOpen": "No open packages right now.",
+    "dueTable": {
+      "family": "Family",
+      "student": "Student",
+      "purpose": "Due for",
+      "package": "Package",
+      "amount": "Amount",
+      "waiting": "Waiting",
+      "reminders": "Reminders",
+      "notReminded": "Not reminded yet",
+      "actions": "Actions",
+      "paidAmount": "Paid"
+    },
+    "dueStats": {
+      "packages": "Packages due",
+      "families": "{count, plural, one {across # family} other {across # families}}",
+      "amount": "Amount due",
+      "notReminded": "Not reminded yet",
+      "reminded": "{count, plural, =0 {No reminders sent yet} one {# package reminded} other {# packages reminded}}",
+      "oldest": "Oldest due",
+      "nothing": "None",
+      "paidCount": "Packages paid",
+      "collected": "Received"
+    },
     "dueTab": {
       "unpaid": "Due ({count})",
       "paid": "Paid ({count})"

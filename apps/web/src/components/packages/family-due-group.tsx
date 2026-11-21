@@ -67,7 +67,7 @@ export function groupDueByFamily(rows: LessonPackageRow[]): DueFamily[] {
 }
 
 /** What the family owes, per currency — money is never summed across currencies. */
-function owed(rows: LessonPackageRow[]): { currency: string; amount_minor: number }[] {
+export function owed(rows: LessonPackageRow[]): { currency: string; amount_minor: number }[] {
   const by = new Map<string, number>();
   for (const r of rows) {
     if (r.outstanding_minor > 0) by.set(r.currency, (by.get(r.currency) ?? 0) + r.outstanding_minor);
@@ -76,7 +76,7 @@ function owed(rows: LessonPackageRow[]): { currency: string; amount_minor: numbe
 }
 
 /** Why the row is owed — a block sold in lessons has no "hours used" to bill. */
-function purposeText(row: LessonPackageRow, purpose: string, t: (key: string) => string): string {
+export function purposeText(row: LessonPackageRow, purpose: string, t: (key: string) => string): string {
   return row.lesson_minutes && (purpose === "USAGE" || purpose === "OVERDRAFT") ? t(`purposeLessons.${purpose}`) : t(`purpose.${purpose}`);
 }
 
@@ -125,53 +125,20 @@ export function paymentMessage({
   ].join("\n");
 }
 
-/** The colour a purpose wears: new money green, renewals blue, usage violet, problems amber/rose. */
-const PURPOSE_TONE: Record<PackagePurpose, string> = {
-  NEW: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
-  RENEWAL: "bg-sky-500/12 text-sky-700 dark:text-sky-300",
-  AUTO_RENEWAL: "bg-sky-500/12 text-sky-700 dark:text-sky-300",
-  USAGE: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
-  UNBILLED: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
-  OVERDRAFT: "bg-rose-500/12 text-rose-700 dark:text-rose-300",
-};
-
 /**
- * A family's card on the Due page — sized to its content and laid out in masonry columns, so a
- * one-child family is a short card, not a tall empty one. The parent's name and what the family
- * owes in total lead; each child's package is a line under it (what the money is for, hours and
- * lessons, amount, the leading action and "⋯" — the same actions the full card offers). At the
- * foot: with two bills or more, ONE payment link for the whole family (`/f/{token}`); with one,
- * that bill's own link. Each package keeps its own bill, so paying still marks exactly it paid.
+ * A family's payment message and link, shared by its card (phones) and its rows in the Due table:
+ * with two bills or more under a real family, ONE link pays them all (`/f/{token}`); with one, that
+ * bill's own link. Sent to the parent's WhatsApp, or copied as a ready message.
  */
-export function FamilyDueGroup({
-  family,
-  view = "due",
-  timezone,
-  canSendInvoice,
-  actionProps,
-  onMessageOpened,
-  onPrepay,
-}: {
-  family: DueFamily;
-  /** Due: a line per debt. Open: a fuller line per running block — balance, price, lessons, renewal. */
-  view?: "due" | "open";
-  timezone: string;
-  canSendInvoice: boolean;
-  actionProps: (row: LessonPackageRow) => PackageActionProps;
-  onMessageOpened: () => void;
-  /** Pay coming packages ahead for these children's running blocks (one payment). */
-  onPrepay?: (rows: LessonPackageRow[]) => void;
-}) {
+export function useFamilyPayLink(family: DueFamily, onMessageOpened: () => void) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const invoiceUrl = useInvoiceUrl();
-  const totals = owed(family.rows);
   // Each child's running block that can be paid ahead (billed when it starts), one per child.
   const prepayable = family.rows.filter(
     (r, i, all) => r.status === "ACTIVE" && r.bill_timing === "ON_START" && all.findIndex((x) => x.student_id === r.student_id && x.status === "ACTIVE") === i,
   );
   const payable = family.rows.filter((r) => r.invoice_token !== null && r.outstanding_minor > 0);
-  const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
   // Two bills or more under a real family: one link pays them all.
   const familyLink = family.guardianId !== null && payable.length > 1;
   const [busy, setBusy] = useState(false);
@@ -222,6 +189,74 @@ export function FamilyDueGroup({
       setError(true);
     }
   }
+
+  return { prepayable, payable, familyLink, busy, copied, error, sendMessage, copyLink };
+}
+
+/**
+ * One package's own payment message, copied for pasting into WhatsApp — the same text the family's
+ * message carries for that child. Null-safe: only a billed package with money owed has one.
+ */
+export function useRowPaymentCopy(row: LessonPackageRow, payerName: string) {
+  const t = useTranslations("packages");
+  const locale = useLocale();
+  const invoiceUrl = useInvoiceUrl();
+  const [copied, setCopied] = useState(false);
+  const copyable = row.invoice_token !== null && row.outstanding_minor > 0;
+
+  async function copyMessage() {
+    if (!copyable) return;
+    const url = invoiceUrl(row.invoice_token as string);
+    await navigator.clipboard.writeText(paymentMessage({ name: payerName, rows: [row], url, familyLink: false, t, locale }));
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1800);
+  }
+
+  return { copyable, copied, copyMessage };
+}
+
+/** The colour a purpose wears: new money green, renewals blue, usage violet, problems amber/rose. */
+export const PURPOSE_TONE: Record<PackagePurpose, string> = {
+  NEW: "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+  RENEWAL: "bg-sky-500/12 text-sky-700 dark:text-sky-300",
+  AUTO_RENEWAL: "bg-sky-500/12 text-sky-700 dark:text-sky-300",
+  USAGE: "bg-violet-500/12 text-violet-700 dark:text-violet-300",
+  UNBILLED: "bg-amber-500/15 text-amber-700 dark:text-amber-300",
+  OVERDRAFT: "bg-rose-500/12 text-rose-700 dark:text-rose-300",
+};
+
+/**
+ * A family's card on the Due page — sized to its content and laid out in masonry columns, so a
+ * one-child family is a short card, not a tall empty one. The parent's name and what the family
+ * owes in total lead; each child's package is a line under it (what the money is for, hours and
+ * lessons, amount, the leading action and "⋯" — the same actions the full card offers). At the
+ * foot: with two bills or more, ONE payment link for the whole family (`/f/{token}`); with one,
+ * that bill's own link. Each package keeps its own bill, so paying still marks exactly it paid.
+ */
+export function FamilyDueGroup({
+  family,
+  view = "due",
+  timezone,
+  canSendInvoice,
+  actionProps,
+  onMessageOpened,
+  onPrepay,
+}: {
+  family: DueFamily;
+  /** Due: a line per debt. Open: a fuller line per running block — balance, price, lessons, renewal. */
+  view?: "due" | "open";
+  timezone: string;
+  canSendInvoice: boolean;
+  actionProps: (row: LessonPackageRow) => PackageActionProps;
+  onMessageOpened: () => void;
+  /** Pay coming packages ahead for these children's running blocks (one payment). */
+  onPrepay?: (rows: LessonPackageRow[]) => void;
+}) {
+  const t = useTranslations("packages");
+  const locale = useLocale();
+  const totals = owed(family.rows);
+  const money = (amount: number, currency: string) => formatMoney({ amount, currency }, locale);
+  const { prepayable, payable, familyLink, busy, copied, error, sendMessage, copyLink } = useFamilyPayLink(family, onMessageOpened);
 
   return (
     <article
@@ -339,10 +374,10 @@ export function FamilyDueGroup({
  * behind it, with the leading action and "⋯".
  */
 /** What the Due page puts outside the menu, or drops: early close and lesson sync are not for this page. */
-const DUE_HIDDEN = ["remind", "copyLink", "close", "sync"] as const;
+export const DUE_HIDDEN = ["remind", "copyLink", "close", "sync"] as const;
 
 /** Paid ahead (PackagePrepayments): this block was settled from a prepayment, or blocks wait prepaid. */
-function PrepaidChip({ row }: { row: LessonPackageRow }) {
+export function PrepaidChip({ row }: { row: LessonPackageRow }) {
   const t = useTranslations("packages.prepay");
   const left = row.prepaid_blocks_left ?? 0;
   if (!row.prepaid && left === 0) return null;
@@ -371,21 +406,9 @@ function DueRow({
 }) {
   const t = useTranslations("packages");
   const locale = useLocale();
-  const invoiceUrl = useInvoiceUrl();
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [copied, setCopied] = useState(false);
   const remindable = row.outstanding_minor > 0 || row.awaiting_next_package;
-  const copyable = row.invoice_token !== null && row.outstanding_minor > 0;
-
-  async function copyMessage() {
-    if (!copyable) return;
-    const url = invoiceUrl(row.invoice_token as string);
-    await navigator.clipboard.writeText(
-      paymentMessage({ name: payerName, rows: [row], url, familyLink: false, t, locale }),
-    );
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1800);
-  }
+  const { copyable, copied, copyMessage } = useRowPaymentCopy(row, payerName);
 
   const owes = row.outstanding_minor > 0;
   const unbilled = row.invoice_id === null && row.minutes_consumed > 0;

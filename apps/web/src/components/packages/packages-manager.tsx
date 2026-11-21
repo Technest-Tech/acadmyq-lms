@@ -14,6 +14,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { useCapability } from "@/lib/capabilities";
+import { DueStats, DueTable, PaidStats, PaidTable } from "@/components/packages/due-table";
 import { FamilyDueGroup, groupDueByFamily } from "@/components/packages/family-due-group";
 import {
   isPackagePaid,
@@ -154,7 +155,8 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
 
   /** Due's Paid tab: packages whose bill is settled, so the admin can see what came in and how. */
   const duePaid = view === "due" && tab === "paid";
-  const dueCount = useMemo(() => (rows ?? []).filter((r) => r.due).length, [rows]);
+  const dueRows = useMemo(() => (rows ?? []).filter((r) => r.due), [rows]);
+  const dueCount = dueRows.length;
   const billPaidCount = useMemo(() => (rows ?? []).filter(isPackageBillPaid).length, [rows]);
 
   /** This page's packages, before search and filter. */
@@ -260,37 +262,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                 {t("hero.followUp", { count: unpaidCount })}
               </span>
             )}
-            {/* What is owed across the Due page, per currency and never summed across them. */}
-            {view === "due" && rows !== null && (
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/60 bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm"
-                data-testid="due-count"
-              >
-                <AlertTriangle className="size-3.5" aria-hidden />
-                {t("hero.due", { count: dueCount })}
-              </span>
-            )}
-            {view === "due" &&
-              !duePaid &&
-              (summary?.dueAmounts ?? []).map((a) => (
-                <HeroPill key={a.currency}>
-                  <CircleDollarSign className="size-3.5" aria-hidden />
-                  {t("hero.outstanding", {
-                    amount: formatMoney(
-                      { amount: a.amount_minor, currency: a.currency },
-                      locale,
-                    ),
-                  })}
-                </HeroPill>
-              ))}
-            {collected.map((c) => (
-              <HeroPill key={`collected-${c.currency}`}>
-                <CircleDollarSign className="size-3.5" aria-hidden />
-                {t("hero.collected", {
-                  amount: formatMoney({ amount: c.amount_minor, currency: c.currency }, locale),
-                })}
-              </HeroPill>
-            ))}
+            {/* Due's counts and money are its stat cards, under the hero. */}
             {/* What finished packages still owe — the one number the old stat tiles carried that
                 this page still needs, per currency and never summed across them. */}
             {view === "finished" &&
@@ -330,6 +302,15 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           onDismiss={() => setAlert(null)}
         />
       )}
+
+      {/* Due: the page's figures as coloured cards (Ahmed 2026-11-22) — over every due package on
+          the unpaid tab, over what the dates show on the paid one. */}
+      {view === "due" && rows !== null &&
+        (duePaid ? (
+          <PaidStats count={visible.length} collected={collected} />
+        ) : (
+          <DueStats rows={dueRows} dueAmounts={summary?.dueAmounts} />
+        ))}
 
       {/* ── The record ────────────────────────────────────────────────── */}
       <div className="space-y-3">
@@ -436,21 +417,50 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        {/* Due and Open: the family is who pays — one compact card per parent, each child's package a
-            line in it (Open's line carries the whole subscription). Masonry columns, not a grid: a
-            one-child card stays short instead of stretching to the height of a three-child card. */}
-        {duePaid ? (
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {visible.map((row) => (
-              <PaidPackageCard
-                key={row.id}
-                row={row}
-                timezone={timezone}
-                onOpenDetail={() => openDetail(row)}
-              />
-            ))}
-          </div>
-        ) : view === "due" || view === "open" ? (
+        {/* Due is a table from tablet width up (Ahmed 2026-11-22): a band of rows per family, the
+            parent's cell spanning them. Phones keep the family cards, which a seven-column table
+            cannot fit. Open stays one compact card per parent, in masonry columns so a one-child
+            card stays short. */}
+        {duePaid && visible.length > 0 ? (
+          <>
+            <PaidTable rows={visible} timezone={timezone} onOpenDetail={openDetail} />
+            <div className="grid grid-cols-1 gap-3 md:hidden">
+              {visible.map((row) => (
+                <PaidPackageCard
+                  key={row.id}
+                  row={row}
+                  timezone={timezone}
+                  onOpenDetail={() => openDetail(row)}
+                />
+              ))}
+            </div>
+          </>
+        ) : duePaid ? null : view === "due" && visible.length > 0 ? (
+          <>
+            <DueTable
+              families={groupDueByFamily(visible)}
+              timezone={timezone}
+              canSendInvoice={canSendInvoice}
+              actionProps={actionProps}
+              onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
+              onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
+            />
+            <div className="columns-1 gap-3 md:hidden">
+              {groupDueByFamily(visible).map((family) => (
+                <FamilyDueGroup
+                  key={family.key}
+                  view="due"
+                  family={family}
+                  timezone={timezone}
+                  canSendInvoice={canSendInvoice}
+                  actionProps={actionProps}
+                  onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
+                  onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
+                />
+              ))}
+            </div>
+          </>
+        ) : view === "due" ? null : view === "open" ? (
           <div className="columns-1 gap-3 md:columns-2 xl:columns-3">
             {groupDueByFamily(visible).map((family) => (
               <FamilyDueGroup

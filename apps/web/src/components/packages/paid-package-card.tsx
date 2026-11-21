@@ -11,7 +11,7 @@ import { formatDateTime } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
 /** Methods a bill or receipt can be settled by; anything else shows as written. */
-const KNOWN_METHODS = [
+export const KNOWN_METHODS = [
   "CASH",
   "BANK_TRANSFER",
   "PAYPAL",

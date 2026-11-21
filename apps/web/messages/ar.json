@@ -4208,6 +4208,29 @@
       }
     },
     "emptyOpen": "لا توجد باقات مفتوحة حاليًا.",
+    "dueTable": {
+      "family": "الأسرة",
+      "student": "الطالب",
+      "purpose": "المستحق عن",
+      "package": "الباقة",
+      "amount": "المبلغ",
+      "waiting": "ينتظر منذ",
+      "reminders": "التذكيرات",
+      "notReminded": "لم يُذكَّر بعد",
+      "actions": "الإجراءات",
+      "paidAmount": "المدفوع"
+    },
+    "dueStats": {
+      "packages": "الباقات المستحقة",
+      "families": "{count, plural, one {عند أسرة واحدة} two {عند أسرتين} few {عند # أسر} many {عند # أسرة} other {عند # أسرة}}",
+      "amount": "المبلغ المستحق",
+      "notReminded": "لم يُرسل لها تذكير",
+      "reminded": "{count, plural, =0 {لم يُرسل أي تذكير بعد} one {أُرسل تذكير لباقة واحدة} two {أُرسل تذكير لباقتين} few {أُرسل تذكير لـ # باقات} many {أُرسل تذكير لـ # باقة} other {أُرسل تذكير لـ # باقة}}",
+      "oldest": "أقدم مستحق",
+      "nothing": "لا يوجد",
+      "paidCount": "الباقات المدفوعة",
+      "collected": "تم تحصيله"
+    },
     "dueTab": {
       "unpaid": "مستحقة ({count})",
       "paid": "مدفوعة ({count})"

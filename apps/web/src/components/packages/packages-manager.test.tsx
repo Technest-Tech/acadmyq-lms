@@ -313,9 +313,11 @@ describe("PackagesManager", () => {
       "Sara",
       "Mona",
     ]);
-    // Arabic dual: "باقتان" carries the two, no digit needed.
-    expect(screen.getByTestId("due-count")).toHaveTextContent("باقتان بانتظار الدفع");
-    expect(screen.getByText(/5,500|٥٬٥٠٠/)).toBeInTheDocument();
+    // The page's figures are coloured cards: how many wait, and the money owed.
+    const count = screen.getByTestId("due-count");
+    expect(count).toHaveTextContent(arMessages.packages.dueStats.packages);
+    expect(count).toHaveTextContent(formatNumber(2, "ar"));
+    expect(screen.getByTestId("due-stats-amount")).toHaveTextContent(/5,500|٥٬٥٠٠/);
     // Each line leads with Mark as paid.
     expect(within(cards[0]!).getByTestId("mark-package-paid")).toBeInTheDocument();
   });
@@ -394,6 +396,110 @@ describe("PackagesManager", () => {
     expect(url).not.toContain("/i/tok-");
     expect(url).toContain(formatMoney({ amount: 100000, currency: "EGP" }, "ar"));
     open.mockRestore();
+  });
+
+  it("shows Due as a table: a band of rows per family, the parent's cell spanning its children", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          id: "p-yusuf",
+          student_id: "s-yusuf",
+          student_name: "Yusuf",
+          guardian_id: "g-hassan",
+          guardian_name: "Hassan",
+          guardian_phone: "+20 100 111 2222",
+          due: true,
+          invoice_token: "tok-yusuf",
+          purpose: "NEW",
+          outstanding_minor: 60000,
+          created_at: "2026-09-01T00:00:00Z",
+        }),
+        pkg({
+          id: "p-maryam",
+          student_id: "s-maryam",
+          student_name: "Maryam",
+          guardian_id: "g-hassan",
+          guardian_name: "Hassan",
+          guardian_phone: "+20 100 111 2222",
+          due: true,
+          invoice_token: "tok-maryam",
+          purpose: "AUTO_RENEWAL",
+          reminders_sent: 2,
+          last_reminded_at: "2026-09-10T10:00:00Z",
+          outstanding_minor: 40000,
+          created_at: "2026-09-05T00:00:00Z",
+        }),
+        pkg({
+          id: "p-sara",
+          student_id: "s-sara",
+          student_name: "Sara",
+          guardian_id: "g-ali",
+          guardian_name: "Ali",
+          due: true,
+          outstanding_minor: 10000,
+          created_at: "2026-10-01T00:00:00Z",
+        }),
+      ],
+    });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    createFamilyPayLink.mockResolvedValue({ url: "https://noor.acadmyq.com/f/fam-token" });
+
+    renderManager(["invoice.send_link", "invoice.mark_paid"], "due");
+
+    const table = await screen.findByTestId("due-table");
+    expect(within(table).getAllByTestId("due-table-family-name").map((n) => n.textContent)).toEqual(["Hassan", "Ali"]);
+    const hassan = within(table).getByTestId("due-table-family-g-hassan");
+    const rows = within(hassan).getAllByTestId("due-table-row");
+    expect(rows).toHaveLength(2);
+    // One family cell, spanning both children's rows, with what the family owes in all.
+    expect(hassan.querySelector("td[rowspan='2']")).not.toBeNull();
+    expect(within(hassan).getByTestId("due-table-family-total").textContent).toContain(formatMoney({ amount: 100000, currency: "EGP" }, "ar"));
+    expect(within(hassan).getAllByTestId("due-table-purpose").map((p) => p.textContent)).toEqual([
+      arMessages.packages.purpose.NEW,
+      arMessages.packages.purpose.AUTO_RENEWAL,
+    ]);
+    expect(within(rows[0]!).getByTestId("due-table-amount").textContent).toContain(formatMoney({ amount: 60000, currency: "EGP" }, "ar"));
+    // Each row leads with Mark as paid.
+    expect(within(rows[0]!).getByTestId("mark-package-paid")).toBeInTheDocument();
+
+    // The cards: three packages in two families, one already reminded, the oldest is Yusuf's.
+    expect(screen.getByTestId("due-count")).toHaveTextContent(formatNumber(3, "ar"));
+    expect(screen.getByTestId("due-stats-not-reminded")).toHaveTextContent(formatNumber(2, "ar"));
+    expect(screen.getByTestId("due-stats-oldest")).toHaveTextContent("Yusuf");
+
+    // The family's one payment link, from the table.
+    await userEvent.click(within(hassan).getByTestId("due-table-family-send"));
+    await waitFor(() => expect(createFamilyPayLink).toHaveBeenCalledWith("g-hassan"));
+    await waitFor(() => expect(open.mock.calls.some((c) => String(c[0]).startsWith("https://wa.me/201001112222"))).toBe(true));
+    open.mockRestore();
+  });
+
+  it("shows Due's paid tab as a table with what came in, and cards for the count and the money", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          id: "p-laila",
+          student_name: "Laila",
+          guardian_name: "Hassan",
+          invoice_status: "PAID",
+          payment_method: "BANK_TRANSFER",
+          payment_reference: "TX-77",
+          paid_at: "2026-10-02T10:00:00Z",
+        }),
+      ],
+    });
+
+    renderManager([], "due");
+    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
+
+    const table = await screen.findByTestId("paid-table");
+    const rows = within(table).getAllByTestId("paid-table-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toHaveTextContent("Laila");
+    expect(rows[0]).toHaveTextContent(arMessages.packages.paid.method.BANK_TRANSFER);
+    expect(within(rows[0]!).getByTestId("paid-table-reference")).toHaveTextContent("TX-77");
+    expect(screen.getByTestId("paid-stats-count")).toHaveTextContent(formatNumber(1, "ar"));
+    expect(screen.getByTestId("paid-stats-collected").textContent).toContain(formatMoney({ amount: 400000, currency: "EGP" }, "ar"));
   });
 
   it("marks a package the renewal opened, with the minutes it took from the last block", async () => {
