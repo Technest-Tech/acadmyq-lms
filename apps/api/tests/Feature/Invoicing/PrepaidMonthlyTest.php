@@ -332,6 +332,30 @@ it('keeps billing per lesson a student it cannot bill a month for', function () 
         ->and((int) $dec->total_minor)->toBe(5000);
 });
 
+it('takes a lesson off at the price of one lesson of the month, whatever length it was saved with', function () {
+    // 8 lessons of 40 minutes at 60/hour: a lesson is 40, the month 320.
+    ppMonthly($this, $this->student, ['price_minor' => 6000, 'lesson_minutes' => 40]);
+    ppSwitchOn($this);
+    ppAt('2026-11-27 08:00:00');
+    ppRun();
+    expect((int) ppBill($this, '2026-12-01')->total_minor)->toBe(32000);
+
+    // Saved at 30 minutes (and one mistyped at 340): each still comes off as one lesson, 40.
+    $short = ppLesson($this, $this->student, '2026-12-05');
+    $typo = $this->createSession($this->academy, $this->student, $this->teacher, [
+        'scheduled_at_utc' => '2026-12-12 15:00:00+00', 'duration_minutes' => 340, 'status' => 'SCHEDULED',
+    ]);
+    ppAt('2026-12-13 10:00:00');
+    ppMark($this, $short, 'CANCELLED_BY_STUDENT', charge: false);
+    ppMark($this, $typo, 'CANCELLED_BY_STUDENT', charge: false);
+
+    ppAt('2026-12-27 08:00:00');
+    ppRun();
+    $jan = ppBill($this, '2027-01-01');
+    expect((int) $jan->total_minor)->toBe(24000)
+        ->and($jan->lines->where('prepaid_charge', 'LESSON')->pluck('amount_minor')->map(fn ($v) => (int) $v)->all())->toBe([-4000, -4000]);
+});
+
 it('never sends a bill that owes the family money: what does not fit waits for the next month', function () {
     ppMonthly($this, $this->student);
     ppSwitchOn($this);

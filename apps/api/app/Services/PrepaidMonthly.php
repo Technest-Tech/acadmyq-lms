@@ -159,14 +159,20 @@ final class PrepaidMonthly
         return $fee > 0 ? $fee : null;
     }
 
-    /** What one lesson of `$minutes` is worth on this subscription; null when it cannot be told. */
+    /**
+     * What one lesson is worth on this subscription — the month's price divided by its lessons, the
+     * way the academy works it out ("100 a month, two lessons off = 25"). With a lesson length on the
+     * profile that is the profile's lesson, whatever length the lesson itself was saved with (a typo
+     * on a timetable slot must not take a fortune off the bill); a legacy row without one prices the
+     * lesson's own minutes. Null when it cannot be told.
+     */
     public static function lessonValue(object $sub, int $minutes): ?int
     {
         $price = (int) $sub->price_minor;
         $perMonth = (int) ($sub->sessions_per_month ?? 0);
 
         $value = match ((string) $sub->price_basis) {
-            'PER_HOUR' => (int) round($price * $minutes / 60),
+            'PER_HOUR' => (int) round($price * (int) ($sub->lesson_minutes ?? $minutes) / 60),
             'PER_MONTH' => $perMonth > 0 ? (int) round($price / $perMonth) : 0,
             'PER_SESSION' => $price,
             default => 0,
