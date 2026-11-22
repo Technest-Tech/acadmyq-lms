@@ -564,6 +564,38 @@ describe("Family card", () => {
     await waitFor(() => expect(api.getFamilyAccount).toHaveBeenCalledTimes(2));
   });
 
+  it("fills a hand-made charge from the child's group — name, month and price — and says it is owed, not received (Lingo 2026-11-22)", async () => {
+    api.getFamilyAccount.mockResolvedValue(family());
+    api.addFamilyCharge.mockResolvedValue({ invoice_id: "i9" });
+    render(withAuth(owner(), <FamilyAccountsCard guardianId="gd1" />));
+
+    await userEvent.click(await screen.findByTestId("family-add-charge"));
+    const form = screen.getByTestId("charge-form");
+    // The amount is what they owe — the label says so, never "received".
+    expect(form.textContent).toContain(ar.family.charge.amount.replace("{currency}", "EGP"));
+    expect(form.textContent).not.toContain(ar.collect.amount.replace("{currency}", "EGP"));
+    expect(within(form).getByTestId("charge-amount-hint")).toHaveTextContent(ar.family.charge.amountHint);
+
+    // No child picked: no groups to offer. Adam: his three groups.
+    expect(within(form).queryByTestId("charge-groups")).toBeNull();
+    await userEvent.selectOptions(within(form).getByTestId("charge-student"), "s1");
+    expect(within(within(form).getByTestId("charge-groups")).getAllByRole("button")).toHaveLength(3);
+    await userEvent.click(within(form).getByTestId("charge-group-g2"));
+    const description = within(form).getByTestId("charge-description") as HTMLInputElement;
+    expect(description.value).toMatch(/^Maths B — /);
+    const june = description.value;
+    expect((within(form).getByTestId("charge-amount") as HTMLInputElement).value).toBe("300");
+    // Changing the month follows in the description.
+    fireEvent.change(within(form).getByTestId("charge-period"), { target: { value: "2026-05" } });
+    const may = description.value;
+    expect(may).toMatch(/^Maths B — /);
+    expect(may).not.toBe(june);
+    await userEvent.click(within(form).getByTestId("charge-save"));
+    await waitFor(() =>
+      expect(api.addFamilyCharge).toHaveBeenCalledWith("gd1", { student_id: "s1", description: may, amount_minor: 30000, period: "2026-05", currency: "EGP" }),
+    );
+  });
+
   it("gives a new discount a start day — only the new month gets it — and shows which charges keep the old one before ending it (Lingo 2026-11-21)", async () => {
     const data = family();
     data.charges = [

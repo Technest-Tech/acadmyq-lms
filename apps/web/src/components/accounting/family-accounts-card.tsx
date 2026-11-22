@@ -28,7 +28,7 @@ import {
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { MethodBadge, Panel, Tile, VOIDED_ROW, VoidedPill, dayLabel, toMajorText, waLink } from "@/components/accounting/accounting-ui";
+import { MethodBadge, Panel, Tile, VOIDED_ROW, VoidedPill, dayLabel, monthLabel, toMajorText, waLink } from "@/components/accounting/accounting-ui";
 import { CollectModal, type CollectTarget } from "@/components/accounting/collect-modal";
 import { RenewalPolicyControl } from "@/components/accounting/renewal-policy-control";
 import { RefundCreditModal, SettleModal } from "@/components/accounting/settle-package";
@@ -551,7 +551,7 @@ function FamilyAccounts({ guardianId }: { guardianId: string }) {
         open={charging}
         guardianId={guardianId}
         today={data.today}
-        kids={data.children.map((c) => ({ id: c.id, name: c.name }))}
+        kids={data.children.map((c) => ({ id: c.id, name: c.name, groups: c.groups }))}
         currency={data.balance[0]?.currency ?? data.charges[0]?.currency ?? "EGP"}
         onClose={() => setCharging(false)}
         onDone={(message) => {
@@ -1160,7 +1160,7 @@ function ManualChargeModal({
   open: boolean;
   guardianId: string;
   today: string;
-  kids: { id: string; name: string }[];
+  kids: { id: string; name: string; groups: FamilyAccount["children"][number]["groups"] }[];
   currency: string;
   onClose: () => void;
   onDone: (message: string) => void;
@@ -1171,6 +1171,28 @@ function ManualChargeModal({
   const [description, setDescription] = useState("");
   const [amount, setAmount] = useState("");
   const [period, setPeriod] = useState(today.slice(0, 7));
+  // The group picked from the child's list (Lingo 2026-11-22): it fills the description and the
+  // amount, both still editable. Typing over the description lets go of it.
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const groups = kids.find((k) => k.id === studentId)?.groups ?? [];
+  const groupText = (name: string, ym: string) => (/^\d{4}-\d{2}$/.test(ym) ? `${name} — ${monthLabel(ym, locale)}` : name);
+
+  function pickGroup(g: (typeof groups)[number]) {
+    setGroupId(g.id);
+    setDescription(groupText(g.name, period));
+    if (g.price_minor !== null && (g.currency ?? currency) === currency) setAmount(toMajorText(g.price_minor));
+  }
+
+  function pickStudent(id: string) {
+    setStudentId(id);
+    setGroupId(null);
+  }
+
+  function pickPeriod(ym: string) {
+    setPeriod(ym);
+    const g = groups.find((x) => x.id === groupId);
+    if (g) setDescription(groupText(g.name, ym));
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const minor = Math.round(Number.parseFloat(amount.replace(",", ".")) * 100);
@@ -1185,6 +1207,7 @@ function ManualChargeModal({
       await addFamilyCharge(guardianId, { student_id: studentId || null, description: description.trim(), amount_minor: minor, period: period || null, currency });
       setDescription("");
       setAmount("");
+      setGroupId(null);
       onDone(t("family.charge.saved", { amount: formatMoney({ amount: minor, currency }, locale) }));
     } catch (err) {
       setError(apiErrorMessage(err, t("family.discountFailed")));
@@ -1198,7 +1221,7 @@ function ManualChargeModal({
       <form onSubmit={(e) => void save(e)} className="space-y-3" data-testid="charge-form">
         <label className="block text-sm font-medium">
           {t("family.charge.student")}
-          <select className={cn(fieldClass, "mt-1.5")} value={studentId} onChange={(e) => setStudentId(e.target.value)} data-testid="charge-student">
+          <select className={cn(fieldClass, "mt-1.5")} value={studentId} onChange={(e) => pickStudent(e.target.value)} data-testid="charge-student">
             <option value="">{t("family.charge.wholeFamily")}</option>
             {kids.map((k) => (
               <option key={k.id} value={k.id}>
@@ -1207,20 +1230,55 @@ function ManualChargeModal({
             ))}
           </select>
         </label>
+        {groups.length > 0 && (
+          <div className="space-y-1.5">
+            <span className="block text-sm font-medium">{t("family.charge.groups")}</span>
+            <div className="flex flex-wrap gap-1.5" data-testid="charge-groups">
+              {groups.map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => pickGroup(g)}
+                  aria-pressed={groupId === g.id}
+                  className={cn(
+                    "rounded-full border px-3 py-1 text-xs font-medium transition-colors",
+                    groupId === g.id ? "border-primary bg-primary/10 text-primary" : "hover:bg-muted",
+                  )}
+                  data-testid={`charge-group-${g.id}`}
+                >
+                  {g.name}
+                  {g.price_minor !== null && <span className="text-muted-foreground ms-1 tabular-nums">{formatMoney({ amount: g.price_minor, currency: g.currency ?? currency }, locale)}</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         <label className="block text-sm font-medium">
           {t("family.charge.what")}
-          <input className={cn(fieldClass, "mt-1.5")} maxLength={200} value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t("family.charge.whatPlaceholder")} data-testid="charge-description" />
+          <input
+            className={cn(fieldClass, "mt-1.5")}
+            maxLength={200}
+            value={description}
+            onChange={(e) => {
+              setDescription(e.target.value);
+              setGroupId(null);
+            }}
+            placeholder={t("family.charge.whatPlaceholder")}
+            data-testid="charge-description"
+          />
         </label>
         <div className="grid grid-cols-2 gap-3">
           <label className="block text-sm font-medium">
-            {t("collect.amount", { currency })}
+            {t("family.charge.amount", { currency })}
             <input className={cn(fieldClass, "mt-1.5 text-lg font-semibold")} inputMode="decimal" dir="ltr" value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="charge-amount" />
           </label>
           <label className="block text-sm font-medium">
             {t("family.charge.month")}
-            <input type="month" className={cn(fieldClass, "mt-1.5")} value={period} onChange={(e) => setPeriod(e.target.value)} data-testid="charge-period" />
+            <input type="month" className={cn(fieldClass, "mt-1.5")} value={period} onChange={(e) => pickPeriod(e.target.value)} data-testid="charge-period" />
           </label>
         </div>
+        {/* It is what they owe, not money taken: collecting it is the Collect button, as for any charge. */}
+        <p className="text-muted-foreground text-xs" data-testid="charge-amount-hint">{t("family.charge.amountHint")}</p>
         <p className="text-muted-foreground text-xs">{t("family.charge.hint")}</p>
         {error && <AlertBanner variant="error" message={error} />}
         <div className="flex justify-end gap-2">

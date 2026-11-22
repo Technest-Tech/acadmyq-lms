@@ -11627,6 +11627,9 @@
         "month": "Month",
         "hint": "If this charge should have come from the group on its own, tell support too so it does not happen again.",
         "save": "Add the charge",
+        "amount": "Amount owed ({currency})",
+        "amountHint": "This is what they owe, not money received. Collect it afterwards with the Collect button, like any charge.",
+        "groups": "Pick the group — the description and amount fill in",
         "saved": "A charge of {amount} was added."
       },
       "cancelDiscount": "Cancel",
