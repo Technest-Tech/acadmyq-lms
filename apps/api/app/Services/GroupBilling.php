@@ -219,6 +219,19 @@ final class GroupBilling
     }
 
     /**
+     * A centre counts its month in lessons (Ahmed, 2026-11-22: "بيحسب بالحصص مش بالساعات"): with
+     * `month_lessons` set, every lesson held counts as one lesson — this many minutes of the month —
+     * whatever its real length. Null = each lesson counts its own minutes.
+     */
+    public static function lessonUnit(object $group): ?int
+    {
+        $lessons = (int) ($group->month_lessons ?? 0);
+        $minutes = (int) ($group->month_minutes ?? 0);
+
+        return self::byHours($group) && $lessons > 0 && $minutes > 0 && $minutes % $lessons === 0 ? intdiv($minutes, $lessons) : null;
+    }
+
+    /**
      * An existing monthly group switching between calendar months and hours: the date the new rule
      * bills from — the 1st of next month, so the month already paid under the old rule is never paid
      * twice. Null when nothing switches, or nothing was billed yet (then the new rule just starts).
@@ -498,8 +511,8 @@ final class GroupBilling
             $lineMinutes = max(1, (int) ($line->group_minutes ?? 0));
             $unusedMinutes = min($lineMinutes, max(0, $state['bought_minutes'] - $state['used_minutes']));
             $unused = (int) round((int) $line->amount_minor * $unusedMinutes / $lineMinutes);
-            $lessonMinutes = (int) ($state['held']->last()->minutes ?? 0)
-                ?: (int) (DB::table('class_group_slots')->where('group_id', $group->id)->value('duration_minutes') ?? 60);
+            $lessonMinutes = self::lessonUnit($group) ?? ((int) ($state['held']->last()->minutes ?? 0)
+                ?: (int) (DB::table('class_group_slots')->where('group_id', $group->id)->value('duration_minutes') ?? 60));
             $attended = $state['held']->count();
             $remaining = (int) round($unusedMinutes / max(1, $lessonMinutes));
             $kind = 'HOURS';
@@ -659,6 +672,8 @@ final class GroupBilling
     {
         $from = $this->ruleFrom($group);
         $solo = isset($group->solo_billed_minutes) && $group->solo_billed_minutes !== null ? (int) $group->solo_billed_minutes : null;
+        // Counted in lessons: one lesson, whatever it lasted (a 40-minute lesson of an "8 lessons" month is one of the 8).
+        $unit = self::lessonUnit($group);
         $ranges = $solo === null ? collect() : DB::table('class_group_members')
             ->where('group_id', $group->id)
             ->get(['student_id', 'joined_on', 'left_on'])
@@ -676,7 +691,7 @@ final class GroupBilling
             ->orderBy('occurrence_local_date')
             ->orderBy('scheduled_at_utc')
             ->get(['id', 'occurrence_local_date', 'duration_minutes', 'status'])
-            ->map(function ($l) use ($solo, $ranges, $removals) {
+            ->map(function ($l) use ($solo, $unit, $ranges, $removals) {
                 $date = Carbon::parse($l->occurrence_local_date)->format('Y-m-d');
                 $removed = $removals->get((string) $l->id, []);
                 // The solo rule: a lesson with exactly one member on its roster counts at the solo
@@ -688,7 +703,7 @@ final class GroupBilling
 
                 return (object) [
                     'date' => $date,
-                    'minutes' => $solo !== null && $onRoster === 1 ? $solo : (int) $l->duration_minutes,
+                    'minutes' => $solo !== null && $onRoster === 1 ? $solo : ($unit ?? (int) $l->duration_minutes),
                     'held' => $l->status === 'HELD',
                     'removed' => $removed,
                 ];

@@ -225,16 +225,26 @@ export function GroupForm({
   // A centre counts a month in lessons and prices it by the lesson — 8 lessons × "40 minutes for 90"
   // — and the month's price is worked out (2026-10-25, lessons 2026-10-29). The length starts at the
   // group's own lesson length; the month is still kept in minutes (lessons × length).
-  const [lessonMinutes, setLessonMinutes] = useState(group?.slots[0]?.duration_minutes ?? 60);
+  // A month saved in lessons (2026-11-22) keeps its own lesson length, whatever the weekly times say now.
+  const savedMonthLessons = group?.pricing?.month_lessons ?? null;
+  const savedLessonMinutes =
+    savedMonthLessons != null && savedMonthMinutes != null
+      ? savedMonthMinutes / savedMonthLessons
+      : (group?.slots[0]?.duration_minutes ?? 60);
+  const [lessonMinutes, setLessonMinutes] = useState(savedLessonMinutes);
   const [monthLessons, setMonthLessons] = useState(() =>
-    savedMonthMinutes != null ? String(lessonsIn(savedMonthMinutes, group?.slots[0]?.duration_minutes ?? 60)) : "",
+    savedMonthLessons != null
+      ? String(savedMonthLessons)
+      : savedMonthMinutes != null
+        ? String(lessonsIn(savedMonthMinutes, savedLessonMinutes))
+        : "",
   );
   /** What the month field holds — lessons in a centre, hours everywhere else. */
   const monthText = centre ? monthLessons : monthHours;
   const [lessonPrice, setLessonPrice] = useState(() => {
     const total = group?.pricing?.price_minor ?? null;
     const minutes = group?.pricing?.month_minutes ?? null;
-    return total != null && minutes != null ? majorText(lessonPriceFromTotal(total, minutes, group?.slots[0]?.duration_minutes ?? 60)) : "";
+    return total != null && minutes != null ? majorText(lessonPriceFromTotal(total, minutes, savedLessonMinutes)) : "";
   });
   const [payMode, setPayMode] = useState<GroupTeacherPayMode>(group?.teacher_pay?.mode ?? null);
   const [payAmount, setPayAmount] = useState(fromMinor(group?.teacher_pay?.amount_minor));
@@ -376,6 +386,16 @@ export function GroupForm({
     return unit === null ? null : totalFromLessonPrice(unit, monthMinutes() ?? 0, lessonMinutes);
   }
 
+  /**
+   * A centre's month as whole lessons, sent beside the minutes so every lesson held counts as one of
+   * them whatever its length (Lingo 2026-11-22); null for hours, a part lesson, or no month.
+   */
+  function wholeMonthLessons(): number | null {
+    if (!centre || billingMode !== "MONTHLY" || monthMinutes() === null) return null;
+    const n = Number(monthLessons.trim());
+    return Number.isInteger(n) && n >= 1 && n <= 500 ? n : null;
+  }
+
   /** The typed month → minutes (a centre's lessons × their length, or hours); null when empty or not a positive number. */
   function monthMinutes(): number | null {
     if (centre) {
@@ -425,6 +445,7 @@ export function GroupForm({
             charge_absent: billingMode === "PER_LESSON" && chargeAbsent,
             prorate_join: prorateJoin,
             month_minutes: billingMode === "MONTHLY" ? monthMinutes() : null,
+            ...(centre ? { month_lessons: wholeMonthLessons() } : {}),
             solo_billed_minutes: billingMode === "MONTHLY" && monthMinutes() !== null && soloMinutes.trim() !== "" ? Number(soloMinutes) : null,
           }
         : {}),

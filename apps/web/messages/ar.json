@@ -8584,6 +8584,7 @@
       "empty": "لا يوجد طلاب في هذه المجموعة بعد.",
       "since": "منذ {date}",
       "hourMonth": "الشهر {month} · متبقٍ {left} ساعة",
+      "hourMonthLessons": "الشهر {month} · متبقٍ {left} حصة",
       "between": "{from} ← {to}",
       "rateTitle": "نسبة الحضور",
       "absences": "{count, plural, one {غياب واحد} two {غيابان} few {# غيابات} many {# غيابًا} other {# غياب}}",

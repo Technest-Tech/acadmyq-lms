@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { apiErrorMessage } from "@/components/groups/group-form";
 import { fromMinor, toMinor } from "@/components/groups/group-form";
-import { fieldClass, hoursText, percent, todayIn } from "@/components/groups/group-format";
+import { fieldClass, hoursText, lessonsLeftText, percent, todayIn } from "@/components/groups/group-format";
 import { PersonAvatar, SectionCard, SoftBadge, rateTone } from "@/components/groups/group-look";
 import { filterGroups, GroupSearchBox } from "@/components/groups/group-search";
 import { StudentPicker } from "@/components/groups/student-picker";
@@ -108,10 +108,19 @@ export function GroupMembersPanel({ group, onChanged }: { group: GroupDetail; on
           </p>
           {m.hour_month && m.hour_month.months > 0 && (
             <p className="text-muted-foreground mt-0.5 text-xs" data-testid={`hour-month-${m.student_id}`}>
-              {t("members.hourMonth", {
-                month: m.hour_month.months,
-                left: hoursText(Math.max(0, m.hour_month.bought_minutes - m.hour_month.used_minutes), locale),
-              })}
+              {group.pricing?.month_lessons && group.pricing.month_minutes
+                ? t("members.hourMonthLessons", {
+                    month: m.hour_month.months,
+                    left: lessonsLeftText(
+                      m.hour_month.bought_minutes - m.hour_month.used_minutes,
+                      group.pricing.month_minutes / group.pricing.month_lessons,
+                      locale,
+                    ),
+                  })
+                : t("members.hourMonth", {
+                    month: m.hour_month.months,
+                    left: hoursText(Math.max(0, m.hour_month.bought_minutes - m.hour_month.used_minutes), locale),
+                  })}
             </p>
           )}
           </div>

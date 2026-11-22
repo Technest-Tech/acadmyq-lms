@@ -21,6 +21,7 @@ const saveGroupAttendance = vi.fn();
 const removeFromGroupLesson = vi.fn();
 const listGroupLessons = vi.fn();
 const createGroup = vi.fn();
+const updateGroup = vi.fn();
 
 vi.mock("@/lib/groups-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/groups-api")>()),
@@ -30,6 +31,7 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   removeFromGroupLesson: (id: string, studentId: string) => removeFromGroupLesson(id, studentId),
   listGroupLessons: (id: string, p: unknown) => listGroupLessons(id, p),
   createGroup: (input: unknown) => createGroup(input),
+  updateGroup: (id: string, input: unknown) => updateGroup(id, input),
 }));
 
 const getGroupDefaults = vi.fn(() => Promise.resolve({ defaults: {} as Record<string, unknown> }));
@@ -422,6 +424,7 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
   beforeEach(() => {
     vi.clearAllMocks();
     createGroup.mockResolvedValue({ group: { id: "new" }, generated: { created: 0, removed: 0 } });
+    updateGroup.mockResolvedValue({ group: { id: "g1" }, generated: { created: 0, removed: 0 } });
   });
 
   it("sends the price in minor units and a revenue share in basis points", async () => {
@@ -523,6 +526,8 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
 
     await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
     expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "MONTHLY", price_minor: 60000, month_minutes: 450 });
+    // Hours, not a centre: no lessons count is sent.
+    expect(createGroup.mock.calls[0]![0]).not.toHaveProperty("month_lessons");
   });
 
   it("a centre counts a month in lessons and prices it by the lesson: lessons, their length and price — the month's price is worked out", async () => {
@@ -544,7 +549,31 @@ describe("GroupForm — what the student pays and what the teacher earns", () =>
     await user.click(screen.getByTestId("group-save"));
 
     await waitFor(() => expect(createGroup).toHaveBeenCalledTimes(1));
-    expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "MONTHLY", price_minor: 108000, month_minutes: 480 });
+    // The lessons go too, so every lesson held counts as one of the 12, whatever it lasted (Lingo 2026-11-22).
+    expect(createGroup.mock.calls[0]![0]).toMatchObject({ billing_mode: "MONTHLY", price_minor: 108000, month_minutes: 480, month_lessons: 12 });
+  });
+
+  it("a centre's month saved in lessons opens on its lessons even after the lessons got longer, and saves them back", async () => {
+    const user = userEvent.setup();
+    // 8 lessons of 40 (320 minutes) for 520 — the weekly lesson is an hour now.
+    const group = {
+      ...groupRow({
+        slots: [{ weekday: 1, start_time_local: "17:00", duration_minutes: 60 }],
+        pricing: { billing_mode: "MONTHLY", price_minor: 52000, currency: "EGP", charge_absent: false, prorate_join: true, month_minutes: 320, month_lessons: 8, solo_billed_minutes: null },
+      }),
+      notes: null,
+      effective_meeting_url: null,
+      members: [],
+      attendance_rate: null,
+    } as GroupDetail;
+    render(withAuth(makeSession("ACADEMY_OWNER", { permissions: ["group.manage", "student.set_price"], capabilities: ["invoicing", "groups", "centre"] }),
+      <GroupForm group={group} onSaved={() => {}} onCancel={() => {}} />));
+
+    expect(screen.getByTestId("group-month-lessons")).toHaveValue("8");
+    await user.click(screen.getByTestId("group-save"));
+
+    await waitFor(() => expect(updateGroup).toHaveBeenCalledTimes(1));
+    expect(updateGroup.mock.calls[0]![1]).toMatchObject({ month_minutes: 320, month_lessons: 8, price_minor: 52000 });
   });
 
   it("drops the hours when the group is not monthly", async () => {

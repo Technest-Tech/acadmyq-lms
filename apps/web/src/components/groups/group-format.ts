@@ -32,6 +32,11 @@ export function hoursText(minutes: number, locale = "en"): string {
   return new Intl.NumberFormat(locale, { maximumFractionDigits: 2, useGrouping: false }).format(minutes / 60);
 }
 
+/** Lessons left of a month counted in lessons (a centre's): the minutes left ÷ one lesson's share, never below 0. */
+export function lessonsLeftText(minutes: number, lessonMinutes: number, locale = "en"): string {
+  return new Intl.NumberFormat(locale, { maximumFractionDigits: 1, useGrouping: false }).format(Math.max(0, minutes) / Math.max(1, lessonMinutes));
+}
+
 /**
  * Which `moneyTab.rule.*` sentence describes what a student pays — a monthly group sold by hours
  * reads "450 for every 8 hours", not "450 a month"; a centre's, by lessons ("450 for every 8

@@ -1132,6 +1132,107 @@ it('leaving an hours group: says how many lessons are left and their worth, and 
     expect($this->getJson("/api/payer-account?guardian_id={$this->parent}")->json('balance.0.credit_minor'))->toBe(20000);
 });
 
+it('leaving an hours group with a whole month raised and not paid: the month comes off entirely, no error (Lingo 2026-11-22)', function () {
+    accountingOn($this);
+    Carbon::setTestNow('2026-06-01 06:00:00');
+    // 2 hours a month at 300; month 1 paid and used up, so month 2 is raised and nothing paid on it.
+    $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'student_ids' => [$this->kids['Adam']]]);
+    Sanctum::actingAs($this->owner);
+    $this->postJson('/api/receipts', ['guardian_id' => $this->parent, 'amount_minor' => 30000, 'currency' => 'EGP', 'method' => 'CASH'])->assertCreated();
+    Carbon::setTestNow('2026-06-04 09:00:00');
+    heldLesson($this, $groupId, '2026-06-01');
+    heldLesson($this, $groupId, '2026-06-03');
+    expect(groupLines($this, $groupId))->toHaveCount(2);
+
+    Sanctum::actingAs($this->owner);
+    $quote = $this->getJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}/leave-quote?left_on=2026-06-04")->assertOk()->json('quote');
+    expect($quote)->toMatchArray(['kind' => 'HOURS', 'remaining' => 2, 'unused_minor' => 30000, 'paid_minor' => 0, 'refundable_minor' => 0]);
+
+    $this->deleteJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['left_on' => '2026-06-04', 'reason' => 'STOPPED', 'settlement' => 'CREDIT'])
+        ->assertOk()->assertJsonPath('settlement.amount_minor', 30000);
+    $june2 = groupLines($this, $groupId)->last();
+    expect((int) $june2->amount_minor)->toBe(0)->and((int) $june2->group_minutes)->toBe(0);
+    expect($this->getJson("/api/payer-account?guardian_id={$this->parent}")->json('balance'))->toBe([]);
+
+    // Back later: the month given back is not lessons owed to him, so a fresh month is raised.
+    Carbon::setTestNow('2026-06-10 06:00:00');
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-10'])->assertCreated();
+    expect(groupLines($this, $groupId))->toHaveCount(3)
+        ->and((int) groupLines($this, $groupId)->last()->amount_minor)->toBe(30000);
+});
+
+// ── A centre counts its month in lessons (Lingo 2026-11-22) ──────────────────
+
+it('at a centre, a month of lessons is used up by that many lessons, whatever they lasted', function () {
+    asTenant($this->academy, function (): void {
+        DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+        app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['centre']);
+    });
+    Carbon::setTestNow('2026-06-01 06:00:00');
+    // Priced as 4 lessons of an hour (240), but the lessons are 40 minutes (رقية أحمد, Prep 2 علوم).
+    $short = [['weekday' => 1, 'start_time_local' => '17:00', 'duration_minutes' => 40], ['weekday' => 3, 'start_time_local' => '17:00', 'duration_minutes' => 40]];
+    $groupId = moneyGroup($this, ['slots' => $short, 'price_minor' => 40000, 'month_minutes' => 240, 'month_lessons' => 4, 'student_ids' => [$this->kids['Adam']]]);
+    $this->getJson("/api/groups/{$groupId}")->assertOk()->assertJsonPath('group.pricing.month_lessons', 4);
+    // The same group counted by the minutes: 4 × 40 = 160 of 240, no next month.
+    $byMinutes = moneyGroup($this, ['name' => 'By minutes', 'slots' => $short, 'price_minor' => 40000, 'month_minutes' => 240, 'student_ids' => [$this->kids['Bassel']]]);
+
+    Carbon::setTestNow('2026-06-10 20:00:00');
+    foreach (['2026-06-01', '2026-06-03', '2026-06-08'] as $d) {
+        heldLesson($this, $groupId, $d);
+        heldLesson($this, $byMinutes, $d);
+    }
+    expect(groupLines($this, $groupId))->toHaveCount(1);
+    $member = collect($this->getJson("/api/groups/{$groupId}")->json('group.members'))->firstWhere('student_id', $this->kids['Adam']);
+    expect($member['hour_month'])->toMatchArray(['months' => 1, 'bought_minutes' => 240, 'used_minutes' => 180]);
+
+    // The 4th lesson ends the month: the next is raised at once.
+    heldLesson($this, $groupId, '2026-06-10');
+    heldLesson($this, $byMinutes, '2026-06-10');
+    expect(groupLines($this, $groupId))->toHaveCount(2)
+        ->and(groupLines($this, $byMinutes))->toHaveCount(1);
+
+    // A trial lesson costs one lesson of the month: 400 ÷ 4.
+    $next = lessonOn($this, $groupId, '2026-06-15');
+    $this->getJson("/api/groups/{$groupId}/trial-price?lesson_id={$next->id}")->assertOk()->assertJsonPath('amount_minor', 10000);
+});
+
+it('a month in lessons is a centre\'s only, and only while it is whole lessons', function () {
+    // Not a centre: the field is let go, the minutes count as before.
+    $groupId = moneyGroup($this, ['price_minor' => 40000, 'month_minutes' => 240, 'month_lessons' => 4]);
+    $this->getJson("/api/groups/{$groupId}")->assertOk()->assertJsonPath('group.pricing.month_lessons', null);
+
+    asTenant($this->academy, function (): void {
+        DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+        app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['centre']);
+    });
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/groups/{$groupId}", ['month_lessons' => 4])->assertOk()->assertJsonPath('group.pricing.month_lessons', 4);
+    // 250 minutes is not 4 whole lessons: back to the minutes.
+    $this->patchJson("/api/groups/{$groupId}", ['month_minutes' => 250])->assertOk()->assertJsonPath('group.pricing.month_lessons', null);
+    // A calendar month has no lessons count.
+    $this->patchJson("/api/groups/{$groupId}", ['month_minutes' => 240, 'month_lessons' => 4])->assertOk()->assertJsonPath('group.pricing.month_lessons', 4);
+    $this->patchJson("/api/groups/{$groupId}", ['month_minutes' => null])->assertOk()->assertJsonPath('group.pricing.month_lessons', null);
+});
+
+it('the backfill gives a centre\'s hours groups their lessons a month from the lesson length, and leaves everyone else alone', function () {
+    $centreType = DB::table('academy_types')->where('code', 'CENTRE')->value('id');
+    expect($centreType)->not->toBeNull();
+    $even = moneyGroup($this, ['price_minor' => 40000, 'month_minutes' => 480]); // 60-minute lessons → 8
+    $odd = moneyGroup($this, ['name' => 'Odd', 'price_minor' => 40000, 'month_minutes' => 250]);
+    $calendar = moneyGroup($this, ['name' => 'Calendar']);
+    $migration = require database_path('migrations/2026_11_29_000003_group_month_lessons.php');
+
+    // Not a centre yet: nothing.
+    expect($migration->fill())->toBe(0);
+
+    DB::table('academies')->where('id', $this->academy)->update(['academy_type_id' => $centreType]);
+    expect($migration->fill())->toBe(1);
+    $lessons = asTenant($this->academy, fn () => DB::table('class_groups')->whereIn('id', [$even, $odd, $calendar])->pluck('month_lessons', 'id'));
+    expect($lessons[$even])->toBe(8)->and($lessons[$odd])->toBeNull()->and($lessons[$calendar])->toBeNull();
+    // Run again: already set, nothing more.
+    expect($migration->fill())->toBe(0);
+});
+
 it('leaving mid-month: the month\'s lessons from that day are paid back in cash from a treasury account', function () {
     accountingOn($this);
     $groupId = moneyGroup($this, ['student_ids' => [$this->kids['Adam']]]);

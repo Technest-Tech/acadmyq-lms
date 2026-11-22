@@ -17,6 +17,7 @@ use App\Services\Ledger;
 use App\Services\Rooms;
 use App\Services\StudentLevels;
 use App\Support\Audit;
+use App\Support\Entitlement;
 use App\Support\TimeHelper;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -40,7 +41,7 @@ final class ClassGroupController extends Controller
     private const STATES = ['UPCOMING', 'RUNNING', 'FINISHED', 'ARCHIVED'];
 
     /** What the student pays — `student.set_price` to change, hidden from anyone who can't see money. */
-    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes', 'solo_billed_minutes', 'two_month_price_minor'];
+    private const PRICE_FIELDS = ['billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join', 'month_minutes', 'month_lessons', 'solo_billed_minutes', 'two_month_price_minor'];
 
     /** What the teacher earns — `teacher.set_pay` to change; it or `payout.read` to see. */
     private const TEACHER_PAY_FIELDS = ['teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp', 'teacher_share_basis'];
@@ -834,6 +835,8 @@ final class ClassGroupController extends Controller
                 'charge_absent' => (bool) $g->charge_absent,
                 'prorate_join' => (bool) $g->prorate_join,
                 'month_minutes' => $g->month_minutes !== null ? (int) $g->month_minutes : null,
+                // A centre's month in lessons: each held lesson is one of them, whatever its length.
+                'month_lessons' => isset($g->month_lessons) ? (int) $g->month_lessons : null,
                 'two_month_price_minor' => isset($g->two_month_price_minor) ? (int) $g->two_month_price_minor : null,
                 'solo_billed_minutes' => $g->solo_billed_minutes !== null ? (int) $g->solo_billed_minutes : null,
             ] : null,
@@ -902,6 +905,16 @@ final class ClassGroupController extends Controller
         if ($get('billing_mode') !== GroupBilling::MONTHLY && $get('month_minutes') !== null) {
             $data['month_minutes'] = null;
         }
+        // A month counted in lessons is a centre's (Lingo 2026-11-22), and only while the month is
+        // whole lessons of the same length: anything else counts real minutes, as before.
+        $lessons = $get('month_lessons');
+        if ($lessons !== null) {
+            $minutes = $get('month_minutes');
+            if ($minutes === null || (int) $minutes % (int) $lessons !== 0
+                || ! Entitlement::hasCapability($this->currentAcademyId(), 'centre')) {
+                $data['month_lessons'] = null;
+            }
+        }
         // So does the two-month offer.
         if ($get('billing_mode') !== GroupBilling::MONTHLY && $get('two_month_price_minor') !== null) {
             $data['two_month_price_minor'] = null;
@@ -968,6 +981,8 @@ final class ClassGroupController extends Controller
             'prorate_join' => ['sometimes', 'boolean'],
             // MONTHLY only: the hours one month buys (null = the calendar month).
             'month_minutes' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:60000'],
+            // A centre's month in lessons (month_minutes = lessons × length): each lesson held counts one.
+            'month_lessons' => ['sometimes', 'nullable', 'integer', 'min:1', 'max:500'],
             // MONTHLY only: the two-month offer — what two months cost together (null = twice the month).
             'two_month_price_minor' => ['sometimes', 'nullable', 'integer', 'min:0', 'max:1000000000000'],
             // A lone student's lesson counts this long against their hours (the teacher is paid the real length).

@@ -45,7 +45,7 @@ final class CourseTerm
     private const INHERITED = [
         'specialization_id', 'level', 'level_id', 'teacher_id', 'capacity', 'mode', 'location', 'meeting_url',
         'timezone', 'notes', 'billing_mode', 'price_minor', 'currency', 'charge_absent', 'prorate_join',
-        'month_minutes', 'solo_billed_minutes', 'teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp',
+        'month_minutes', 'month_lessons', 'solo_billed_minutes', 'teacher_pay_mode', 'teacher_pay_minor', 'teacher_share_bp',
     ];
 
     public function __construct(

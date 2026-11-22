@@ -8584,6 +8584,7 @@
       "empty": "No students in this group yet.",
       "since": "Since {date}",
       "hourMonth": "Month {month} · {left} h left",
+      "hourMonthLessons": "Month {month} · {left} lessons left",
       "between": "{from} → {to}",
       "rateTitle": "Attendance rate",
       "absences": "{count, plural, one {# absence} other {# absences}}",

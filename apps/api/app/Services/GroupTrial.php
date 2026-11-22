@@ -34,7 +34,10 @@ final class GroupTrial
         $date = Carbon::parse($lesson->occurrence_local_date);
         if ($group->billing_mode === GroupBilling::MONTHLY) {
             if (GroupBilling::byHours($group)) {
-                return (int) round($price * (int) $lesson->duration_minutes / max(1, (int) $group->month_minutes));
+                // Counted in lessons: one lesson of the month, whatever its length.
+                $minutes = GroupBilling::lessonUnit($group) ?? (int) $lesson->duration_minutes;
+
+                return (int) round($price * $minutes / max(1, (int) $group->month_minutes));
             }
             $count = DB::table('class_group_lessons')->where('group_id', $group->id)->where('status', '<>', 'CANCELLED')
                 ->whereBetween('occurrence_local_date', [$date->copy()->startOfMonth()->format('Y-m-d'), $date->copy()->endOfMonth()->format('Y-m-d')])

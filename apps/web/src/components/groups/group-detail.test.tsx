@@ -92,6 +92,22 @@ beforeEach(() => {
 });
 
 describe("GroupDetailScreen — a learning centre's look", () => {
+  it("a month counted in lessons says how many lessons are left, not hours (Lingo 2026-11-22)", async () => {
+    const user = userEvent.setup();
+    // 8 lessons a month of 60 minutes; 5 held of what was bought → 3 left (the weekly lesson is 90 now).
+    getGroup.mockResolvedValue({
+      group: {
+        ...group,
+        pricing: { billing_mode: "MONTHLY", price_minor: 52000, currency: "EGP", charge_absent: false, prorate_join: true, month_minutes: 480, month_lessons: 8, solo_billed_minutes: null },
+        members: [{ ...group.members[0], hour_month: { months: 1, bought_minutes: 480, used_minutes: 300 } }],
+      },
+    });
+    render(withAuth(centreSession(), <GroupDetailScreen groupId="g1" />));
+
+    await user.click(await screen.findByTestId("group-tab-members"));
+    expect(await screen.findByTestId("hour-month-s1")).toHaveTextContent(ar.members.hourMonthLessons.replace("{month}", "1").replace("{left}", "3"));
+  });
+
   it("opens on the group's band and its four numbers, in reading order", async () => {
     render(withAuth(centreSession(), <GroupDetailScreen groupId="g1" />));
 
