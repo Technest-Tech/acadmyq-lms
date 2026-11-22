@@ -32,6 +32,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useState, type ComponentType, type ReactNode } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { CourseEndPanel } from "@/components/groups/course-end-panel";
+import { FormerStudentsPanel } from "@/components/groups/former-students-panel";
 import { GradeSheet } from "@/components/grades/grade-sheet";
 import { TermReportsPanel } from "@/components/grades/term-reports-panel";
 import { GroupAccountsPanel } from "@/components/groups/group-accounts-panel";
@@ -52,7 +53,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Modal } from "@/components/ui/modal";
 import { HeroBadge, PageHero } from "@/components/ui/page-hero";
-import { useCapability, useModernLook } from "@/lib/capabilities";
+import { useCapability, useCourseStudents, useModernLook } from "@/lib/capabilities";
 import { archiveGroup, deleteGroup, getGroup, restoreGroup, type GroupDetail } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -94,6 +95,8 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
   // A centre's group is a course term (docs/centre-profile, Phase 2 §2): progress, end, waiting list.
   // Grades and term reports are a centre's; a Quran academy's group page is what it was.
   const centre = useCapability("centre");
+  // A finished course turns its course-only students into former students (`course_students`).
+  const courseStudents = useCourseStudents();
   const tabs = TABS.filter((k) => {
     if (k === "money") return can("invoice.read") && !accounting;
     if (k === "accounts") return can("invoice.read") && accounting;
@@ -385,6 +388,15 @@ export function GroupDetailScreen({ groupId }: { groupId: string }) {
           onRenewed={(g) => {
             setGroup(g);
             setNotice(tTerm("renew.done"));
+          }}
+        />
+      )}
+      {courseStudents && canManage && can("student.deactivate") && (group.state === "FINISHED" || group.status === "ARCHIVED") && (
+        <FormerStudentsPanel
+          group={group}
+          onDone={(count) => {
+            setNotice(t("formerStudents.done", { count }));
+            void load();
           }}
         />
       )}

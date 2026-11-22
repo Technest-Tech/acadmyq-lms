@@ -321,6 +321,27 @@ export function restoreGroup(id: string): Promise<{ group: GroupDetail; generate
   return apiFetch(`/api/groups/${id}/restore`, { method: "POST" });
 }
 
+/**
+ * A finished course's students (`course_students`): GRADUATE = becomes a former student; the rest
+ * stay — ALREADY_FORMER (nothing to do), OTHER_GROUP (another group still running), PRIVATE (has
+ * private lessons of their own).
+ */
+export type FormerStudentOutcome = "GRADUATE" | "ALREADY_FORMER" | "OTHER_GROUP" | "PRIVATE";
+
+export interface FormerStudentRow {
+  id: string;
+  full_name: string;
+  outcome: FormerStudentOutcome;
+}
+
+export function getFormerStudents(groupId: string): Promise<{ course_over: boolean; students: FormerStudentRow[] }> {
+  return apiFetch(`/api/groups/${groupId}/former-students`);
+}
+
+export function makeFormerStudents(groupId: string): Promise<{ graduated: number; kept: number; students: FormerStudentRow[] }> {
+  return apiFetch(`/api/groups/${groupId}/former-students`, { method: "POST" });
+}
+
 export function deleteGroup(id: string): Promise<{ ok: boolean }> {
   return apiFetch(`/api/groups/${id}`, { method: "DELETE" });
 }

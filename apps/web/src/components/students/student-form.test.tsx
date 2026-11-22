@@ -744,6 +744,68 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     expect(api.createStudent).not.toHaveBeenCalled();
   });
 
+  it("gives a Quran academy with course-only students a third card: group or course only (course_students)", async () => {
+    centreGroups();
+    groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s7", guardianId: "g1" });
+    const user = userEvent.setup();
+    const { onCreated } = renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups", "course_students"], extraPermissions: ["group.manage"] });
+    await fillActiveStudent(user);
+    // Package and monthly exactly as before — the package still leads — and the new card beside them.
+    const cards = screen.getByTestId("course-only-choice");
+    expect(within(cards).getByTestId("billing-package")).toHaveAttribute("aria-pressed", "true");
+    expect(within(cards).getByTestId("billing-monthly")).toHaveTextContent(enMessages.students.form.billingMonthly);
+    expect(screen.queryByTestId("group-subs")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("billing-course-only"));
+    expect(screen.queryByLabelText(enMessages.packages.form.hours)).not.toBeInTheDocument();
+    const pick = await screen.findByTestId("group-subs-pick");
+    await waitFor(() => expect(within(pick).getAllByRole("option").length).toBeGreaterThan(1));
+    await user.selectOptions(pick, "g2");
+
+    await user.click(screen.getByTestId("submit-student"));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(api.createStudent).mock.calls[0]![0];
+    expect(payload).not.toHaveProperty("subscription");
+    expect(payload).not.toHaveProperty("package");
+    expect(payload.status).toBe("REGULAR");
+    await waitFor(() => expect(groupsApi.addGroupMembers).toHaveBeenCalledWith("g2", { student_ids: ["s7"], joined_on: "2026-02-01" }));
+    expect(onCreated).toHaveBeenCalledWith("s7", expect.anything());
+  });
+
+  it("does not join a group picked on the course-only card when another card is chosen after", async () => {
+    centreGroups();
+    vi.mocked(api.createStudent).mockResolvedValue({ studentId: "s8", guardianId: "g1" });
+    const user = userEvent.setup();
+    renderForm({ capabilities: ["groups", "course_students"], extraPermissions: ["group.manage"] });
+    await fillActiveStudent(user);
+    await user.click(screen.getByTestId("billing-course-only"));
+    const pick = await screen.findByTestId("group-subs-pick");
+    await waitFor(() => expect(within(pick).getAllByRole("option").length).toBeGreaterThan(1));
+    await user.selectOptions(pick, "g1");
+    // Back to monthly, free: a private student after all.
+    await user.click(screen.getByTestId("billing-monthly"));
+    expect(screen.queryByTestId("group-subs")).not.toBeInTheDocument();
+    await user.click(within(screen.getByTestId("new-student-monthly-free")).getByRole("checkbox"));
+    await user.click(screen.getByTestId("submit-student"));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.createStudent).mock.calls[0]![0]).toHaveProperty("subscription");
+    expect(groupsApi.addGroupMembers).not.toHaveBeenCalled();
+  });
+
+  it("leaves a Quran academy's form exactly as it was without the switch, groups or not", async () => {
+    centreGroups();
+    const user = userEvent.setup();
+    renderForm({ canManagePackages: true, capabilities: ["invoicing", "packages", "groups"], extraPermissions: ["group.manage"] });
+    await fillActiveStudent(user);
+    expect(screen.queryByTestId("course-only-choice")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("billing-course-only")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("group-subs")).not.toBeInTheDocument();
+    expect(screen.getByTestId("billing-package")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("billing-monthly")).toHaveTextContent(enMessages.students.form.billingMonthly);
+    expect(groupsApi.listGroups).not.toHaveBeenCalled();
+  });
+
   it("still lets a centre add a group beside a private subscription", async () => {
     centreGroups();
     groupsApi.addGroupMembers.mockResolvedValue({ added: 1, group: {} });

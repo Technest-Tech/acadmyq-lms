@@ -52,7 +52,7 @@ vi.mock("@/lib/api", async (importOriginal) => {
     listTeachers: (q: unknown) => api.listTeachers(q),
     getPendingAttendance: () => api.getPendingAttendance(),
     getOverdueSessions: () => api.getOverdueSessions(),
-    getInvoiceSummary: () => api.getInvoiceSummary(),
+    getInvoiceSummary: (q?: unknown) => api.getInvoiceSummary(q),
     getCalendar: (q: unknown) => api.getCalendar(q),
     getProfitSummary: (y: number, m: number) => api.getProfitSummary(y, m),
     listMyPayouts: (q: unknown) => api.listMyPayouts(q),
@@ -116,6 +116,15 @@ beforeEach(() => {
     month,
     rows: [{ currency: "EGP", revenue_minor: month * 100_000, payouts_minor: 0, profit_minor: 0 }],
   }));
+  api.getInvoiceSummary.mockImplementation(async (q?: { period_month?: string }) =>
+    q?.period_month
+      ? // This month's bills only.
+        { counts: { all: 8, OPEN: 3, CLOSED: 0, PAID: 5, PARTIALLY_PAID: 0 }, money: [{ currency: "EGP", billed_minor: 2_000_000, collected_minor: 1_500_000, outstanding_minor: 0, due_minor: 500_000 }] }
+      : {
+          counts: { all: 30, OPEN: 3, CLOSED: 5, PAID: 20, PARTIALLY_PAID: 2 },
+          money: [{ currency: "EGP", billed_minor: 9_000_000, collected_minor: 6_000_000, outstanding_minor: 1_000_000, due_minor: 2_500_000 }],
+        },
+  );
   api.listMyPayouts.mockReset().mockResolvedValue({ rows: [] });
   api.listTrials.mockReset().mockResolvedValue({ rows: [], total: 0 });
   api.rates.mockReset().mockResolvedValue({ home: "EGP", available: true, stale: false, as_of: 1, source: "x", rates: [{ currency: "USD", to_home: 50 }] });
@@ -176,6 +185,65 @@ describe("DashboardHome — the modern look for a Quran academy", () => {
     // This month's revenue: $2,000 (100,000 EGP) + 10,000 EGP.
     await vi.waitFor(() => expect(screen.getByTestId("revenue-latest").textContent).toBe(egp(11_000_000)));
     expect(api.rates).toHaveBeenCalledTimes(1);
+
+    // The currencies behind the total, spelled out in the card: each one's own amount, and the
+    // dollars' worth in pounds.
+    const breakdown = within(dueCard).getByTestId("currency-breakdown");
+    const usdRow = within(breakdown).getByTestId("currency-row-USD");
+    expect(usdRow.textContent).toContain(formatMoney({ amount: 100_000, currency: "USD" }, "ar", { trimZeroDecimals: true }));
+    expect(usdRow.textContent).toContain(`≈ ${egp(5_000_000)}`);
+    expect(within(breakdown).getByTestId("currency-row-EGP").textContent).toContain(egp(2_500_000));
+    expect(breakdown.textContent).toContain(dash.finance.todayRate.replace("{currency}", "EGP"));
+  });
+
+  it("keeps the money in a row of its own, apart from people and lessons", async () => {
+    // The current month's statement: 4,000 EGP of teacher salaries.
+    api.getProfitSummary.mockImplementation(async (year: number, month: number) => ({
+      year,
+      month,
+      rows: [{ currency: "EGP", revenue_minor: 1_000_000, payouts_minor: 400_000, profit_minor: 600_000 }],
+    }));
+    render(withAuth(owner(), <DashboardHome />));
+    const egp = (minor: number) => formatMoney({ amount: minor, currency: "EGP" }, "ar", { trimZeroDecimals: true });
+
+    const moneyRow = await screen.findByTestId("money-row");
+    expect(within(moneyRow).getByText(t.money.title)).toBeInTheDocument();
+    const cards = () => within(moneyRow).getAllByTestId("kpi-card").map((c) => c.textContent ?? "");
+    expect(cards()).toHaveLength(4);
+    await vi.waitFor(() => {
+      const [collected, due, salaries, net] = cards();
+      // Collected on this month's bills, out of what they billed.
+      expect(collected).toContain(t.money.collected);
+      expect(collected).toContain(egp(1_500_000));
+      // Owed: every unpaid bill, whatever its month.
+      expect(due).toContain(t.kpi.due);
+      expect(due).toContain(egp(2_500_000));
+      expect(salaries).toContain(t.money.salaries);
+      expect(salaries).toContain(egp(400_000));
+      // 15,000 collected − 4,000 salaries.
+      expect(net).toContain(t.money.net);
+      expect(net).toContain(egp(1_100_000));
+    });
+
+    // One currency: the figure is already that currency, nothing to spell out.
+    expect(within(moneyRow).queryByTestId("currency-breakdown")).toBeNull();
+
+    // The first row is people and lessons only.
+    const top = screen.getByTestId("kpi-row");
+    expect(within(top).queryByText(t.kpi.due)).toBeNull();
+    expect(within(top).getByText(t.kpi.today)).toBeInTheDocument();
+  });
+
+  it("shows no money row to a reader of neither bills nor salaries", async () => {
+    render(
+      withAuth(
+        makeSession("ACADEMY_OWNER", { academy: quran, capabilities: ["modern_look"], permissions: ["student.read", "session.read", "schedule.read"] }),
+        <DashboardHome />,
+      ),
+    );
+    expect(await screen.findByTestId("kpi-row")).toBeInTheDocument();
+    expect(screen.queryByTestId("money-row")).toBeNull();
+    expect(api.getInvoiceSummary).not.toHaveBeenCalled();
   });
 
   it("lists the trials booked on the Trials page among this week's trials, not just trial lessons", async () => {

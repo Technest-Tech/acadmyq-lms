@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  GraduationCap,
-  Plus,
   Sparkles,
   UserCheck,
   Users,
@@ -20,7 +18,6 @@ import { TeacherStudentSessions } from "@/components/students/teacher-student-se
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
-import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import { SegmentTile } from "@/components/ui/segment-tile";
 import { deactivateStudent, listStudents } from "@/lib/api";
 import { useCapability, useCentreLook } from "@/lib/capabilities";
@@ -166,35 +163,9 @@ export function StudentManager() {
 
   return (
     <div className="space-y-5">
-
-      <PageHero
-        latticeId="students-hero-lattice"
-        icon={GraduationCap}
-        title={t("title")}
-        subtitle={t("subtitle")}
-        actions={
-          <>
-            {stats && (
-              <HeroPill>
-                <Users className="size-3.5" aria-hidden />
-                {t("hero.onRoll", { count: stats.total })}
-              </HeroPill>
-            )}
-            {can("student.create") && (
-              <Button
-                type="button"
-                size="lg"
-                onClick={() => setModal({ kind: "new" })}
-                data-testid="new-student"
-                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
-              >
-                <Plus className="size-4" aria-hidden />
-                {t("new")}
-              </Button>
-            )}
-          </>
-        }
-      />
+      {/* No hero banner (Ahmed 2026-11-22): the page opens on the tiles. "New student" lives on the
+          list's own toolbar, and the roll count is the "total" tile. */}
+      <h1 className="sr-only">{t("title")}</h1>
 
       {/* ── Segment tiles ───────────────────────────────────────────────────
           Not a scoreboard — a filter. Each tile narrows the table below it, so the number and the

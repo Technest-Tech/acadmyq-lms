@@ -231,6 +231,63 @@ it('lists the monthly statements a window touches, on both sides of the boundary
         ->and((int) $juneOnly['rows'][0]['period_month'])->toBe(6);
 });
 
+it('carries the statements a window touches on the teacher\'s own row (Ahmed 2026-11-22)', function () {
+    ($this->lessonOn)('2026-06-28 10:00:00+00');
+    Carbon::setTestNow('2026-07-10 12:00:00');
+    ($this->lessonOn)('2026-07-02 10:00:00+00');
+
+    $this->asAcademy($this->academy);
+    $june = (string) DB::table('payouts')->where('teacher_id', $this->teacher)->where('period_month', 6)->value('id');
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/payouts/{$june}/transfer", ['transferred' => true])->assertOk();
+
+    // One row for the teacher, both months on it in order, each with what the transfer switch needs.
+    $body = ($this->range)('2026-06-25', '2026-07-05')->assertOk()->json();
+    expect($body['teachers'])->toHaveCount(1);
+    $statements = $body['teachers'][0]['statements'];
+    expect($statements)->toHaveCount(2)
+        ->and($statements[0]['id'])->toBe($june)
+        ->and($statements[0]['period_month'])->toBe(6)
+        ->and($statements[0]['status'])->toBe('OPEN')
+        ->and($statements[0]['total_minor'])->toBe(5000)
+        ->and($statements[0]['transferred_at'])->not->toBeNull()
+        ->and($statements[0]['transferred_minor'])->toBe(5000)
+        ->and($statements[0]['paid_out_minor'])->toBe(0)
+        ->and($statements[1]['period_month'])->toBe(7)
+        ->and($statements[1]['transferred_at'])->toBeNull();
+});
+
+it('keeps a statement reachable when the window only cuts into its month, without counting it', function () {
+    // June's lesson is on the 5th; the window starts on the 25th, so it earns nothing in the window
+    // but its June statement is one the window touches.
+    ($this->lessonOn)('2026-06-05 10:00:00+00');
+
+    $body = ($this->range)('2026-06-25', '2026-06-30')->assertOk()->json();
+    expect($body['teachers'])->toHaveCount(1)
+        ->and($body['teachers'][0]['net_minor'])->toBe(0)
+        ->and($body['teachers'][0]['statements'])->toHaveCount(1)
+        ->and($body['teachers'][0]['statements'][0]['total_minor'])->toBe(5000)
+        // What the window costs stays the window's: the statement adds no teacher and no money.
+        ->and($body['currencies'])->toHaveCount(0);
+});
+
+it('still lists an open statement that stands at 0, so it can be opened and corrected', function () {
+    $session = ($this->lessonOn)('2026-06-05 10:00:00+00');
+
+    // Its only lesson removed from the statement: June is OPEN and at 0.
+    $this->asAcademy($this->academy);
+    $payoutId = (string) DB::table('payout_line_items')->where('session_id', $session)->value('payout_id');
+    DB::table('payout_line_items')->where('payout_id', $payoutId)->delete();
+    DB::table('payouts')->where('id', $payoutId)->update(['total_minor' => 0]);
+
+    $body = ($this->range)('2026-06-25', '2026-06-30')->assertOk()->json();
+    expect($body['teachers'])->toHaveCount(1)
+        ->and($body['teachers'][0]['statements'][0]['id'])->toBe($payoutId)
+        ->and($body['teachers'][0]['statements'][0]['total_minor'])->toBe(0)
+        // Nothing behind the window's figures is open — the touched month says so on its own line.
+        ->and($body['teachers'][0]['has_open'])->toBeFalse();
+});
+
 it('finds a teacher\'s statements by name, Arabic-forgiving (Lingo 2026-11-15)', function () {
     ($this->lessonOn)('2026-06-28 10:00:00+00');
     $this->asAcademy($this->academy);

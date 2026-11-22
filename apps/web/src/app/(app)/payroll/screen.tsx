@@ -5,16 +5,19 @@ import {
   BadgePlus,
   CalendarCheck,
   CalendarRange,
+  ChevronLeft,
   Clock3,
-  Lock,
+  FileSpreadsheet,
+  FileText,
+  Loader2,
   Search,
+  Send,
   Users,
   Wallet,
 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { FinalizePeriodModal } from "@/components/payroll/finalize-period-modal";
 import { PayoutDetailModal } from "@/components/payroll/payout-detail-modal";
 import { PayoutTransferCell, transferState } from "@/components/payroll/payout-transfer-cell";
 import {
@@ -23,13 +26,10 @@ import {
 } from "@/components/payroll/teacher-range-lessons-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { PageHero } from "@/components/ui/page-hero";
+import { DataTable, type ColumnDef } from "@/components/ui/data-table";
+import { StatCard } from "@/components/ui/stat-card";
 import {
-  DataTable,
-  type ColumnDef,
-  type FilterDef,
-} from "@/components/ui/data-table";
-import {
+  ApiError,
   apiFetch,
   getPayrollRange,
   toQueryString,
@@ -39,8 +39,9 @@ import {
   type PayrollRange,
   type PayrollRangeTeacher,
 } from "@/lib/api";
-import { type ExcelColumn } from "@/lib/export-excel";
-import { formatMoney } from "@/lib/money";
+import { avatarTone } from "@/lib/avatar";
+import { exportRowsToExcel, type ExcelColumn } from "@/lib/export-excel";
+import { formatMoney, formatNumber } from "@/lib/money";
 import { searchMatches } from "@/lib/search-fold";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -62,13 +63,16 @@ function PayoutStatusBadge({ status }: { status: PayoutRow["status"] }) {
   const t = useTranslations("payroll");
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[status]}`}
+      className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[11px] font-medium whitespace-nowrap ${STATUS_STYLES[status]}`}
     >
       <span className={`size-1.5 rounded-full ${STATUS_DOT[status]}`} aria-hidden />
       {t(`status.${status}`)}
     </span>
   );
 }
+
+/** `MM/YYYY` — the month a statement is for. */
+const periodLabel = (row: PayoutRow) => `${String(row.period_month).padStart(2, "0")}/${row.period_year}`;
 
 // ── The window ─────────────────────────────────────────────────────────────────
 
@@ -117,182 +121,394 @@ const RANGE_PRESETS: ReadonlyArray<{ key: string; build: () => { from: string; t
   },
 ];
 
-// ── Salary summary (owner only) — what this window costs, per currency ─────────
+// ── Where a teacher's money stands ─────────────────────────────────────────────
+
+type TeacherTransfer = "PENDING" | "DONE" | "NONE";
 
 /**
- * The payroll bill for the chosen window.
- *
- * Every figure here is a SALARY figure. The page used to lead with revenue-vs-payouts profit and
- * with what students still owe — real numbers, but neither of them tells you what to pay anyone,
- * and both are answered properly on the financial statistics and invoices pages. What an owner
- * comes here for is: how much do I owe, to how many people, for how many hours.
- *
- * Never summed across currencies (§3.6) — a teacher paid in USD gets their own card.
+ * A teacher is waiting while any statement on their row is waiting, and paid once every statement
+ * that owes something has gone out. A row with nothing owed is neither.
  */
-function SalarySummaryPanel({
-  range,
-  loading,
-}: {
-  range: PayrollRange | null;
-  loading: boolean;
-}) {
+function teacherTransfer(row: PayrollRangeTeacher): TeacherTransfer {
+  const states = row.statements.map(transferState).filter((s) => s !== "NOTHING_DUE");
+  if (states.length === 0) return "NONE";
+  return states.includes("PENDING") ? "PENDING" : "DONE";
+}
+
+/** The row taught, earned or was adjusted in the window — not only reachable through a statement. */
+const earnedInWindow = (row: PayrollRangeTeacher) =>
+  row.sessions > 0 ||
+  row.base_minor !== 0 ||
+  row.lessons_minor !== 0 ||
+  row.rewards_minor !== 0 ||
+  row.deductions_minor !== 0;
+
+// ── Stat cards (owner only) ────────────────────────────────────────────────────
+
+const STAT_GRID: Record<number, string> = {
+  4: "lg:grid-cols-4",
+  5: "lg:grid-cols-5",
+  6: "lg:grid-cols-6",
+};
+
+/**
+ * What the window costs, as slim coloured cards (the look Ahmed settled on for Due, 2026-11-22):
+ * the total owed, what it is made of, and how many teachers have had their money. Each money card
+ * lists every currency side by side, never summed (§3.6).
+ */
+function PayrollStats({ range, loading }: { range: PayrollRange | null; loading: boolean }) {
   const t = useTranslations("payroll");
   const locale = useLocale();
 
   if (loading) {
     return (
-      <div className="bg-card h-[132px] animate-pulse rounded-2xl border shadow-sm" aria-hidden />
-    );
-  }
-
-  if (range === null || range.currencies.length === 0) {
-    return (
-      <div className="text-muted-foreground bg-card rounded-2xl border border-dashed px-4 py-8 text-center text-sm">
-        {t("rangeEmpty")}
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-5" aria-hidden>
+        {Array.from({ length: 5 }, (_, i) => (
+          <div key={i} className="bg-card h-[58px] animate-pulse rounded-xl border shadow-sm" />
+        ))}
       </div>
     );
   }
 
+  // An empty period keeps the cards where they are, at "—": a big empty box at the top of the page
+  // read as broken. Saying the period is empty is the table's job, below the dates.
+  if (range === null || range.currencies.length === 0) {
+    return (
+      <div className="grid grid-cols-2 gap-2.5 lg:grid-cols-4" data-testid="payroll-stats">
+        <StatCard tone="emerald" icon={Wallet} label={t("rangePayable")} values={["—"]} testId="payroll-stat-payable" />
+        <StatCard tone="sky" icon={Clock3} label={t("rangeLessons")} values={["—"]} testId="payroll-stat-lessons" />
+        <StatCard tone="violet" icon={BadgePlus} label={t("rangeRewards")} values={["—"]} testId="payroll-stat-rewards" />
+        <StatCard tone="rose" icon={BadgeMinus} label={t("rangeDeductions")} values={["—"]} testId="payroll-stat-deductions" />
+      </div>
+    );
+  }
+
+  const buckets = range.currencies;
+  const money = (pick: (b: (typeof buckets)[number]) => number, skipZero = false) => {
+    const values = buckets
+      .filter((b) => !skipZero || pick(b) !== 0)
+      .map((b) => formatMoney({ amount: pick(b), currency: b.currency }, locale));
+    return values.length > 0 ? values : ["—"];
+  };
+
+  const teachers = new Set(range.teachers.filter(earnedInWindow).map((r) => r.teacher_id)).size;
+  const minutes = buckets.reduce((sum, b) => sum + b.minutes, 0);
+  const anyFixed = buckets.some((b) => b.base_minor > 0);
+
+  const states = range.teachers.map(teacherTransfer).filter((s) => s !== "NONE");
+  const sent = states.filter((s) => s === "DONE").length;
+  const waiting = states.length - sent;
+
+  const cards = 4 + (anyFixed ? 1 : 0) + (states.length > 0 ? 1 : 0);
+
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-      {range.currencies.map((bucket) => {
-        const fmt = (v: number) => formatMoney({ amount: v, currency: bucket.currency }, locale);
-
-        return (
-          <div
-            key={bucket.currency}
-            data-testid={`salary-card-${bucket.currency}`}
-            className="bg-card ring-foreground/[0.04] relative overflow-hidden rounded-2xl border p-4 shadow-sm ring-1"
-          >
-            <div className="flex items-center justify-between">
-              <span className="bg-primary/10 text-primary inline-flex items-center rounded-full px-2 py-0.5 text-xs font-bold tracking-wide">
-                {bucket.currency}
-              </span>
-              <span className="bg-primary/10 text-primary flex size-9 items-center justify-center rounded-xl">
-                <Wallet className="size-4.5" aria-hidden />
-              </span>
-            </div>
-
-            <p className="text-muted-foreground mt-3 text-xs font-medium">{t("rangePayable")}</p>
-            <p className="text-2xl font-extrabold tracking-tight tabular-nums">
-              {fmt(bucket.net_minor)}
-            </p>
-
-            {/* What the total is MADE OF. A salary you cannot decompose is a salary you cannot
-                defend to the person receiving it. Fixed salaries get their own figure only when
-                someone in this currency is on one. */}
-            <dl
-              className={cn(
-                "mt-3 grid gap-2 border-t pt-3 text-xs",
-                bucket.base_minor > 0 ? "grid-cols-2" : "grid-cols-3",
-              )}
-            >
-              {bucket.base_minor > 0 && (
-                <div>
-                  <dt className="text-muted-foreground flex items-center gap-1">
-                    <CalendarCheck className="size-3" aria-hidden />
-                    {t("rangeFixed")}
-                  </dt>
-                  <dd className="mt-0.5 font-semibold break-words tabular-nums">{fmt(bucket.base_minor)}</dd>
-                </div>
-              )}
-              <div>
-                <dt className="text-muted-foreground flex items-center gap-1">
-                  <Clock3 className="size-3" aria-hidden />
-                  {t("rangeLessons")}
-                </dt>
-                <dd className="mt-0.5 font-semibold tabular-nums">{fmt(bucket.lessons_minor)}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground flex items-center gap-1">
-                  <BadgePlus className="size-3" aria-hidden />
-                  {t("rangeRewards")}
-                </dt>
-                <dd className="mt-0.5 font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">
-                  {fmt(bucket.rewards_minor)}
-                </dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground flex items-center gap-1">
-                  <BadgeMinus className="size-3" aria-hidden />
-                  {t("rangeDeductions")}
-                </dt>
-                <dd className="mt-0.5 font-semibold tabular-nums text-red-600 dark:text-red-400">
-                  {fmt(bucket.deductions_minor)}
-                </dd>
-              </div>
-            </dl>
-
-            <p className="text-muted-foreground mt-2.5 flex items-center gap-2 text-xs">
-              <span className="inline-flex items-center gap-1">
-                <Users className="size-3" aria-hidden />
-                {t("rangeTeachers", { count: bucket.teachers })}
-              </span>
-              <span aria-hidden>·</span>
-              <span>{t("rangeTaught", { hours: formatHours(bucket.minutes, locale) })}</span>
-            </p>
-          </div>
-        );
-      })}
+    <div className={cn("grid grid-cols-2 gap-2.5", STAT_GRID[cards])} data-testid="payroll-stats">
+      <StatCard
+        tone="emerald"
+        icon={Wallet}
+        label={t("rangePayable")}
+        values={money((b) => b.net_minor)}
+        hint={t("rangeTeachers", { count: teachers })}
+        testId="payroll-stat-payable"
+      />
+      <StatCard
+        tone="sky"
+        icon={Clock3}
+        label={t("rangeLessons")}
+        values={money((b) => b.lessons_minor)}
+        hint={t("rangeTaught", { hours: formatHours(minutes, locale) })}
+        testId="payroll-stat-lessons"
+      />
+      {anyFixed && (
+        <StatCard
+          tone="sky"
+          icon={CalendarCheck}
+          label={t("rangeFixed")}
+          values={money((b) => b.base_minor, true)}
+          testId="payroll-stat-fixed"
+        />
+      )}
+      <StatCard
+        tone="violet"
+        icon={BadgePlus}
+        label={t("rangeRewards")}
+        values={money((b) => b.rewards_minor, true)}
+        testId="payroll-stat-rewards"
+      />
+      <StatCard
+        tone="rose"
+        icon={BadgeMinus}
+        label={t("rangeDeductions")}
+        values={money((b) => b.deductions_minor, true)}
+        testId="payroll-stat-deductions"
+      />
+      {states.length > 0 && (
+        <StatCard
+          tone="amber"
+          icon={Send}
+          label={t("transferDone")}
+          values={[t("statTransferred", { sent: formatNumber(sent, locale), total: formatNumber(states.length, locale) })]}
+          hint={waiting > 0 ? t("statWaiting", { count: formatNumber(waiting, locale) }) : undefined}
+          testId="payroll-stat-transfer"
+        />
+      )}
     </div>
   );
 }
 
-// ── Per-teacher salaries for the window ────────────────────────────────────────
+// ── One table for the teachers ─────────────────────────────────────────────────
+
+const HEAD = "px-3 py-2 text-start text-[11px] font-semibold whitespace-nowrap";
+const CELL = "px-3 py-2 whitespace-nowrap";
+
+const TRANSFER_VIEWS = ["ALL", "PENDING", "DONE"] as const;
+type TransferView = (typeof TRANSFER_VIEWS)[number];
+
+/** Filter badges in colour (Ahmed 2026-11-22): a soft tint at rest, filled when applied. */
+const BADGE_TONES = {
+  sky: { rest: "border-sky-200 bg-sky-500/10 text-sky-700 hover:bg-sky-500/15 dark:border-sky-900/60 dark:text-sky-300", on: "border-sky-600 bg-sky-600 text-white" },
+  violet: { rest: "border-violet-200 bg-violet-500/10 text-violet-700 hover:bg-violet-500/15 dark:border-violet-900/60 dark:text-violet-300", on: "border-violet-600 bg-violet-600 text-white" },
+  amber: { rest: "border-amber-200 bg-amber-500/10 text-amber-700 hover:bg-amber-500/15 dark:border-amber-900/60 dark:text-amber-300", on: "border-amber-500 bg-amber-500 text-white" },
+  emerald: { rest: "border-emerald-200 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/15 dark:border-emerald-900/60 dark:text-emerald-300", on: "border-emerald-600 bg-emerald-600 text-white" },
+  slate: { rest: "border-slate-200 bg-slate-500/10 text-slate-700 hover:bg-slate-500/15 dark:border-slate-700 dark:text-slate-300", on: "border-slate-700 bg-slate-700 text-white dark:border-slate-500 dark:bg-slate-500" },
+} as const;
+
+type BadgeTone = keyof typeof BADGE_TONES;
+
+function Badge({
+  tone,
+  active,
+  onClick,
+  testId,
+  children,
+}: {
+  tone: BadgeTone;
+  active: boolean;
+  onClick: () => void;
+  testId?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold whitespace-nowrap transition-colors",
+        active ? cn(BADGE_TONES[tone].on, "shadow-sm") : BADGE_TONES[tone].rest,
+      )}
+      data-testid={testId}
+    >
+      {children}
+    </button>
+  );
+}
+
+const TRANSFER_VIEW_TONE: Record<TransferView, BadgeTone> = { ALL: "slate", PENDING: "amber", DONE: "emerald" };
+
+const PRESET_TONE: Record<string, BadgeTone> = { thisMonth: "sky", lastMonth: "violet", last30: "amber" };
+
+function Avatar({ name }: { name: string | null }) {
+  return (
+    <span
+      className={cn(
+        "flex size-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+        avatarTone(name ?? "—"),
+      )}
+      aria-hidden
+    >
+      {initials(name)}
+    </span>
+  );
+}
 
 /**
- * Who gets paid what, for the window.
- *
- * Deliberately NOT the statements table below it: a row here is a teacher summed across whatever
- * monthly statements the window cuts through, which is the question "pay everyone for the 10th to
- * the 24th" actually asks. The statements table stays as the place you open one to see its lessons
- * or finalize it.
+ * The month and whether it is still open — what a statement line opens with. The statement's own
+ * total joins them only when it is not the payable figure already on the row (a window that cuts a
+ * month, or two months on one row): that total is what the transfer switch is about.
  */
-function SalaryByTeacher({
+function StatementTag({ statement, row }: { statement: PayoutRow; row: PayrollRangeTeacher }) {
+  const locale = useLocale();
+  const showTotal = row.statements.length > 1 || statement.total_minor !== row.net_minor;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1.5">
+      <span className="text-muted-foreground text-xs tabular-nums">{periodLabel(statement)}</span>
+      <PayoutStatusBadge status={statement.status} />
+      {showTotal && (
+        <span className="text-xs font-semibold tabular-nums" data-testid={`statement-total-${statement.id}`}>
+          {formatMoney({ amount: statement.total_minor, currency: statement.currency }, locale)}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * Every teacher once (Ahmed 2026-11-22: "the teachers section at the top and the one at the bottom
+ * should be one section"). The page used to show the window's figures in one table and the monthly
+ * statements in a second one further down, with the same names in both and nothing saying why.
+ *
+ * Now a row is a teacher: what they taught and earn in the window, then the statement(s) the window
+ * touches with their transfer switch and the button that opens them. A window inside one month (the
+ * default) gives one statement per teacher, so one line; a window across two months gives the
+ * teacher two statement lines beside the same figures. Tapping the teacher opens the lessons behind
+ * the figures, where they can be corrected.
+ */
+function TeacherSalaries({
   range,
   loading,
+  busy,
+  canMark,
+  onOpenStatement,
   onMutated,
 }: {
   range: PayrollRange | null;
   loading: boolean;
+  busy: boolean;
+  canMark: boolean;
+  onOpenStatement: (id: string) => void;
   onMutated: () => void;
 }) {
   const t = useTranslations("payroll");
   const locale = useLocale();
   const [opened, setOpened] = useState<TeacherRangeTarget | null>(null);
   const [query, setQuery] = useState("");
+  const [view, setView] = useState<TransferView>("ALL");
+  const [exporting, setExporting] = useState(false);
+  const tTable = useTranslations("datatable");
   const closeLessons = useCallback(() => setOpened(null), []);
 
-  if (loading || range === null || range.teachers.length === 0) return null;
+  // The table is always on the page, headers and all (Ahmed 2026-11-22: "why isn't the salaries
+  // table showing even with no data"). Loading, an empty period or a failed load is a line in it.
+  const all = range?.teachers ?? [];
+  const dates = range ? { from: range.from, to: range.to } : null;
+
+  const counts: Record<TransferView, number> = {
+    ALL: all.length,
+    PENDING: all.filter((r) => teacherTransfer(r) === "PENDING").length,
+    DONE: all.filter((r) => teacherTransfer(r) === "DONE").length,
+  };
+
   // Find one teacher among many by name, Arabic-forgiving (Lingo 2026-11-15).
-  const teachers = range.teachers.filter((row) => searchMatches(row.teacher_name ?? "", query));
+  const teachers = all.filter(
+    (row) =>
+      searchMatches(row.teacher_name ?? "", query) &&
+      (view === "ALL" || teacherTransfer(row) === view),
+  );
 
   // The fixed-salary column only earns its width when somebody in the window is on a salary.
-  const anyFixed = range.teachers.some((row) => row.base_minor > 0);
+  const anyFixed = all.some((row) => row.base_minor > 0);
 
-  /** Every teacher row opens the lessons behind its figure — the summary used to be a dead end. */
-  const openProps = (row: PayrollRangeTeacher) => ({
-    role: "button" as const,
-    tabIndex: 0,
-    "aria-label": t("rangeLessonsTitle", { name: row.teacher_name ?? "—" }),
-    onClick: () =>
-      setOpened({ teacherId: row.teacher_id, teacherName: row.teacher_name, currency: row.currency }),
-    onKeyDown: (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" || e.key === " ") {
-        e.preventDefault();
-        setOpened({ teacherId: row.teacher_id, teacherName: row.teacher_name, currency: row.currency });
-      }
-    },
-  });
+  // What the table says when it has no rows: why, in the owner's words.
+  const emptyText =
+    range === null ? "—" : all.length === 0 ? t("rangeEmpty") : query ? t("searchNoTeacher") : t("transferViewEmpty");
+  const columnCount = anyFixed ? 10 : 9;
+
+  const open = (row: PayrollRangeTeacher) =>
+    setOpened({ teacherId: row.teacher_id, teacherName: row.teacher_name, currency: row.currency });
+
+  const transferWords = (s: PayoutRow) =>
+    ({
+      DONE: t("transferDone"),
+      TREASURY: t("transferTreasury"),
+      PENDING: t("transferPending"),
+      NOTHING_DUE: "",
+    })[transferState(s)];
+
+  async function handleExport() {
+    if (exporting) return;
+    setExporting(true);
+    const fmt = (row: PayrollRangeTeacher, v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
+    const columns: ExcelColumn<PayrollRangeTeacher>[] = [
+      { header: t("colTeacher"), value: (row) => row.teacher_name ?? "", width: 24 },
+      { header: t("rangeTaughtShort"), value: (row) => formatHours(row.minutes, locale), width: 12 },
+      ...(anyFixed
+        ? [{ header: t("rangeFixed"), value: (row: PayrollRangeTeacher) => fmt(row, row.base_minor) }]
+        : []),
+      { header: t("rangeLessons"), value: (row) => fmt(row, row.lessons_minor) },
+      { header: t("rangeRewards"), value: (row) => fmt(row, row.rewards_minor) },
+      { header: t("rangeDeductions"), value: (row) => fmt(row, row.deductions_minor) },
+      { header: t("rangePayable"), value: (row) => fmt(row, row.net_minor) },
+      {
+        header: t("colStatement"),
+        value: (row) =>
+          row.statements.map((s) => `${periodLabel(s)} ${t(`status.${s.status}`)}`).join(" / "),
+        width: 26,
+      },
+      {
+        header: t("colTransfer"),
+        value: (row) => row.statements.map(transferWords).filter(Boolean).join(" / "),
+        width: 26,
+      },
+    ];
+    try {
+      await exportRowsToExcel({
+        fileName: dates ? `payroll-${dates.from}-${dates.to}` : "payroll",
+        sheetName: t("title"),
+        columns,
+        rows: teachers,
+        rightToLeft: locale === "ar",
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  /** The statement controls for one line: the month, the transfer switch, the button. */
+  const statementCells = (row: PayrollRangeTeacher, s: PayoutRow | undefined, first: boolean) => (
+    <>
+      <td className={cn(CELL, !first && "border-t border-dashed border-border/60")}>
+        {s ? <StatementTag statement={s} row={row} /> : <span className="text-muted-foreground">—</span>}
+      </td>
+      <td className={cn("px-3 py-2", !first && "border-t border-dashed border-border/60")}>
+        {s && <PayoutTransferCell row={s} canMark={canMark} onChanged={onMutated} />}
+      </td>
+      <td className={cn(CELL, "pe-4 text-end", !first && "border-t border-dashed border-border/60")}>
+        {s && (
+          <Button
+            type="button"
+            size="xs"
+            variant="outline"
+            className="gap-1"
+            onClick={(e) => {
+              e.stopPropagation();
+              onOpenStatement(s.id);
+            }}
+            data-testid={`open-statement-${s.id}`}
+          >
+            <FileText aria-hidden />
+            {t("openStatement")}
+          </Button>
+        )}
+      </td>
+    </>
+  );
 
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+    <section className="space-y-3" data-testid="teacher-salaries">
+      <div className="flex flex-wrap items-center gap-2">
         <Users className="text-primary size-4" aria-hidden />
-        <h2 className="text-sm font-semibold">{t("rangeByTeacher")}</h2>
-        <span className="text-muted-foreground text-xs">
-          {t("rangeByTeacherHint")} · {t("rangeTapHint")}
-        </span>
+        <h2 className="text-sm font-semibold">{t("teachersTitle")}</h2>
+        <span className="text-muted-foreground text-xs">{t("teachersHint")}</span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={t("colTransfer")}>
+          {TRANSFER_VIEWS.map((key) => (
+            <Badge
+              key={key}
+              tone={TRANSFER_VIEW_TONE[key]}
+              active={view === key}
+              onClick={() => setView(key)}
+              testId={`transfer-view-${key}`}
+            >
+              {t(`transferView.${key}`)}
+              <span className={cn("tabular-nums", view === key ? "text-white/80" : "opacity-70")}>
+                {formatNumber(counts[key], locale)}
+              </span>
+            </Badge>
+          ))}
+        </div>
         <div className="relative ms-auto w-full sm:w-64">
           <Search className="text-muted-foreground pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
           <input
@@ -301,141 +517,228 @@ function SalaryByTeacher({
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("searchTeacher")}
             aria-label={t("searchTeacher")}
-            className="border-input bg-background placeholder:text-muted-foreground focus:border-primary w-full rounded-xl border py-1.5 ps-9 pe-3 text-sm outline-none"
+            className="border-input bg-background placeholder:text-muted-foreground focus:border-primary w-full rounded-lg border py-1.5 ps-9 pe-3 text-sm outline-none"
             data-testid="salary-search"
           />
         </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void handleExport()}
+          disabled={exporting || teachers.length === 0}
+          className="bg-card gap-1.5 shadow-sm"
+          data-testid="salary-export"
+        >
+          {exporting ? <Loader2 className="animate-spin" aria-hidden /> : <FileSpreadsheet aria-hidden />}
+          {tTable("export")}
+        </Button>
       </div>
-      {teachers.length === 0 && <p className="text-muted-foreground rounded-xl border border-dashed p-4 text-center text-sm">{t("searchNoTeacher")}</p>}
 
-      {/* A phone gets one card per teacher: six money columns side by side do not fit, and a
-          salary is read teacher by teacher anyway. */}
-      <ul className="space-y-2 sm:hidden">
-        {teachers.map((row) => {
-          const fmt = (v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
-
-          return (
-            <li
-              key={`${row.teacher_id}-${row.currency}`}
-              {...openProps(row)}
-              className="bg-card focus-visible:ring-ring/60 active:bg-muted/30 cursor-pointer overflow-hidden rounded-xl border text-sm shadow-sm outline-none focus-visible:ring-2"
-            >
-              <div className="from-primary/[0.07] flex items-center gap-2.5 border-b bg-gradient-to-r to-transparent px-4 py-3">
-                <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">
-                  {initials(row.teacher_name)}
-                </span>
-                <span className="min-w-0 flex-1 truncate font-medium">{row.teacher_name ?? "—"}</span>
-                {row.has_open && (
-                  <span className="bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                    {t("status.OPEN")}
-                  </span>
-                )}
-              </div>
-              <dl className="grid grid-cols-2 gap-x-4 gap-y-2.5 px-4 py-3 text-xs">
-                {row.base_minor > 0 && (
-                  <div className="col-span-2 min-w-0">
-                    <dt className="text-muted-foreground">{t("rangeFixed")}</dt>
-                    <dd className="mt-0.5 font-medium break-words tabular-nums">{fmt(row.base_minor)}</dd>
-                  </div>
-                )}
-                <div className="min-w-0">
-                  <dt className="text-muted-foreground">{t("rangeTaughtShort")}</dt>
-                  <dd className="mt-0.5 font-medium tabular-nums">{formatHours(row.minutes, locale)}</dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-muted-foreground">{t("rangeLessons")}</dt>
-                  <dd className="mt-0.5 font-medium break-words tabular-nums">{fmt(row.lessons_minor)}</dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-muted-foreground">{t("rangeRewards")}</dt>
-                  <dd className="mt-0.5 font-medium break-words tabular-nums text-emerald-600 dark:text-emerald-400">
-                    {row.rewards_minor > 0 ? fmt(row.rewards_minor) : "—"}
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-muted-foreground">{t("rangeDeductions")}</dt>
-                  <dd className="mt-0.5 font-medium break-words tabular-nums text-red-600 dark:text-red-400">
-                    {row.deductions_minor > 0 ? fmt(row.deductions_minor) : "—"}
-                  </dd>
-                </div>
-              </dl>
-              <div className="bg-muted/25 flex items-center justify-between gap-3 border-t px-4 py-2.5">
-                <span className="text-muted-foreground text-xs">{t("rangePayable")}</span>
-                <span className="font-bold tabular-nums">{fmt(row.net_minor)}</span>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-
-      <div className="bg-card hidden overflow-x-auto rounded-2xl border shadow-sm sm:block">
-        <table className="w-full text-sm" data-testid="salary-by-teacher">
-          <thead className="text-muted-foreground bg-muted/40 text-xs">
-            <tr>
-              <th className="px-4 py-2.5 text-start font-medium">{t("colTeacher")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("rangeTaughtShort")}</th>
-              {anyFixed && (
-                <th className="px-4 py-2.5 text-end font-medium">{t("rangeFixed")}</th>
-              )}
-              <th className="px-4 py-2.5 text-end font-medium">{t("rangeLessons")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("rangeRewards")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("rangeDeductions")}</th>
-              <th className="px-4 py-2.5 text-end font-medium">{t("rangePayable")}</th>
-            </tr>
-          </thead>
-          <tbody className="divide-border divide-y">
+      <div className={cn("transition-opacity", busy && "opacity-60")}>
+        {/* Phones and tablets: one card per teacher — nine columns do not fit, and a salary is read
+            teacher by teacher anyway. The figures open the lessons; the statements sit under them. */}
+        {teachers.length === 0 && (
+          <div
+            className="bg-card text-muted-foreground rounded-xl border border-dashed px-4 py-8 text-center text-sm lg:hidden"
+            aria-busy={loading || undefined}
+          >
+            {loading ? t("loading") : emptyText}
+          </div>
+        )}
+        {teachers.length > 0 && (
+          <ul className="space-y-2 lg:hidden">
             {teachers.map((row) => {
               const fmt = (v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
-
               return (
-                <tr
+                <li
                   key={`${row.teacher_id}-${row.currency}`}
-                  {...openProps(row)}
-                  className="hover:bg-muted/30 focus-visible:bg-muted/30 cursor-pointer outline-none"
+                  className="bg-card overflow-hidden rounded-xl border text-sm shadow-sm"
+                  data-testid={`salary-card-${row.teacher_id}`}
                 >
-                  <td className="px-4 py-2.5">
-                    <div className="flex items-center gap-2.5">
-                      <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">
-                        {initials(row.teacher_name)}
+                  <button
+                    type="button"
+                    onClick={() => open(row)}
+                    aria-label={t("rangeLessonsTitle", { name: row.teacher_name ?? "—" })}
+                    className="active:bg-muted/30 focus-visible:ring-ring/60 block w-full text-start outline-none focus-visible:ring-2"
+                  >
+                    <div className="from-primary/[0.07] flex items-center gap-2.5 border-b bg-gradient-to-l to-transparent px-4 py-2.5">
+                      <Avatar name={row.teacher_name} />
+                      <span className="min-w-0 flex-1 truncate font-medium">{row.teacher_name ?? "—"}</span>
+                      <span className="text-primary inline-flex shrink-0 items-center text-[11px] font-semibold">
+                        {t("lessonsLink")}
+                        <ChevronLeft className="size-3.5 ltr:rotate-180" aria-hidden />
                       </span>
-                      <span className="font-medium">{row.teacher_name ?? "—"}</span>
-                      {/* An open statement means this number can still move before payday. */}
-                      {row.has_open && (
-                        <span className="bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300 rounded-full px-2 py-0.5 text-[11px] font-medium">
-                          {t("status.OPEN")}
-                        </span>
-                      )}
                     </div>
-                  </td>
-                  <td className="text-muted-foreground px-4 py-2.5 text-end tabular-nums">
-                    {formatHours(row.minutes, locale)}
-                  </td>
-                  {anyFixed && (
-                    <td className="px-4 py-2.5 text-end tabular-nums">
-                      {row.base_minor > 0 ? fmt(row.base_minor) : "—"}
-                    </td>
-                  )}
-                  <td className="px-4 py-2.5 text-end tabular-nums">{fmt(row.lessons_minor)}</td>
-                  <td className="px-4 py-2.5 text-end tabular-nums text-emerald-600 dark:text-emerald-400">
-                    {row.rewards_minor > 0 ? fmt(row.rewards_minor) : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-end tabular-nums text-red-600 dark:text-red-400">
-                    {row.deductions_minor > 0 ? fmt(row.deductions_minor) : "—"}
-                  </td>
-                  <td className="px-4 py-2.5 text-end font-bold tabular-nums">
-                    {fmt(row.net_minor)}
-                  </td>
-                </tr>
+                    <dl className="grid grid-cols-2 gap-x-4 gap-y-2 px-4 py-2.5 text-xs">
+                      {row.base_minor > 0 && (
+                        <div className="col-span-2 min-w-0">
+                          <dt className="text-muted-foreground">{t("rangeFixed")}</dt>
+                          <dd className="mt-0.5 font-medium break-words tabular-nums">{fmt(row.base_minor)}</dd>
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{t("rangeTaughtShort")}</dt>
+                        <dd className="mt-0.5 font-medium tabular-nums">{formatHours(row.minutes, locale)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{t("rangeLessons")}</dt>
+                        <dd className="mt-0.5 font-medium break-words tabular-nums">{fmt(row.lessons_minor)}</dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{t("rangeRewards")}</dt>
+                        <dd className="mt-0.5 font-medium break-words text-emerald-600 tabular-nums dark:text-emerald-400">
+                          {row.rewards_minor > 0 ? fmt(row.rewards_minor) : "—"}
+                        </dd>
+                      </div>
+                      <div className="min-w-0">
+                        <dt className="text-muted-foreground">{t("rangeDeductions")}</dt>
+                        <dd className="mt-0.5 font-medium break-words text-red-600 tabular-nums dark:text-red-400">
+                          {row.deductions_minor > 0 ? fmt(row.deductions_minor) : "—"}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="bg-muted/25 flex items-center justify-between gap-3 border-t px-4 py-2">
+                      <span className="text-muted-foreground text-xs">{t("rangePayable")}</span>
+                      <span className="font-bold break-words tabular-nums">{fmt(row.net_minor)}</span>
+                    </div>
+                  </button>
+                  {row.statements.map((s) => (
+                    <div key={s.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 border-t px-4 py-2.5">
+                      <StatementTag statement={s} row={row} />
+                      <div className="min-w-0 flex-1">
+                        <PayoutTransferCell row={s} canMark={canMark} onChanged={onMutated} />
+                      </div>
+                      <Button
+                        type="button"
+                        size="xs"
+                        variant="outline"
+                        className="gap-1"
+                        onClick={() => onOpenStatement(s.id)}
+                      >
+                        <FileText aria-hidden />
+                        {t("openStatement")}
+                      </Button>
+                    </div>
+                  ))}
+                </li>
               );
             })}
-          </tbody>
-        </table>
+          </ul>
+        )}
+
+        {/* Laptop and up: a compact coloured table, one line per teacher (two when the window
+            crosses a month, one per statement, the figures spanning both). */}
+        <div className="bg-card hidden overflow-hidden rounded-xl border shadow-sm lg:block">
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm" data-testid="salary-by-teacher">
+                <thead>
+                  <tr className="from-primary/[0.09] via-primary/[0.035] text-muted-foreground border-b bg-gradient-to-l to-transparent">
+                    <th className={cn(HEAD, "ps-4")}>{t("colTeacher")}</th>
+                    <th className={cn(HEAD, "text-end")}>{t("rangeTaughtShort")}</th>
+                    {anyFixed && <th className={cn(HEAD, "text-end")}>{t("rangeFixed")}</th>}
+                    <th className={cn(HEAD, "text-end")}>{t("rangeLessons")}</th>
+                    <th className={cn(HEAD, "text-end")}>{t("rangeRewards")}</th>
+                    <th className={cn(HEAD, "text-end")}>{t("rangeDeductions")}</th>
+                    <th className={cn(HEAD, "text-end")}>{t("rangePayable")}</th>
+                    <th className={HEAD}>{t("colStatement")}</th>
+                    <th className={HEAD}>{t("colTransfer")}</th>
+                    <th className={cn(HEAD, "pe-4")}>
+                      <span className="sr-only">{t("openStatement")}</span>
+                    </th>
+                  </tr>
+                </thead>
+                {teachers.length === 0 && (
+                  <tbody>
+                    {loading ? (
+                      Array.from({ length: 3 }, (_, i) => (
+                        <tr key={i} className={cn(i > 0 && "border-t border-border/60")} aria-hidden>
+                          <td colSpan={columnCount} className="px-4 py-3">
+                            <div className="bg-muted h-4 animate-pulse rounded" />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={columnCount} className="px-4 py-10 text-center" data-testid="salary-empty">
+                          <CalendarRange className="text-muted-foreground/60 mx-auto mb-2 size-6" aria-hidden />
+                          <p className="text-muted-foreground text-sm">{emptyText}</p>
+                          {range !== null && all.length === 0 && (
+                            <p className="text-muted-foreground mt-1 text-xs">{t("rangeEmptyHint")}</p>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                )}
+                {teachers.map((row, i) => {
+                  const fmt = (v: number) => formatMoney({ amount: v, currency: row.currency }, locale);
+                  const span = Math.max(1, row.statements.length);
+                  const [first, ...rest] = row.statements;
+                  return (
+                    <tbody
+                      key={`${row.teacher_id}-${row.currency}`}
+                      className={cn(
+                        "hover:bg-primary/[0.04] cursor-pointer transition-colors",
+                        i > 0 && "border-t border-border/60",
+                        i % 2 === 1 && "bg-muted/30",
+                      )}
+                      data-testid={`salary-row-${row.teacher_id}`}
+                    >
+                      <tr onClick={() => open(row)}>
+                        <td rowSpan={span} className={cn(CELL, "ps-4")}>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              open(row);
+                            }}
+                            aria-label={t("rangeLessonsTitle", { name: row.teacher_name ?? "—" })}
+                            className="focus-visible:ring-ring/60 flex items-center gap-2.5 rounded-md text-start outline-none focus-visible:ring-2"
+                          >
+                            <Avatar name={row.teacher_name} />
+                            <span className="font-medium hover:underline">{row.teacher_name ?? "—"}</span>
+                          </button>
+                        </td>
+                        <td rowSpan={span} className={cn(CELL, "text-muted-foreground text-end tabular-nums")}>
+                          {formatHours(row.minutes, locale)}
+                        </td>
+                        {anyFixed && (
+                          <td rowSpan={span} className={cn(CELL, "text-end tabular-nums")}>
+                            {row.base_minor > 0 ? fmt(row.base_minor) : "—"}
+                          </td>
+                        )}
+                        <td rowSpan={span} className={cn(CELL, "text-end tabular-nums")}>
+                          {fmt(row.lessons_minor)}
+                        </td>
+                        <td rowSpan={span} className={cn(CELL, "text-end text-emerald-600 tabular-nums dark:text-emerald-400")}>
+                          {row.rewards_minor > 0 ? fmt(row.rewards_minor) : "—"}
+                        </td>
+                        <td rowSpan={span} className={cn(CELL, "text-end text-red-600 tabular-nums dark:text-red-400")}>
+                          {row.deductions_minor > 0 ? fmt(row.deductions_minor) : "—"}
+                        </td>
+                        <td rowSpan={span} className={cn(CELL, "text-end font-bold tabular-nums")}>
+                          {fmt(row.net_minor)}
+                        </td>
+                        {statementCells(row, first, true)}
+                      </tr>
+                      {rest.map((s) => (
+                        <tr key={s.id} onClick={() => open(row)}>
+                          {statementCells(row, s, false)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  );
+                })}
+              </table>
+            </div>
+          </div>
       </div>
 
       <TeacherRangeLessonsModal
         target={opened}
-        from={range.from}
-        to={range.to}
+        from={range?.from ?? ""}
+        to={range?.to ?? ""}
         onClose={closeLessons}
         onMutated={onMutated}
       />
@@ -443,55 +746,22 @@ function SalaryByTeacher({
   );
 }
 
-// ── Screen ─────────────────────────────────────────────────────────────────────
+// ── A teacher's own statements ─────────────────────────────────────────────────
 
-/**
- * Premium payroll dashboard (Sprint 8+). Owners (payout.read) see all teachers' payouts, the
- * per-currency profit summary, the period-finalize action, and can add rewards/deductions to
- * open statements. Teachers (payout.read_own) see only their own statements. The API enforces
- * both scopes for real.
- */
-export function PayrollScreen() {
+/** A teacher (payout.read_own) sees only their own monthly statements, by the months the window touches. */
+function OwnStatements({
+  from,
+  to,
+  onOpen,
+  refreshToken,
+}: {
+  from: string;
+  to: string;
+  onOpen: (id: string) => void;
+  refreshToken: number;
+}) {
   const t = useTranslations("payroll");
   const locale = useLocale();
-  const { can } = useAuth();
-
-  const isOwner = can("payout.read");
-  const isTeacher = !isOwner && can("payout.read_own");
-
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState(0);
-  // A tick changes no salary figure, so it reloads the list without blanking the panels above it.
-  const [transferToken, setTransferToken] = useState(0);
-  // ONE control drives the whole page: the window. It feeds the salary figures exactly (they are
-  // re-added from lessons and adjustments by date) and the statements table by overlap (a payout
-  // is a month, so it is "in" a window it touches).
-  const [{ from, to }, setRange] = useState(defaultRange);
-  const [range, setRangeData] = useState<PayrollRange | null>(null);
-  const [rangeLoading, setRangeLoading] = useState(true);
-  const [finalizeOpen, setFinalizeOpen] = useState(false);
-  const [flash, setFlash] = useState<string | null>(null);
-
-  const refreshAll = useCallback(() => setRefreshToken((n) => n + 1), []);
-
-  useEffect(() => {
-    if (!isOwner || from === "" || to === "" || from > to) return;
-    let cancelled = false;
-    setRangeLoading(true);
-    getPayrollRange(from, to)
-      .then((res) => {
-        if (!cancelled) setRangeData(res);
-      })
-      .catch(() => {
-        if (!cancelled) setRangeData(null);
-      })
-      .finally(() => {
-        if (!cancelled) setRangeLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [from, to, isOwner, refreshToken]);
 
   const fetcher = useCallback(
     (q: DataTableQuery): Promise<ListResult<PayoutRow>> => {
@@ -503,42 +773,17 @@ export function PayrollScreen() {
           ...(to ? { period_to: monthOf(to) } : {}),
         },
       };
-      const base = isOwner ? "/api/payouts" : "/api/me/payouts";
-      return apiFetch(`${base}${toQueryString(merged)}`);
+      return apiFetch(`/api/me/payouts${toQueryString(merged)}`);
     },
-    [from, to, isOwner],
+    [from, to],
   );
 
-  if (!isOwner && !isTeacher) {
-    return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
-  }
-
-  const period = (row: PayoutRow) => `${String(row.period_month).padStart(2, "0")}/${row.period_year}`;
-
   const columns: ColumnDef<PayoutRow>[] = [
-    ...(isOwner
-      ? [
-          {
-            key: "teacher",
-            header: t("colTeacher"),
-            sortKey: "teacher_name",
-            render: (row: PayoutRow) => (
-              <div className="flex items-center gap-2.5">
-                <span className="bg-primary/10 text-primary flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-bold">
-                  {initials(row.teacher_name)}
-                </span>
-                <span className="font-medium">{row.teacher_name ?? "—"}</span>
-              </div>
-            ),
-          } satisfies ColumnDef<PayoutRow>,
-        ]
-      : []),
     {
-      // A window can touch several months, and a tick is for one of them.
       key: "period",
       header: t("colPeriod"),
       sortKey: "period",
-      render: (row) => <span className="tabular-nums">{period(row)}</span>,
+      render: (row) => <span className="tabular-nums">{periodLabel(row)}</span>,
     },
     {
       key: "status",
@@ -551,31 +796,11 @@ export function PayrollScreen() {
       sortKey: "total_minor",
       className: "text-end",
       render: (row) => (
-        <span
-          className={cn(
-            "font-bold tabular-nums",
-            row.total_minor < 0 && "text-red-600 dark:text-red-400",
-          )}
-        >
+        <span className={cn("font-bold tabular-nums", row.total_minor < 0 && "text-red-600 dark:text-red-400")}>
           {formatMoney({ amount: row.total_minor, currency: row.currency }, locale)}
         </span>
       ),
     },
-    ...(isOwner
-      ? [
-          {
-            key: "transfer",
-            header: t("colTransfer"),
-            render: (row: PayoutRow) => (
-              <PayoutTransferCell
-                row={row}
-                canMark={can("payout.adjust")}
-                onChanged={() => setTransferToken((n) => n + 1)}
-              />
-            ),
-          } satisfies ColumnDef<PayoutRow>,
-        ]
-      : []),
     {
       key: "actions",
       header: "",
@@ -587,7 +812,7 @@ export function PayrollScreen() {
           variant="outline"
           onClick={(e) => {
             e.stopPropagation();
-            setSelectedId(row.id);
+            onOpen(row.id);
           }}
         >
           {t("view")}
@@ -596,94 +821,102 @@ export function PayrollScreen() {
     },
   ];
 
-  const exportColumns: ExcelColumn<PayoutRow>[] = [
-    ...(isOwner
-      ? [
-          {
-            header: t("colTeacher"),
-            value: (row: PayoutRow) => row.teacher_name ?? "",
-            width: 24,
-          } satisfies ExcelColumn<PayoutRow>,
-        ]
-      : []),
-    { header: t("colPeriod"), value: period },
-    { header: t("colStatus"), value: (row) => t(`status.${row.status}`) },
-    {
-      header: t("colTotal"),
-      value: (row) =>
-        formatMoney({ amount: row.total_minor, currency: row.currency }, locale),
-    },
-    ...(isOwner
-      ? [
-          {
-            header: t("colTransfer"),
-            value: (row: PayoutRow) =>
-              ({
-                DONE: t("transferDone"),
-                TREASURY: t("transferTreasury"),
-                PENDING: t("transferPending"),
-                NOTHING_DUE: "",
-              })[transferState(row)],
-          } satisfies ExcelColumn<PayoutRow>,
-        ]
-      : []),
-  ];
+  return (
+    <DataTable<PayoutRow>
+      fetcher={fetcher}
+      columns={columns}
+      getRowId={(row) => row.id}
+      defaultSort="-period"
+      onRowClick={(row) => onOpen(row.id)}
+      emptyMessage={t("empty")}
+      testId="payouts-table"
+      refreshToken={refreshToken}
+    />
+  );
+}
 
-  const statusFilter: FilterDef = {
-    key: "status",
-    label: t("filterStatus"),
-    options: [
-      { value: "OPEN", label: t("status.OPEN") },
-      { value: "FINALIZED", label: t("status.FINALIZED") },
-    ],
-  };
+// ── Screen ─────────────────────────────────────────────────────────────────────
 
-  const transferFilter: FilterDef = {
-    key: "transfer",
-    label: t("colTransfer"),
-    options: [
-      { value: "DONE", label: t("transferDone") },
-      { value: "PENDING", label: t("transferPending") },
-    ],
-  };
+/**
+ * The salaries page. Owners (payout.read) get, top to bottom: the window, what it costs, and ONE
+ * table of teachers that is also where each month's statement is opened, ticked as transferred and
+ * corrected. Teachers (payout.read_own) see only their own statements. The API enforces both scopes.
+ */
+export function PayrollScreen() {
+  const t = useTranslations("payroll");
+  const { can } = useAuth();
+
+  const isOwner = can("payout.read");
+  const isTeacher = !isOwner && can("payout.read_own");
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
+  // ONE control drives the whole page: the window. It feeds the salary figures exactly (they are
+  // re-added from lessons and adjustments by date) and the statements by overlap (a payout is a
+  // month, so it is "in" a window it touches).
+  const [{ from, to }, setRange] = useState(defaultRange);
+  const [range, setRangeData] = useState<PayrollRange | null>(null);
+  const [fetching, setFetching] = useState(true);
+  // A failed load says so, instead of passing for "no lessons in this period".
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // A reload can outrun the previous one (a fast change of dates); only the newest lands.
+  const seq = useRef(0);
+
+  const refreshAll = useCallback(() => setRefreshToken((n) => n + 1), []);
+
+  useEffect(() => {
+    if (!isOwner || from === "" || to === "" || from > to) return;
+    const current = ++seq.current;
+    setFetching(true);
+    getPayrollRange(from, to)
+      .then((res) => {
+        if (current !== seq.current) return;
+        setRangeData(res);
+        setLoadError(null);
+      })
+      .catch((err: unknown) => {
+        if (current !== seq.current) return;
+        setRangeData(null);
+        setLoadError(err instanceof ApiError ? err.message : t("loadError"));
+      })
+      .finally(() => {
+        if (current === seq.current) setFetching(false);
+      });
+  }, [from, to, isOwner, refreshToken, t]);
+
+  if (!isOwner && !isTeacher) {
+    return <p className="text-muted-foreground text-sm">{t("noPermission")}</p>;
+  }
+
+  // The skeleton only covers the first load. A reload (a tick, a correction, new dates) keeps the
+  // figures on screen and dims them, so a switch never makes the table jump away under the cursor.
+  const firstLoad = fetching && range === null;
+
+  // The preset the dates match, if any, shows as the applied badge.
+  const activePreset = RANGE_PRESETS.find((p) => {
+    const r = p.build();
+    return r.from === from && r.to === to;
+  })?.key;
 
   const inputClass =
     "border-input bg-background focus:border-primary focus:ring-primary/15 h-8 rounded-lg border px-3 text-sm outline-none transition-colors focus:ring-3";
 
   return (
-    <div className="space-y-5">
-      <PageHero
-        latticeId="payroll-hero-lattice"
-        icon={Wallet}
-        title={t("title")}
-        subtitle={isOwner ? t("subtitle") : t("subtitleTeacher")}
-        actions={
-          isOwner && can("payout.finalize") ? (
-            <Button
-              type="button"
-              size="lg"
-              onClick={() => setFinalizeOpen(true)}
-              className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
-            >
-              <Lock className="size-4" aria-hidden />
-              {t("finalizePeriod")}
-            </Button>
-          ) : undefined
-        }
-      />
+    <div className="space-y-4">
+      {/* No hero banner (Ahmed 2026-11-22: "remove that header, put the stat cards in its place"):
+          the page opens on what the period costs. The title stays for screen readers. */}
+      <h1 className="sr-only">{t("title")}</h1>
 
-      {flash && (
-        <AlertBanner
-          variant="success"
-          message={flash}
-          onDismiss={() => setFlash(null)}
-        />
+      {isOwner && <PayrollStats range={range} loading={firstLoad} />}
+
+      {isOwner && loadError && (
+        <AlertBanner variant="error" message={loadError} onDismiss={() => setLoadError(null)} />
       )}
 
       {/* ── The window ──────────────────────────────────────────────────
           Two dates, not a month dropdown: an academy pays for a period it chooses (the 26th to the
           25th, a fortnight, a single week of cover) and a month picker cannot express any of it. */}
-      <div className="bg-card flex flex-wrap items-end gap-3 rounded-2xl border p-4 shadow-sm">
+      <div className="bg-card flex flex-wrap items-center gap-3 rounded-xl border px-4 py-3 shadow-sm">
         <div className="flex items-center gap-2">
           <CalendarRange className="text-primary size-4" aria-hidden />
           <span className="text-sm font-semibold">{t("rangeTitle")}</span>
@@ -714,71 +947,43 @@ export function PayrollScreen() {
             />
           </label>
         </div>
-        <div className="ms-auto flex flex-wrap gap-1.5">
+        <div className="ms-auto flex flex-wrap items-center gap-1.5">
           {RANGE_PRESETS.map((preset) => (
-            <button
+            <Badge
               key={preset.key}
-              type="button"
+              tone={PRESET_TONE[preset.key] ?? "sky"}
+              active={activePreset === preset.key}
               onClick={() => setRange(preset.build())}
-              className="text-muted-foreground hover:bg-muted/60 hover:text-foreground rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors"
+              testId={`range-preset-${preset.key}`}
             >
               {t(`rangePreset.${preset.key}`)}
-            </button>
+            </Badge>
           ))}
         </div>
       </div>
 
-      {/* Salary figures for exactly that window — owner only */}
-      {isOwner && <SalarySummaryPanel range={range} loading={rangeLoading} />}
-      {isOwner && <SalaryByTeacher range={range} loading={rangeLoading} onMutated={refreshAll} />}
+      {isOwner && (
+        <>
+          <TeacherSalaries
+            range={range}
+            loading={firstLoad}
+            busy={fetching}
+            canMark={can("payout.adjust")}
+            onOpenStatement={setSelectedId}
+            onMutated={refreshAll}
+          />
+        </>
+      )}
 
-      {/* The monthly statements the window touches — the place you open one or finalize it. */}
-      <div className="flex items-center gap-2">
-        <Lock className="text-primary size-4" aria-hidden />
-        <h2 className="text-sm font-semibold">{t("statementsTitle")}</h2>
-        <span className="text-muted-foreground text-xs">{t("statementsHint")}</span>
-      </div>
-
-      <DataTable<PayoutRow>
-        fetcher={fetcher}
-        columns={columns}
-        getRowId={(row) => row.id}
-        filters={isOwner ? [statusFilter, transferFilter] : []}
-        searchable={isOwner}
-        searchPlaceholder={t("searchTeacher")}
-        defaultSort="-period"
-        onRowClick={(row) => setSelectedId(row.id)}
-        emptyMessage={t("empty")}
-        testId="payouts-table"
-        exportConfig={{
-          fileName: "payroll",
-          sheetName: t("title"),
-          columns: exportColumns,
-        }}
-        refreshToken={refreshToken + transferToken}
-      />
+      {isTeacher && (
+        <OwnStatements from={from} to={to} onOpen={setSelectedId} refreshToken={refreshToken} />
+      )}
 
       <PayoutDetailModal
         payoutId={selectedId}
         onClose={() => setSelectedId(null)}
         onMutated={refreshAll}
       />
-
-      {isOwner && (
-        <FinalizePeriodModal
-          open={finalizeOpen}
-          // Finalizing is still a MONTH operation — a statement is a month — so it defaults to the
-          // month the window ends in rather than pretending it can close an arbitrary span.
-          defaultYear={to ? Number(to.slice(0, 4)) : undefined}
-          defaultMonth={to ? Number(to.slice(5, 7)) : undefined}
-          onClose={() => setFinalizeOpen(false)}
-          onSuccess={(finalized, period) => {
-            setFinalizeOpen(false);
-            setFlash(t("finalizeSuccess", { count: finalized, period }));
-            refreshAll();
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -46,6 +46,7 @@ final class FeatureCatalog
         'centre' => 'Centre mode — lesson subscriptions of its own (centre_subscriptions), groups first, any student on a manual lesson, salary blocks',
         'packages_in_lessons' => 'Packages in lessons — a block counts lessons, not minutes: each lesson takes one whatever its length (the length only pays the teacher)',
         'student_cancel_charged' => 'A student\'s cancellation counts as a lesson taken — charged (off the package, or on the bill) unless the office says not to; teachers\' pay unchanged',
+        'course_students' => 'Course-only students — a student may join on a group alone (no private lessons), and a finished course turns its course-only students into former students in one go',
         'modern_look' => 'Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy\'s own colours',
         'courses_art' => 'Courses & curricula theme — the modern look in ocean blue and coral, no ornaments, and a books-and-course banner picture (switches the modern look on with it)',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
@@ -190,6 +191,7 @@ final class FeatureCatalog
             'centre',
             'packages_in_lessons',
             'student_cancel_charged',
+            'course_students',
             'modern_look',
             'courses_art',
         ],
@@ -229,6 +231,9 @@ final class FeatureCatalog
         // A lesson the student cancels is a lesson taken (Alrayan, 2026-11-17): changes what every
         // cancellation costs a family, so only for the clients who ask.
         'student_cancel_charged',
+        // Students who come for one group or course only (Ana Muslim, 2026-11-21): the "group only"
+        // choice on the new-student form and "make them former students" when a course ends.
+        'course_students',
     ];
 
     /**

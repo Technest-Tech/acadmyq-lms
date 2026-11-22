@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import arMessages from "../../../messages/ar.json";
 import { makeSession, withAuth } from "@/test/auth";
@@ -83,6 +83,11 @@ describe("AcademyDashboard — money across currencies", () => {
     const collected = await card(t.finance.collected);
     await vi.waitFor(() => expect(collected.textContent).toContain(egp(21_000_000)));
     expect(collected.textContent).toContain(usd(300_000));
+    // Spelled out in the card: the dollars, what they are worth in pounds, and the pounds.
+    const usdRow = within(collected).getByTestId("currency-row-USD");
+    expect(usdRow.textContent).toContain(usd(300_000));
+    expect(usdRow.textContent).toContain(`≈ ${formatMoney({ amount: 15_000_000, currency: "EGP" }, "ar", { trimZeroDecimals: true })}`);
+    expect(within(collected).getByTestId("currency-row-EGP")).toBeInTheDocument();
     // 210,000 of 290,000 billed.
     expect(collected.textContent).toContain(`72% ${t.kpi.collectionRate}`);
 
@@ -119,5 +124,6 @@ describe("AcademyDashboard — money across currencies", () => {
     const collected = await card(t.finance.collected);
     await vi.waitFor(() => expect(collected.textContent).toContain(formatMoney({ amount: 300_000, currency: "USD" }, "ar")));
     expect(api.rates).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("currency-breakdown")).toBeNull();
   });
 });

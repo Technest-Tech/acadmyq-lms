@@ -23,6 +23,15 @@ export function useStudentCancelCharged(): boolean {
   return session?.capabilities?.includes("student_cancel_charged") ?? false;
 }
 
+/**
+ * Students who come for one group or course only (`course_students`, Ana Muslim 2026-11-21). Strict:
+ * only a session that lists it — a platform Super Admin with no academy entered sees none of it.
+ */
+export function useCourseStudents(): boolean {
+  const { session } = useAuth();
+  return session?.capabilities?.includes("course_students") ?? false;
+}
+
 export function useCapability(capability: string): boolean {
   const { session } = useAuth();
   return (

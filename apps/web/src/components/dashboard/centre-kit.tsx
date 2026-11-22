@@ -58,6 +58,7 @@ export function KpiCard({
   display,
   chip,
   note,
+  breakdown,
   loading,
   href,
   locale,
@@ -71,6 +72,8 @@ export function KpiCard({
   display?: string;
   chip?: ReactNode;
   note?: string;
+  /** Spelled-out detail under the figure (the currencies behind a money total), on every screen size. */
+  breakdown?: ReactNode;
   loading: boolean;
   href?: string;
   locale: string;
@@ -98,6 +101,7 @@ export function KpiCard({
           <Icon className="size-5 sm:size-6" aria-hidden />
         </span>
       </div>
+      {!loading && breakdown && <div className="mt-3 border-t pt-3">{breakdown}</div>}
       {!loading && (chip || note) && (
         <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 sm:mt-3">
           {note && <span className="text-muted-foreground hidden text-xs sm:inline">{note}</span>}

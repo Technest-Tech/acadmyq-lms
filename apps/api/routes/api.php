@@ -59,6 +59,7 @@ use App\Http\Controllers\ExchangeRateController;
 use App\Http\Controllers\FamilyXpayController;
 use App\Http\Controllers\Groups\ClassGroupController;
 use App\Http\Controllers\Groups\ClassGroupLessonController;
+use App\Http\Controllers\Groups\CourseStudentsController;
 use App\Http\Controllers\Groups\CourseTermController;
 use App\Http\Controllers\Groups\GroupAbsenceAlertController;
 use App\Http\Controllers\Groups\GroupAccountsController;
@@ -1102,6 +1103,14 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/groups/{id}/waitlist/{entryId}/seat', [GroupWaitlistController::class, 'seat'])->whereUuid(['id', 'entryId']);
     });
     // ── end course term + waiting list ──────────────────────────────────────────────────────────────
+
+    // ── Course-only students (`course_students`, Ana Muslim 2026-11-21) ───────────────────────────
+    // A course that is over turns its course-only students into former students (CourseGraduation).
+    // Opt-in per client: every academy without the switch gets 402 here and nothing else changes.
+    Route::middleware(['entitled:course_students', 'entitled:groups'])->group(function () {
+        Route::get('/groups/{id}/former-students', [CourseStudentsController::class, 'preview'])->whereUuid('id');
+        Route::post('/groups/{id}/former-students', [CourseStudentsController::class, 'apply'])->whereUuid('id');
+    });
 
     // ── Centre assessments + term reports (docs/centre-profile, Phase 2 §5) ──────────────────────
     // A group's grade sheet (assessments × students) and the per-student term report composed from

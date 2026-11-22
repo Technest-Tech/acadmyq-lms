@@ -159,7 +159,6 @@ type NavKey =
   | "accountingReports"
   | "packages"
   | "packagesDue"
-  | "packagesFinished"
   | "subsDue"
   | "subsOpen"
   | "subsFinished"
@@ -243,7 +242,6 @@ const CENTRE_GROUP_OF: Partial<Record<NavKey, NavGroup>> = {
   // A centre's packages ARE its lesson subscriptions (the `*Centre` labels below).
   packagesDue: "teaching",
   packages: "teaching",
-  packagesFinished: "teaching",
   subsDue: "teaching",
   subsOpen: "teaching",
   subsFinished: "teaching",
@@ -271,7 +269,6 @@ const CENTRE_ORDER: readonly NavKey[] = [
   "subsOutside",
   "packagesDue",
   "packages",
-  "packagesFinished",
   "trials",
   "enrolment",
   "certificates",
@@ -296,7 +293,7 @@ const CENTRE_ORDER: readonly NavKey[] = [
  * preset switches them off, so NAV_CAPABILITY already hides them — and the server refuses them,
  * which a hidden link never does.
  */
-const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "packages", "packagesDue", "packagesFinished"]);
+const CENTRE_HIDDEN_KEYS = new Set<NavKey>(["invoices", "packages", "packagesDue"]);
 
 /**
  * The groups section as a centre has it, which a Quran academy in the modern look with groups shares
@@ -346,7 +343,6 @@ const CENTRE_PARENT_OF: Partial<Record<NavKey, NavKey>> = {
   subsOutside: "centreSubscriptions",
   packagesDue: "centreSubscriptions",
   packages: "centreSubscriptions",
-  packagesFinished: "centreSubscriptions",
   trials: "centreAdmissions",
   enrolment: "centreAdmissions",
 };
@@ -374,7 +370,6 @@ const PLATFORM_BOTTOM_NAV: readonly NavKey[] = ["adminHome", "clients", "adminFi
 const CENTRE_LABEL_KEYS = new Set<NavKey>([
   "packages",
   "packagesDue",
-  "packagesFinished",
   "trials",
   ...GROUPS_SHAPE_LABEL_KEYS,
 ]);
@@ -686,8 +681,9 @@ const NAV: ReadonlyArray<{
   { key: "accountingReports", icon: BarChart3, permission: "invoice.read", href: "/accounting/reports", group: "financial", parent: "accounting" },
   // Lesson packages sit directly under Invoices because they ARE invoicing — the same money on a
   // different clock (a block of hours instead of a calendar month), for the students on that mode.
-  // Three pages: Due (the payments to collect — payment is up front, so a block that opened today
-  // is already due; carries the red badge), Open (the live balances) and Finished (history).
+  // Two pages: Due (the payments to collect — payment is up front, so a block that opened today
+  // is already due; carries the red badge) and Open (the live balances). Finished was dropped
+  // (Ahmed 2026-11-22): Due already holds what is owed, and its Paid tab holds the history.
   {
     key: "packagesDue",
     icon: CircleDollarSign,
@@ -700,13 +696,6 @@ const NAV: ReadonlyArray<{
     icon: Layers,
     permission: "package.read",
     href: "/packages",
-    group: "financial",
-  },
-  {
-    key: "packagesFinished",
-    icon: PackageCheck,
-    permission: "package.read",
-    href: "/packages/finished",
     group: "financial",
   },
   {
@@ -940,7 +929,6 @@ const NAV_CAPABILITY: Partial<Record<NavKey, string | readonly string[]>> = {
   // offered the second clock.
   packages: "packages",
   packagesDue: "packages",
-  packagesFinished: "packages",
   subsDue: "centre",
   subsOpen: "centre",
   subsFinished: "centre",
@@ -1095,7 +1083,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const groupsShape = centreShape || (modernLook && (capabilities?.includes("groups") ?? false));
   const centre = (capabilities?.includes("centre") ?? false) || centreShape;
   const navLabel = (key: NavKey): string =>
-    (centre && (key === "packages" || key === "packagesDue" || key === "packagesFinished")) ||
+    (centre && (key === "packages" || key === "packagesDue")) ||
     (centreShape && CENTRE_LABEL_KEYS.has(key)) ||
     (groupsShape && GROUPS_SHAPE_LABEL_KEYS.has(key))
       ? t(`nav.${key}Centre`)
@@ -1586,7 +1574,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     href === "/dashboard" ||
     href === "/admin" ||
     href === "/lms" ||
-    // Open packages must not also light up on its siblings, /packages/due and /packages/finished.
+    // Open packages must not also light up on its sibling, /packages/due.
     href === "/packages" ||
     // The Accounting overview must not light up on its own sub-pages.
     href === "/accounting";

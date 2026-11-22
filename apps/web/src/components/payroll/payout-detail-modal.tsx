@@ -362,39 +362,40 @@ export function PayoutDetailModal({
               />
             </div>
 
-            {/* Re-price the open month at the teacher's current pay. Lessons are priced when they
-                are marked, so a rate set after that never reaches them on its own. */}
-            {canAdjust && (
-              <div className="bg-muted/30 flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-muted-foreground min-w-0 text-xs">{t("repriceHint")}</p>
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="outline"
-                  className="shrink-0 gap-1.5"
-                  onClick={() => setRepriceOpen(true)}
-                  data-testid="reprice-payout"
-                >
-                  <RefreshCw className="size-3" aria-hidden />
-                  {t("reprice")}
-                </Button>
-              </div>
-            )}
-
-            {canCorrectLessons && (
-              <div className="bg-muted/30 flex flex-col gap-2 rounded-xl border px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-                <p className="text-muted-foreground min-w-0 text-xs">{t("lessonEditMonthHint")}</p>
-                <Button
-                  type="button"
-                  size="xs"
-                  variant="outline"
-                  className="shrink-0 gap-1.5"
-                  onClick={() => setLessonsOpen(true)}
-                  data-testid="edit-salary-lessons"
-                >
-                  <Pencil className="size-3" aria-hidden />
-                  {t("lessonEditMonth")}
-                </Button>
+            {/* The statement's tools on ONE bar (Ahmed 2026-11-22: the page repeated itself): fix the
+                month's lessons, or re-price the month at the teacher's current pay — lessons are
+                priced when they are marked, so a rate set after that never reaches them on its own.
+                Each button's longer explanation moved to its tooltip. */}
+            {(canCorrectLessons || canAdjust) && (
+              <div className="bg-muted/30 flex flex-wrap items-center gap-2 rounded-xl border px-3 py-2">
+                {canCorrectLessons && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="bg-card gap-1.5"
+                    title={t("lessonEditMonthHint")}
+                    onClick={() => setLessonsOpen(true)}
+                    data-testid="edit-salary-lessons"
+                  >
+                    <Pencil className="size-3" aria-hidden />
+                    {t("lessonEditMonth")}
+                  </Button>
+                )}
+                {canAdjust && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    variant="outline"
+                    className="bg-card gap-1.5"
+                    title={t("repriceHint")}
+                    onClick={() => setRepriceOpen(true)}
+                    data-testid="reprice-payout"
+                  >
+                    <RefreshCw className="size-3" aria-hidden />
+                    {t("reprice")}
+                  </Button>
+                )}
               </div>
             )}
 
@@ -606,21 +607,6 @@ export function PayoutDetailModal({
                 </ul>
               )}
             </Section>
-
-            {/* Net total footer */}
-            <div className="bg-muted/40 flex items-center justify-between rounded-xl border px-4 py-3">
-              <span className="text-sm font-semibold uppercase tracking-wide">
-                {t("netPay")}
-              </span>
-              <span
-                className={cn(
-                  "text-lg font-bold tabular-nums",
-                  payout.total_minor < 0 && "text-red-600 dark:text-red-400",
-                )}
-              >
-                {fmt(payout.total_minor)}
-              </span>
-            </div>
 
             {payout.notes && (
               <div className="rounded-xl border p-3">

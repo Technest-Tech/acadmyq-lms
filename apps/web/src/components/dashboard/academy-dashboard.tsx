@@ -31,9 +31,10 @@ import type { LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FollowControl, type FollowInfo } from "@/components/attendance/follow-control";
 import { useAuth } from "@/components/auth-provider";
+import { CurrencyBreakdown } from "@/components/dashboard/currency-breakdown";
 import { MyLessonsToday } from "@/components/dashboard/my-lessons-today";
 import { useCapability } from "@/lib/capabilities";
 import { groupLessonsAsSessions, attendedGroupLessons } from "@/lib/group-calendar";
@@ -62,7 +63,6 @@ import {
 import {
   academyCurrency,
   commonCurrency,
-  partsText,
   sumAs,
   totalIn,
   useDashboardRates,
@@ -543,15 +543,17 @@ export interface StatCardProps {
   isMoney?: boolean;
   moneyAmount?: number;
   moneyCurrency?: string;
-  /** A small muted line under the figure: the real per-currency amounts behind a converted total. */
+  /** A small muted line under the figure. */
   note?: string;
+  /** Spelled-out detail under the figure (the currencies behind a money total), on every screen size. */
+  breakdown?: ReactNode;
   locale: string;
 }
 
 export function StatCard({
   Icon, color, label, value, sub, loading, href, alert,
   trend, spark, sparkData, progress, progressLabel, isMoney,
-  moneyAmount, moneyCurrency, note, locale,
+  moneyAmount, moneyCurrency, note, breakdown, locale,
 }: StatCardProps) {
   const c = COLORS[color] ?? COLORS.slate!;
   const showSpark = !loading && spark && sparkData && sparkData.length > 1;
@@ -600,6 +602,7 @@ export function StatCard({
             <p className="mt-0.5 text-sm font-semibold text-foreground/80">{label}</p>
             {sub && <p className={cn("mt-0.5 text-xs font-medium", c.text)}>{sub}</p>}
             {note && <p className="mt-1 text-[11px] leading-snug break-words text-muted-foreground">{note}</p>}
+            {breakdown && <div className="mt-3 border-t pt-3">{breakdown}</div>}
           </>
         )}
       </div>
@@ -1116,21 +1119,16 @@ export function AcademyDashboard() {
           parts: [],
           missing: [],
         };
-  // The line under a money card: what a converted total was made of, or each currency on its own
-  // when there is no rate to add them up with.
-  const moneyNote = (total: MoneyTotal): string | undefined => {
-    if (total.minor === null) return t("finance.noRate", { parts: partsText(total.parts, locale) });
-    if (!total.converted) return undefined;
-    if (total.parts.length === 0) return t("finance.chartCurrency", { currency: total.currency });
-    const base = t("finance.converted", { parts: partsText(total.parts, locale) });
-    return total.missing.length > 0 ? `${base} · ${t("finance.missing", { list: total.missing.join("، ") })}` : base;
-  };
+  // A money card: its one figure, and the currencies behind it spelled out underneath (a bar of
+  // their shares, one line each). A figure made by subtraction (net profit) has no currency lines,
+  // only a word that it was converted.
   const moneyProps = (total: MoneyTotal) => ({
     value: null,
     isMoney: total.minor !== null,
     moneyAmount: total.minor ?? undefined,
     moneyCurrency: total.currency,
-    note: moneyNote(total),
+    note: total.converted && total.parts.length === 0 ? t("finance.chartCurrency", { currency: total.currency }) : undefined,
+    breakdown: total.parts.length > 1 ? <CurrencyBreakdown total={total} fx={fx} locale={locale} /> : undefined,
   });
   const ldMoney = ldInv || fxPending;
   const ldProfitMoney = ldProfit || fxPending;
@@ -1345,19 +1343,6 @@ export function AcademyDashboard() {
               locale={locale}
             />
           )}
-          {can("invoice.read") && (
-            <StatCard
-              Icon={ReceiptText}
-              color={openInvoices > 0 ? "blue" : "slate"}
-              label={t("kpi.openInvoices")}
-              value={ldInv ? null : openInvoices}
-              sub={t("kpi.awaitingPayment")}
-              loading={ldInv}
-              href="/invoices"
-              alert={openInvoices > 0}
-              locale={locale}
-            />
-          )}
           {(can("schedule.read") || can("session.read")) && (
             <StatCard
               Icon={Timer}
@@ -1447,6 +1432,20 @@ export function AcademyDashboard() {
                 progressLabel={invoiceCount > 0 ? `${invoiceSummary?.counts.PAID ?? 0}/${invoiceCount}` : undefined}
                 locale={locale}
               />
+              {/* Open bills are money too: they sit with the money, not with people and lessons. */}
+              {can("invoice.read") && (
+                <StatCard
+                  Icon={ReceiptText}
+                  color={openInvoices > 0 ? "blue" : "slate"}
+                  label={t("kpi.openInvoices")}
+                  value={ldInv ? null : openInvoices}
+                  sub={t("kpi.awaitingPayment")}
+                  loading={ldInv}
+                  href="/invoices"
+                  alert={openInvoices > 0}
+                  locale={locale}
+                />
+              )}
               <StatCard
                 Icon={Activity}
                 color="teal"

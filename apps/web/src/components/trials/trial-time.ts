@@ -39,19 +39,6 @@ export function addDays(day: string, n: number): string {
   return date.toISOString().slice(0, 10);
 }
 
-/** 0 = Sunday … 6 = Saturday. */
-export function weekdayOf(day: string): number {
-  return toUtcNoon(day).getUTCDay();
-}
-
-/**
- * The Saturday that opens the week `day` sits in. The academies this serves keep a Saturday-first
- * week (Friday is the weekend), so the strip reads Sat → Fri in both languages.
- */
-export function weekStart(day: string): string {
-  return addDays(day, -((weekdayOf(day) + 1) % 7));
-}
-
 /** A day string as a Date at UTC noon — for Intl formatting with `timeZone: "UTC"`. */
 export function dayAsDate(day: string): Date {
   return toUtcNoon(day);

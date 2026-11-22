@@ -434,7 +434,6 @@ describe("AppShell — centre mode (`centre`, opt-in)", () => {
     await ready();
     expect(document.querySelector('[data-nav="packages"]')?.textContent).toContain(arMessages.nav.packagesCentre);
     expect(document.querySelector('[data-nav="packagesDue"]')?.textContent).toContain(arMessages.nav.packagesDueCentre);
-    expect(document.querySelector('[data-nav="packagesFinished"]')?.textContent).toContain(arMessages.nav.packagesFinishedCentre);
   });
 
   it("keeps the packages wording for an academy without centre mode", async () => {

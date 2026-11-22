@@ -11,8 +11,8 @@ import { PackagesManager } from "./packages-manager";
 /**
  * The screen is a read of the engine, so these tests pin what the UI is actually responsible
  * for: showing a balance that matches what the server sent, putting each package on the right
- * page (Open / Finished), leading Finished with the rows the sidebar badge counts, and saying
- * out loud when a new block was opened over an unpaid one.
+ * page (Due / Open), keeping Open to the few things a supervisor reads, and saying out loud when
+ * a new block was opened over an unpaid one or a student is taught after their block ran out.
  */
 
 const listLessonPackages = vi.fn();
@@ -124,7 +124,7 @@ const summary: LessonPackageSummary = {
 
 function renderManager(
   extraPermissions: string[] = [],
-  view: "due" | "open" | "finished" = "open",
+  view: "due" | "open" = "open",
 ) {
   return render(
     withAuth(
@@ -136,7 +136,7 @@ function renderManager(
   );
 }
 
-/** Everything past the card's first two actions lives behind "⋯". */
+/** An open package's actions all live behind "⋯" (on a Due row, past the first one). */
 async function openCardMenu() {
   await userEvent.click(
     within(await screen.findByTestId("package-card")).getByTestId(
@@ -193,88 +193,30 @@ describe("PackagesManager", () => {
     expect(card.textContent).not.toContain("570");
   });
 
-  it("puts an overdrawn package on the finished follow-up list and reports how far past it went", async () => {
+  it("puts a stranded overdraft on Due, says how far past it went, and keeps billing it in the menu", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
           id: "p2",
           status: "COMPLETED",
-          follow_up: true,
+          due: true,
           minutes_consumed: 1260,
           minutes_remaining: 0,
           minutes_overdrawn: 60,
           percent_used: 100,
-          outstanding_minor: 400000,
           overdraft_billed: false,
         }),
       ],
     });
 
-    renderManager([], "finished");
+    renderManager([], "due");
 
-    const card = await screen.findByTestId("package-card");
-    expect(card.textContent).toContain(formatHours(60, "ar"));
+    const row = await screen.findByTestId("due-package-row");
+    expect(row.textContent).toContain(formatHours(60, "ar"));
     // Stranded with no next package to absorb it → the escape hatch exists, but only in the menu.
-    expect(
-      within(card).queryByText(arMessages.packages.actions.billOverdraft),
-    ).toBeNull();
-    await openCardMenu();
+    expect(within(row).queryByText(arMessages.packages.actions.billOverdraft)).toBeNull();
+    await userEvent.click(within(row).getByTestId("package-card-menu"));
     expect(await screen.findByTestId("bill-overdraft")).toBeInTheDocument();
-  });
-
-  it("says an overdraft went into the next package, and offers nothing to bill for it", async () => {
-    listLessonPackages.mockResolvedValue({
-      packages: [
-        pkg({
-          id: "p2",
-          status: "COMPLETED",
-          minutes_consumed: 1260,
-          minutes_remaining: 0,
-          minutes_overdrawn: 60,
-          percent_used: 100,
-          overdraft_absorbed_into: 2,
-        }),
-      ],
-    });
-
-    renderManager([], "finished");
-
-    // Paid up front and the extra minutes are the next block's — nothing left to collect, so it
-    // sits on the Paid tab, green.
-    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
-    const card = await screen.findByTestId("package-card");
-    expect(within(card).getByTestId("overdraft-absorbed")).toBeInTheDocument();
-    expect(card).toHaveAttribute("data-paid", "true");
-    expect(screen.queryByTestId("bill-overdraft")).toBeNull();
-  });
-
-  it("leads an unpaid finished package with Mark as paid, and its number", async () => {
-    listLessonPackages.mockResolvedValue({
-      packages: [
-        pkg({
-          id: "p2",
-          status: "COMPLETED",
-          sequence_no: 3,
-          follow_up: true,
-          minutes_remaining: 0,
-          outstanding_minor: 400000,
-          invoice_paid_minor: 0,
-        }),
-      ],
-    });
-
-    renderManager(["invoice.send_link", "invoice.mark_paid"], "finished");
-
-    const card = await screen.findByTestId("package-card");
-    expect(within(card).getByTestId("package-number")).toHaveTextContent(
-      arMessages.packages.card.packageNo.replace("{n}", "3"),
-    );
-    // On the card itself, ahead of the reminder — not behind "⋯".
-    const markPaid = within(card).getByTestId("mark-package-paid");
-    const remind = within(card).getByTestId("remind-package");
-    expect(
-      markPaid.compareDocumentPosition(remind) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
   });
 
   it("puts every package with money owed on Due — open or finished — oldest first, and totals it", async () => {
@@ -507,71 +449,43 @@ describe("PackagesManager", () => {
     expect(screen.getByTestId("paid-stats-collected").textContent).toContain(formatMoney({ amount: 400000, currency: "EGP" }, "ar"));
   });
 
-  it("marks a package the renewal opened, with the minutes it took from the last block", async () => {
+  it("keeps an open package to who, what is left, the next lesson and whether it is paid", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
           sequence_no: 4,
           opened_automatically: true,
           absorbed_overdraft_minutes: 30,
+          next_terms: { price_minor: 450000 },
         }),
       ],
     });
 
     renderManager();
 
-    const note = await screen.findByTestId("package-renewed");
-    expect(note).toHaveTextContent(
-      arMessages.packages.card.autoOpened.replace("{previous}", "3"),
+    const card = await screen.findByTestId("package-card");
+    // Raw textContent: the matcher's whitespace folding would eat the hours' no-break space.
+    expect(within(card).getByTestId("open-package-left").textContent).toBe(
+      arMessages.packages.openTable.leftOf
+        .replace("{left}", formatHours(600, "ar"))
+        .replace("{total}", formatHours(1200, "ar")),
     );
-    expect(note.textContent).toContain(formatHours(30, "ar"));
-    expect(screen.getByTestId("package-auto-renew-note")).toHaveTextContent(
-      arMessages.packages.card.autoRenewNext.replace("{n}", "5"),
-    );
+    expect(within(card).getByTestId("open-package-payment")).toHaveTextContent(arMessages.packages.card.paidBadge);
+    expect(card).toHaveTextContent(arMessages.packages.openTable.nextLesson);
+    // The rest is one click away in the package, not on the list.
+    expect(card).not.toHaveTextContent(arMessages.packages.card.startDate);
+    expect(card.textContent).not.toContain("/ساعة");
+    expect(within(card).queryByTestId("package-renewed")).toBeNull();
+    expect(within(card).queryByTestId("package-auto-renew-note")).toBeNull();
+    expect(within(card).queryByTestId("package-next-terms")).toBeNull();
+
+    // The same package is one line of the table on a laptop.
+    const table = screen.getByTestId("open-table");
+    expect(within(table).getAllByTestId("open-table-row")).toHaveLength(1);
+    expect(within(table).getByText("Sara")).toBeInTheDocument();
   });
 
-  it("splits Finished into not paid and paid, and keeps a paid package on the page in green", async () => {
-    listLessonPackages.mockResolvedValue({
-      packages: [
-        pkg(),
-        pkg({
-          id: "p2",
-          status: "COMPLETED",
-          student_name: "Mona",
-          follow_up: true,
-          invoice_status: "CLOSED",
-          invoice_paid_minor: 0,
-          outstanding_minor: 400000,
-        }),
-        pkg({
-          id: "p3",
-          status: "COMPLETED",
-          student_name: "Laila",
-          invoice_status: "PAID",
-          paid_at: "2026-09-20T10:00:00Z",
-        }),
-      ],
-    });
-
-    renderManager([], "finished");
-
-    // Not paid first; the open package is never on this page.
-    const unpaid = await screen.findAllByTestId("package-card");
-    expect(unpaid).toHaveLength(1);
-    expect(unpaid[0]).toHaveTextContent("Mona");
-    expect(unpaid[0]).not.toHaveAttribute("data-paid");
-
-    await userEvent.click(screen.getByTestId("finished-tab-paid"));
-    const paid = await screen.findAllByTestId("package-card");
-    expect(paid).toHaveLength(1);
-    expect(paid[0]).toHaveTextContent("Laila");
-    expect(paid[0]).toHaveAttribute("data-paid", "true");
-    expect(within(paid[0]!).getByTestId("package-paid")).toHaveTextContent(
-      arMessages.packages.card.paidBadge,
-    );
-  });
-
-  it("narrows the paid tab to the days the bills were paid", async () => {
+  it("narrows Due's paid tab to the days the bills were paid", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
@@ -593,37 +507,25 @@ describe("PackagesManager", () => {
       ],
     });
 
-    renderManager([], "finished");
+    renderManager([], "due");
     await userEvent.click(await screen.findByTestId("finished-tab-paid"));
-    expect(await screen.findAllByTestId("package-card")).toHaveLength(2);
+    const table = await screen.findByTestId("paid-table");
+    expect(within(table).getAllByTestId("paid-table-row")).toHaveLength(2);
 
     // Same finish day, different payment days — the paid tab filters on when it was paid.
     await userEvent.type(screen.getByTestId("finished-from"), "2026-10-01");
-    const cards = await screen.findAllByTestId("package-card");
-    expect(cards).toHaveLength(1);
-    expect(cards[0]).toHaveTextContent("Laila");
+    await waitFor(() => expect(within(screen.getByTestId("paid-table")).getAllByTestId("paid-table-row")).toHaveLength(1));
+    expect(within(screen.getByTestId("paid-table")).getByText("Laila")).toBeInTheDocument();
 
     await userEvent.type(screen.getByTestId("finished-to"), "2026-10-01");
-    expect(
-      await screen.findByText(arMessages.packages.emptyRange),
-    ).toBeInTheDocument();
+    expect(await screen.findByText(arMessages.packages.emptyRange)).toBeInTheDocument();
   });
 
-  it("shows lesson, date, package total and payment actions on the richer card", async () => {
+  it("keeps an open package's payment actions behind the menu", async () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     renderManager(["invoice.send_link"]);
 
-    const card = await screen.findByTestId("package-card");
-
-    // The subscription in one line each: what is left of what was bought, the price and the hourly
-    // rate, when it started, lessons taken, and whether it renews.
-    expect(card).toHaveTextContent(arMessages.packages.card.startDate);
-    expect(card).toHaveTextContent("حُضرت");
-    expect(card.textContent).toContain("/ساعة");
-    expect(within(card).getByTestId("package-auto-renew-note")).toBeInTheDocument();
-
-    // Paid up, so collecting is not the card's job right now: the payment actions are one tap
-    // away behind the menu rather than sitting on the card.
+    // Paid up, so collecting is not the row's job: the payment actions are one tap away.
     await openCardMenu();
     expect(
       await screen.findByRole("menuitem", {
@@ -637,7 +539,7 @@ describe("PackagesManager", () => {
     ).toBeInTheDocument();
   });
 
-  it("gathers a family's open packages under the parent, each with its subscription details", async () => {
+  it("lists siblings' open packages as their own lines, not under a family card", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({ id: "p-y", student_id: "s-y", student_name: "Yusuf", guardian_id: "g-h", guardian_name: "Hassan", purpose: "NEW" }),
@@ -646,12 +548,74 @@ describe("PackagesManager", () => {
     });
     renderManager();
 
-    const family = await screen.findByTestId("due-family-g-h");
-    expect(within(family).getByTestId("due-family-name")).toHaveTextContent("Hassan");
-    expect(within(family).getAllByTestId("package-card")).toHaveLength(2);
-    // Both blocks are paid up front: the family reads as settled.
-    expect(within(family).getByTestId("family-paid-up")).toHaveTextContent(arMessages.packages.family.nothingDue);
-    expect(family).toHaveTextContent(arMessages.packages.purpose.AUTO_RENEWAL);
+    expect(await screen.findAllByTestId("package-card")).toHaveLength(2);
+    expect(within(screen.getByTestId("open-table")).getAllByTestId("open-table-row")).toHaveLength(2);
+    expect(screen.queryByTestId("due-family-g-h")).toBeNull();
+    // What the money was for is Due's question, not this page's.
+    expect(screen.queryByText(arMessages.packages.purpose.AUTO_RENEWAL)).toBeNull();
+    // Search finds a child by the parent's name too.
+    await userEvent.type(screen.getByLabelText(arMessages.packages.searchPlaceholder), "Hassan");
+    expect(screen.getAllByTestId("package-card")).toHaveLength(2);
+  });
+
+  it("names an open package by what was sold, not by its label — lessons × length, else hours", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        // The auto-written label says 12 × 40 and it adds up to the minutes sold.
+        pkg({ id: "p-a", student_id: "s-a", student_name: "Sara", sequence_no: 3, label: "12 × 40 د — أكتوبر 2026", minutes_total: 480 }),
+        // Counted in lessons: the length is known whatever the label says.
+        pkg({ id: "p-b", student_id: "s-b", student_name: "Omar", label: "", minutes_total: 480, lesson_minutes: 60 }),
+        // No label and no lesson length: the hours, never a guessed length.
+        pkg({ id: "p-c", student_id: "s-c", student_name: "Mona", label: "", minutes_total: 1200 }),
+      ],
+    });
+    renderManager();
+
+    const shapes = within(await screen.findByTestId("open-table")).getAllByTestId("open-package-shape");
+    const text = shapes.map((s) => s.textContent);
+    expect(text[0]).toBe(`#${formatNumber(3, "ar")} ${formatNumber(12, "ar")} حصة × ${formatNumber(40, "ar")} د`);
+    expect(text[1]).toContain(`${formatNumber(8, "ar")} حصص × ${formatNumber(60, "ar")} د`);
+    expect(text[2]).toContain(`${formatNumber(20, "ar")} ساعة`);
+    // A typed name is still there on hover; an empty one adds no tooltip.
+    expect(shapes[0]).toHaveAttribute("title", "12 × 40 د — أكتوبر 2026");
+    expect(shapes[2]).not.toHaveAttribute("title");
+  });
+
+  it("filters Open by its stat cards: running low, not paid, ran out", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({ id: "p-ok", student_id: "s-ok", student_name: "Sara" }),
+        pkg({ id: "p-low", student_id: "s-low", student_name: "Omar", minutes_consumed: 1170, minutes_remaining: 30, percent_used: 98 }),
+        pkg({ id: "p-owe", student_id: "s-owe", student_name: "Mona", outstanding_minor: 400000, invoice_paid_minor: 0 }),
+        pkg({
+          id: "p-out",
+          student_id: "s-out",
+          student_name: "Laila",
+          status: "COMPLETED",
+          minutes_remaining: 0,
+          percent_used: 100,
+          awaiting_next_package: true,
+          gap: { lessons: 2, minutes: 120, amounts: [{ currency: "EGP", amount_minor: 40000 }] },
+        }),
+      ],
+    });
+    renderManager();
+
+    const names = async () => (await screen.findAllByTestId("package-card")).map((c) => c.querySelector("button")?.textContent);
+    // Everything, what needs a hand first: ran out, then running low.
+    expect(await names()).toEqual(["Laila", "Omar", "Sara", "Mona"]);
+    expect(screen.getByTestId("open-stats-all")).toHaveTextContent(formatNumber(3, "ar"));
+    expect(screen.getByTestId("open-stats-low")).toHaveTextContent(formatNumber(1, "ar"));
+
+    await userEvent.click(screen.getByTestId("open-stats-low"));
+    expect(await names()).toEqual(["Omar"]);
+    await userEvent.click(screen.getByTestId("open-stats-unpaid"));
+    expect(await names()).toEqual(["Mona"]);
+    await userEvent.click(screen.getByTestId("open-stats-ran-out"));
+    expect(await names()).toEqual(["Laila"]);
+    // Clicking the applied card again shows everything.
+    await userEvent.click(screen.getByTestId("open-stats-ran-out"));
+    expect(await names()).toHaveLength(4);
   });
 
   it("shows only open packages on the open page", async () => {
@@ -686,21 +650,19 @@ describe("PackagesManager", () => {
 
     const card = await screen.findByTestId("package-card");
     expect(card).toHaveAttribute("data-previous-unpaid", "true");
-    const banner = within(card).getByTestId("previous-unpaid");
-    expect(banner).toHaveTextContent("الباقة السابقة غير مدفوعة");
+    const chip = within(card).getByTestId("previous-unpaid");
+    expect(chip).toHaveTextContent("سابقة غير مدفوعة");
+    expect(chip).toHaveAttribute("title", "الباقة السابقة غير مدفوعة");
     // Raw textContent: the matcher's whitespace folding would eat the currency's no-break space.
-    expect(banner.textContent).toContain(
-      formatMoney({ amount: 20000, currency: "EGP" }, "ar"),
-    );
-    expect(banner.textContent).toContain("#1");
+    expect(chip.textContent).toContain(formatMoney({ amount: 20000, currency: "EGP" }, "ar"));
   });
 
-  it("sends a reminder from a finished package and shows how many and when", async () => {
+  it("sends a reminder from a Due row and shows how many went", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
           status: "COMPLETED",
-          follow_up: true,
+          due: true,
           minutes_remaining: 0,
           outstanding_minor: 400000,
           invoice_paid_minor: 0,
@@ -708,19 +670,17 @@ describe("PackagesManager", () => {
         }),
       ],
     });
-    renderManager(["invoice.send_link"], "finished");
+    renderManager(["invoice.send_link"], "due");
 
-    const card = await screen.findByTestId("package-card");
-    expect(within(card).getByTestId("package-reminders")).toHaveTextContent(
-      arMessages.packages.card.noReminders,
-    );
+    const row = await screen.findByTestId("due-package-row");
+    expect(screen.queryByTestId("due-table-reminded")).toBeNull();
 
     const tab = { opener: {}, location: { href: "" }, close: vi.fn() };
     const open = vi
       .spyOn(window, "open")
       .mockReturnValue(tab as unknown as Window);
 
-    await userEvent.click(within(card).getByTestId("remind-package"));
+    await userEvent.click(within(row).getByTestId("remind-package"));
 
     expect(remindLessonPackage).toHaveBeenCalledWith("p1", "ar");
     // WhatsApp opened the ordinary way, with the message written — never sent by the gateway.
@@ -729,12 +689,7 @@ describe("PackagesManager", () => {
     );
     expect(open).toHaveBeenCalledTimes(1);
     open.mockRestore();
-    expect(
-      (await within(card).findByTestId("package-reminders")).textContent,
-    ).toContain(formatNumber(3, "ar"));
-    expect(
-      within(card).getByTestId("package-reminders"),
-    ).not.toHaveTextContent(arMessages.packages.card.noReminders);
+    expect((await screen.findByTestId("due-table-reminded")).textContent).toContain(formatNumber(3, "ar"));
   });
 
   it("opens invoice-style payment evidence fields from an unpaid package", async () => {
@@ -749,10 +704,9 @@ describe("PackagesManager", () => {
     });
     renderManager(["invoice.mark_paid"]);
 
+    await openCardMenu();
     await userEvent.click(
-      within(await screen.findByTestId("package-card")).getByText(
-        arMessages.packages.actions.markPaid,
-      ),
+      await screen.findByRole("menuitem", { name: arMessages.packages.actions.markPaid }),
     );
     expect(
       await screen.findByText(arMessages.invoices.markPaidTitle),
@@ -842,15 +796,6 @@ describe("PackagesManager", () => {
     expect(updateLessonPackage).toHaveBeenCalledWith("p1", expect.not.objectContaining({ applies_to: expect.anything() }));
   });
 
-  it("shows the terms waiting for the next renewal on the card", async () => {
-    listLessonPackages.mockResolvedValue({ packages: [pkg({ next_terms: { price_minor: 450000 } })] });
-    renderManager();
-
-    expect((await screen.findByTestId("package-next-terms")).textContent).toContain(
-      formatMoney({ amount: 450000, currency: "EGP" }, "ar"),
-    );
-  });
-
   // The floor is what has already been taught: a package cannot be sold backwards, and the
   // form says so before the API has to.
   it("refuses to shrink a package to the hours already used", async () => {
@@ -914,7 +859,7 @@ describe("PackagesManager", () => {
   });
   // The block ran out, the bill was even paid, and the student is still coming: the lessons are
   // billed by the hour somewhere else, so the card has to say so and lead with the decision.
-  it("shows a student still taught after their package ran out, and leads with the next package", async () => {
+  it("lists a student still taught after their package ran out on Open, leading with Renew", async () => {
     const outOfHours = pkg({
       status: "COMPLETED",
       follow_up: true,
@@ -938,21 +883,38 @@ describe("PackagesManager", () => {
       total: 1,
     });
 
-    renderManager([], "finished");
+    renderManager();
 
-    // Paid, so it sits under "Paid" — the gap banner still says lessons are running on.
-    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
     const card = await screen.findByTestId("package-card");
     const gap = within(card).getByTestId("package-gap");
-    // Raw textContent: the matcher's whitespace folding would eat the currency's no-break space.
-    expect(gap.textContent).toContain(formatHours(270, "ar"));
     expect(gap.textContent).toContain(formatNumber(3, "ar"));
-    expect(gap.textContent).toContain(
-      formatMoney({ amount: 90000, currency: "EGP" }, "ar"),
-    );
+    expect(screen.getByTestId("open-stats-ran-out")).toHaveTextContent(formatNumber(1, "ar"));
 
     await userEvent.click(within(card).getByTestId("renew-package"));
     expect(await screen.findByTestId("package-student")).toBeInTheDocument();
+  });
+
+  // Finished is gone, so a paid block that ran out with no lesson after it yet must still surface
+  // here — it waits for the same decision, it just has nothing billed outside it yet.
+  it("lists a paid block that ran out and was not renewed on Open, even with no lesson since", async () => {
+    listLessonPackages.mockResolvedValue({
+      packages: [
+        pkg({
+          status: "COMPLETED",
+          minutes_remaining: 0,
+          percent_used: 100,
+          invoice_status: "PAID",
+          outstanding_minor: 0,
+          awaiting_next_package: true,
+          gap: null,
+        }),
+      ],
+    });
+    renderManager();
+
+    const card = await screen.findByTestId("package-card");
+    expect(within(card).getByTestId("package-gap").textContent).toContain("لم تُجدَّد بعد");
+    expect(within(card).getByTestId("renew-package")).toBeInTheDocument();
   });
 
   it("moves a student whose package ran out back to monthly billing from the card menu", async () => {
@@ -963,12 +925,12 @@ describe("PackagesManager", () => {
           minutes_remaining: 0,
           outstanding_minor: 0,
           awaiting_next_package: true,
+          gap: { lessons: 1, minutes: 60, amounts: [{ currency: "EGP", amount_minor: 20000 }] },
         }),
       ],
     });
-    renderManager([], "finished");
+    renderManager();
 
-    await userEvent.click(await screen.findByTestId("finished-tab-paid"));
     await openCardMenu();
     await userEvent.click(await screen.findByTestId("package-to-monthly"));
     await userEvent.click(await screen.findByTestId("confirm-to-monthly"));
@@ -981,31 +943,23 @@ describe("PackagesManager", () => {
     ).toBeInTheDocument();
   });
 
-  it("keeps an owing card to two buttons and puts the rest behind the menu", async () => {
+  it("keeps an owing open package to the menu — collecting is Due's job — with Mark as paid first in it", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [pkg({ outstanding_minor: 400000, invoice_paid_minor: 0 })],
     });
     renderManager(["invoice.send_link", "invoice.mark_paid"]);
 
     const card = await screen.findByTestId("package-card");
-
-    // Money is owed, so chasing and recording it is what the card offers first…
-    expect(
-      within(card).getByText(arMessages.packages.actions.remind),
-    ).toBeInTheDocument();
-    expect(
-      within(card).getByText(arMessages.packages.actions.markPaid),
-    ).toBeInTheDocument();
-    // …and the repairs are one level down.
-    expect(within(card).queryByTestId("edit-package")).toBeNull();
+    expect(within(card).getByTestId("open-package-payment").textContent).toContain(
+      formatMoney({ amount: 400000, currency: "EGP" }, "ar"),
+    );
+    expect(within(card).queryByText(arMessages.packages.actions.remind)).toBeNull();
+    expect(within(card).queryByText(arMessages.packages.actions.markPaid)).toBeNull();
 
     await openCardMenu();
-    expect(await screen.findByTestId("edit-package")).toBeInTheDocument();
-    expect(
-      screen.getByRole("menuitem", {
-        name: arMessages.packages.actions.viewLessons,
-      }),
-    ).toBeInTheDocument();
+    const items = await screen.findAllByRole("menuitem");
+    expect(items[0]).toHaveTextContent(arMessages.packages.actions.markPaid);
+    expect(screen.getByTestId("edit-package")).toBeInTheDocument();
   });
 });
 

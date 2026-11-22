@@ -93,6 +93,14 @@ final class StudentController extends Controller
                 'subscription_status' => fn (Builder $q, $value) => $q->where('sub.status', (string) $value),
                 'student_status' => fn (Builder $q, $value) => $q->where('s.status', (string) $value),
                 'level_id' => fn (Builder $q, $value) => $q->where('s.level_id', (string) $value),
+                // Everyone who was ever in a group — the course's former students too (course_students).
+                'group_id' => fn (Builder $q, $value) => Str::isUuid((string) $value)
+                    ? $q->whereExists(function ($e) use ($value): void {
+                        $e->select(DB::raw(1))->from('class_group_members as gm')
+                            ->whereColumn('gm.student_id', 's.id')
+                            ->where('gm.group_id', (string) $value);
+                    })
+                    : $q->whereRaw('false'),
                 'trial_any' => fn (Builder $q, $value) => $value === '1' ? $q->whereIn('s.status', [StudentStatus::TRIAL, StudentStatus::TRIAL_BOOKED]) : null,
                 'added_by' => DoneBy::addedByFilter(),
             ],

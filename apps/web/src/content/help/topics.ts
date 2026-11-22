@@ -330,7 +330,6 @@ export const HELP_TOPICS: readonly HelpTopicDef[] = [
       { id: "mine", anyOf: ["payout.read_own"], noneOf: ["payout.read"] },
       { id: "read", anyOf: ["payout.read"] },
       { id: "adjust", anyOf: ["payout.adjust"] },
-      { id: "finalize", anyOf: ["payout.finalize"] },
       { id: "transfer", anyOf: ["payout.adjust"] },
     ],
   },

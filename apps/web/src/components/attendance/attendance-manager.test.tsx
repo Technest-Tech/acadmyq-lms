@@ -840,15 +840,6 @@ describe("AttendanceManager (Sprint 6 premium worklist)", () => {
       expect(screen.getByTestId("section-overdue")).toHaveAttribute("aria-selected", "true");
     });
 
-    it("jumps to the held-up tab from the hero badge", async () => {
-      const user = userEvent.setup();
-      renderManager();
-
-      await user.click(await screen.findByTestId("hero-overdue"));
-
-      expect(await screen.findByTestId("overdue-board")).toBeInTheDocument();
-    });
-
     it("keeps the backlog's filters across a trip to the period tab", async () => {
       const user = userEvent.setup();
       renderManager();

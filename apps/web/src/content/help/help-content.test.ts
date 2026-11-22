@@ -132,7 +132,8 @@ describe("who sees which help", () => {
     expect(ids("students", owner)).not.toContain("mine");
     expect(ids("dashboard", teacher)).toEqual(["overdue", "enter", "reports"]);
     expect(ids("payroll", teacher)).toEqual(["mine"]);
-    expect(ids("payroll", owner)).toEqual(["read", "adjust", "finalize", "transfer"]);
+    // No "finalize": the page dropped the button (Ahmed 2026-11-22); months seal on the 3rd.
+    expect(ids("payroll", owner)).toEqual(["read", "adjust", "transfer"]);
   });
 
   it("keeps a teacher out of pages they cannot open", () => {

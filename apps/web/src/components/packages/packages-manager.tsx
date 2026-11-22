@@ -1,47 +1,49 @@
 "use client";
 
 import { academyTimeZone } from "@/lib/academy-clock";
-import {
-  AlertTriangle,
-  CircleDollarSign,
-  Layers,
-  PackageCheck,
-  Plus,
-  Timer,
-} from "lucide-react";
+import { Plus } from "lucide-react";
 import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { useCapability } from "@/lib/capabilities";
 import { DueStats, DueTable, PaidStats, PaidTable } from "@/components/packages/due-table";
 import { FamilyDueGroup, groupDueByFamily } from "@/components/packages/family-due-group";
 import {
-  isPackagePaid,
-  PackageCard,
-} from "@/components/packages/package-card";
+  isRanOut,
+  isRunningLow,
+  matchesOpenFilter,
+  OpenPackageCard,
+  OpenStats,
+  OpenTable,
+  type OpenFilter,
+} from "@/components/packages/open-table";
 import { usePackageActions } from "@/components/packages/use-package-actions";
 import { isPackageBillPaid, PaidPackageCard, paidAmount } from "@/components/packages/paid-package-card";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { HeroPill, PageHero } from "@/components/ui/page-hero";
 import {
   getLessonPackageSummary,
   listLessonPackages,
   type LessonPackageRow,
   type LessonPackageSummary,
 } from "@/lib/api";
-import { formatMoney, formatNumber } from "@/lib/money";
+import { formatNumber } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-/** The three pages of the packages screen, each its own sidebar item. */
-export type PackagesView = "due" | "open" | "finished";
-
 /**
- * The two halves of Finished packages. A package moves from "unpaid" to "paid" the moment its
- * bill is settled and stays there, green — it never drops off the page.
+ * The two pages of the packages screen, each its own sidebar item. Finished was dropped (Ahmed
+ * 2026-11-22): what a finished block owes is on Due, what was paid is on Due's Paid tab, and a
+ * student still taught after their block ran out shows on Open.
  */
-type FinishedTab = "unpaid" | "paid";
+export type PackagesView = "due" | "open";
+
+/** Due's two tabs: what is still owed, and what was paid (with the receipt). */
+type DueTab = "unpaid" | "paid";
+
+/** The day a paid row is filtered and sorted on: when its bill was paid. */
+function paidDate(r: LessonPackageRow): string {
+  return r.paid_at ?? r.closed_at ?? r.created_at;
+}
 
 /** A timestamp as the calendar day it fell on here — what a from/to date input compares against. */
 function localDay(iso: string, timezone: string): string {
@@ -52,17 +54,14 @@ function localDay(iso: string, timezone: string): string {
 }
 
 /**
- * The Packages screen, split in three pages:
+ * The Packages screen, split in two pages:
  *
  *   • Due — every block with money still owed on it, open or finished, oldest debt first. The
  *     page the academy opens every day: payment is up front, so a block that opened this morning
- *     and is not yet paid belongs here, not on a "finished" list weeks later.
- *   • Open packages — blocks being consumed right now. A block opened while the student still
- *     owes on an earlier one wears its own colour and says so, because that debt is otherwise on
- *     a different page.
- *   • Finished packages — blocks that ran out or were closed. Each one that still needs following
- *     up (unpaid, unbilled, overdraft, or still being taught with nothing open) carries a
- *     reminder button and how many reminders the family has had, and when the last one went.
+ *     and is not yet paid belongs here. Its Paid tab is the history of what came in.
+ *   • Open packages — one plain table for supervisors: who, how much is left, the next lesson,
+ *     and whether it is paid. A student still taught after their block ran out (nothing renewed)
+ *     is listed here too, leading with Renew. The stat cards above it are its filters.
  *
  * Both pages read the same list; it is split on the client because the open-package form needs
  * the finished history either way (to offer carrying hours over).
@@ -71,8 +70,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const { can } = useAuth();
-  // A centre calls these subscriptions; a Quran academy keeps packages.
-  const centre = useCapability("centre");
   const canManage = can("package.manage");
   const canSendInvoice = can("invoice.send_link");
   const timezone = useMemo(
@@ -82,9 +79,9 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
 
   const [rows, setRows] = useState<LessonPackageRow[] | null>(null);
   const [summary, setSummary] = useState<LessonPackageSummary | null>(null);
-  const [tab, setTab] = useState<FinishedTab>("unpaid");
-  // Inclusive day range. On "Not paid" it is the day the package finished; on "Paid", the day the
-  // bill was paid — the question an accountant asks of each tab.
+  const [tab, setTab] = useState<DueTab>("unpaid");
+  const [openFilter, setOpenFilter] = useState<OpenFilter>("all");
+  // Inclusive day range over the day the bill was paid — Due's Paid tab only.
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [query, setQuery] = useState("");
@@ -159,7 +156,10 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
   const dueCount = dueRows.length;
   const billPaidCount = useMemo(() => (rows ?? []).filter(isPackageBillPaid).length, [rows]);
 
-  /** This page's packages, before search and filter. */
+  /**
+   * This page's packages, before search and filter. Open: every running block, plus a student's
+   * last block that ran out while they are still being taught with nothing renewed.
+   */
   const pageRows = useMemo(
     () =>
       (rows ?? []).filter((r) =>
@@ -167,24 +167,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           ? tab === "paid"
             ? isPackageBillPaid(r)
             : r.due
-          : view === "open"
-            ? r.status === "ACTIVE"
-            : r.status !== "ACTIVE",
+          : r.status === "ACTIVE" || isRanOut(r),
       ),
     [rows, view, tab],
   );
-  const paidCount = view === "due" ? billPaidCount : pageRows.filter(isPackagePaid).length;
-  const unpaidCount = view === "due" ? dueCount : pageRows.length - paidCount;
-  const previousUnpaidCount = pageRows.filter(
-    (r) => r.previous_unpaid !== null,
-  ).length;
 
-  /** The date a finished row is filtered and sorted on, for the tab it sits in. */
-  const finishedDate = useCallback(
-    (r: LessonPackageRow) =>
-      (tab === "paid" ? r.paid_at : null) ?? r.closed_at ?? r.created_at,
-    [tab],
-  );
 
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -197,17 +184,15 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       ) {
         return false;
       }
-      if (view !== "finished" && !duePaid) return true;
-      if (view === "finished" && isPackagePaid(r) !== (tab === "paid")) return false;
-      const day = localDay(finishedDate(r), timezone);
+      if (view === "open") return matchesOpenFilter(r, openFilter);
+      if (!duePaid) return true;
+      const day = localDay(paidDate(r), timezone);
       return (from === "" || day >= from) && (to === "" || day <= to);
     });
 
-    if (view === "finished" || duePaid) {
-      // Most recent first: the latest to finish, or the latest to be paid.
-      return [...matched].sort((a, b) =>
-        finishedDate(b).localeCompare(finishedDate(a)),
-      );
+    if (duePaid) {
+      // Most recent first: the latest to be paid.
+      return [...matched].sort((a, b) => paidDate(b).localeCompare(paidDate(a)));
     }
 
     if (view === "due") {
@@ -215,15 +200,16 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       return [...matched].sort((a, b) => a.created_at.localeCompare(b.created_at));
     }
 
-    // On Open, what needs a hand first: a block opened over an unpaid one, then a block about to
-    // run out. Otherwise the server's newest-first order.
+    // On Open, what needs a hand first: a block that ran out with the student still coming, a
+    // block opened over an unpaid one, then a block about to run out. Otherwise the server's
+    // newest-first order.
     const rank = (r: LessonPackageRow) =>
-      r.previous_unpaid !== null ? 0 : r.minutes_remaining <= 60 ? 1 : 2;
+      isRanOut(r) ? 0 : r.previous_unpaid !== null ? 1 : isRunningLow(r) ? 2 : 3;
     return matched
       .map((row, i) => ({ row, i }))
       .sort((a, b) => rank(a.row) - rank(b.row) || a.i - b.i)
       .map(({ row }) => row);
-  }, [pageRows, query, view, tab, duePaid, from, to, timezone, finishedDate]);
+  }, [pageRows, query, view, duePaid, openFilter, from, to, timezone]);
 
   /** What the Paid tab's packages brought in, per currency — never summed across them. */
   const collected = useMemo(() => {
@@ -237,63 +223,8 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
 
   return (
     <div className="space-y-5">
-      <PageHero
-        latticeId="packages-hero-lattice"
-        icon={view === "due" ? CircleDollarSign : view === "open" ? Layers : PackageCheck}
-        title={centre ? t(`centre.${view}.title`) : t(`pages.${view}.title`)}
-        subtitle={centre ? t(`centre.${view}.subtitle`) : t(`pages.${view}.subtitle`)}
-        actions={
-          <>
-            {view === "open" && rows !== null && (
-              <HeroPill>
-                <Timer className="size-3.5" aria-hidden />
-                {t("hero.active", { count: pageRows.length })}
-              </HeroPill>
-            )}
-            {view === "open" && previousUnpaidCount > 0 && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-fuchsia-300/60 bg-fuchsia-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm">
-                <AlertTriangle className="size-3.5" aria-hidden />
-                {t("hero.previousUnpaid", { count: previousUnpaidCount })}
-              </span>
-            )}
-            {view === "finished" && rows !== null && (
-              <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
-                <AlertTriangle className="size-3.5" aria-hidden />
-                {t("hero.followUp", { count: unpaidCount })}
-              </span>
-            )}
-            {/* Due's counts and money are its stat cards, under the hero. */}
-            {/* What finished packages still owe — the one number the old stat tiles carried that
-                this page still needs, per currency and never summed across them. */}
-            {view === "finished" &&
-              (summary?.financials ?? [])
-                .filter((f) => f.completed_outstanding_minor > 0)
-                .map((f) => (
-                  <HeroPill key={f.currency}>
-                    <CircleDollarSign className="size-3.5" aria-hidden />
-                    {t("hero.outstanding", {
-                      amount: formatMoney(
-                        { amount: f.completed_outstanding_minor, currency: f.currency },
-                        locale,
-                      ),
-                    })}
-                  </HeroPill>
-                ))}
-            {canManage && view === "open" && (
-              <Button
-                size="lg"
-                variant="outline"
-                onClick={() => openNew()}
-                data-testid="open-package"
-                className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25 hover:text-white"
-              >
-                <Plus className="size-4" aria-hidden />
-                {t("actions.open")}
-              </Button>
-            )}
-          </>
-        }
-      />
+      {/* No hero on either page (Ahmed 2026-11-22): the stat cards lead, and "Open a package"
+          sits by the search. */}
 
       {alert && (
         <AlertBanner
@@ -312,6 +243,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           <DueStats rows={dueRows} dueAmounts={summary?.dueAmounts} />
         ))}
 
+      {/* Open: four cards that are also the table's filters (all · running low · unpaid · ran out). */}
+      {view === "open" && rows !== null && (
+        <OpenStats rows={pageRows} filter={openFilter} onFilter={setOpenFilter} />
+      )}
+
       {/* ── The record ────────────────────────────────────────────────── */}
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -322,7 +258,13 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             aria-label={t("searchPlaceholder")}
             className="border-input bg-background focus:border-primary focus:ring-primary/15 w-full max-w-xs rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-3"
           />
-          {(view === "finished" || view === "due") && (
+          {canManage && view === "open" && (
+            <Button onClick={() => openNew()} data-testid="open-package" className="gap-2">
+              <Plus className="size-4" aria-hidden />
+              {t("actions.open")}
+            </Button>
+          )}
+          {view === "due" && (
             <div className="bg-muted/50 flex gap-1 rounded-xl p-1">
               {(["unpaid", "paid"] as const).map((key) => (
                 <button
@@ -340,11 +282,8 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                       : "text-muted-foreground hover:bg-background",
                   )}
                 >
-                  {t(view === "due" ? `dueTab.${key}` : `finishedTab.${key}`, {
-                    count: formatNumber(
-                      key === "paid" ? paidCount : unpaidCount,
-                      locale,
-                    ),
+                  {t(`dueTab.${key}`, {
+                    count: formatNumber(key === "paid" ? billPaidCount : dueCount, locale),
                   })}
                 </button>
               ))}
@@ -352,11 +291,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           )}
         </div>
 
-        {(view === "finished" || duePaid) && (
+        {duePaid && (
           <div className="flex flex-wrap items-end gap-2" data-testid="finished-dates">
             <label className="space-y-1 text-xs">
               <span className="text-muted-foreground block font-medium">
-                {t(tab === "paid" ? "dates.paidFrom" : "dates.finishedFrom")}
+                {t("dates.paidFrom")}
               </span>
               <input
                 type="date"
@@ -406,20 +345,15 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                 ? t("emptyRange")
                 : t("emptyPaid")
               : view === "due"
-              ? t("emptyDue")
-              : view === "open"
-                ? t("emptyOpen")
-                : from !== "" || to !== ""
-                  ? t("emptyRange")
-                  : tab === "unpaid"
-                    ? t("emptyUnpaid")
-                    : t("emptyPaid")}
+                ? t("emptyDue")
+                : openFilter !== "all"
+                  ? t("openStats.emptyFilter")
+                  : t("emptyOpen")}
           </p>
         )}
 
-        {/* Due is a compact table from laptop width up (Ahmed 2026-11-22): one line per package, a
-            family's lines together. Phones and tablets keep the family cards, which a seven-column
-            table cannot fit. Open stays one compact card per parent, in masonry columns. */}
+        {/* Both pages are compact tables from laptop width up (Ahmed 2026-11-22): one line per
+            package. Due keeps a family's lines together. Phones and tablets get cards instead. */}
         {duePaid && visible.length > 0 ? (
           <>
             <PaidTable rows={visible} timezone={timezone} onOpenDetail={openDetail} />
@@ -447,7 +381,6 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
               {groupDueByFamily(visible).map((family) => (
                 <FamilyDueGroup
                   key={family.key}
-                  view="due"
                   family={family}
                   timezone={timezone}
                   canSendInvoice={canSendInvoice}
@@ -458,28 +391,16 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
               ))}
             </div>
           </>
-        ) : view === "due" ? null : view === "open" ? (
-          <div className="columns-1 gap-3 md:columns-2 xl:columns-3">
-            {groupDueByFamily(visible).map((family) => (
-              <FamilyDueGroup
-                key={family.key}
-                view={view}
-                family={family}
-                timezone={timezone}
-                canSendInvoice={canSendInvoice}
-                actionProps={actionProps}
-                onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
-                onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
-              />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {visible.map((row) => (
-              <PackageCard key={row.id} timezone={timezone} {...actionProps(row)} />
-            ))}
-          </div>
-        )}
+        ) : view === "open" && visible.length > 0 ? (
+          <>
+            <OpenTable rows={visible} timezone={timezone} actionProps={actionProps} />
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:hidden">
+              {visible.map((row) => (
+                <OpenPackageCard key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
+              ))}
+            </div>
+          </>
+        ) : null}
       </div>
 
       {modals}

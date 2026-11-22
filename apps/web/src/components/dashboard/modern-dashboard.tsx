@@ -1,8 +1,9 @@
 "use client";
 
-import { academyTimeZone } from "@/lib/academy-clock";
+import { academyTimeZone, academyToday } from "@/lib/academy-clock";
 import {
   BadgeDollarSign,
+  Banknote,
   CalendarDays,
   CheckCircle2,
   Clock,
@@ -10,6 +11,7 @@ import {
   GraduationCap,
   PieChart,
   Plus,
+  Scale,
   Users,
   UsersRound,
   Wallet,
@@ -35,6 +37,7 @@ import {
   type CentreTone,
   type RingSlice,
 } from "@/components/dashboard/centre-kit";
+import { CurrencyBreakdown } from "@/components/dashboard/currency-breakdown";
 import { MyLessonsToday } from "@/components/dashboard/my-lessons-today";
 import { SubscriptionBanner } from "@/components/dashboard/subscription-banner";
 import { MyQualityPanel } from "@/components/quality/my-quality-panel";
@@ -59,7 +62,15 @@ import {
 import { useCapability } from "@/lib/capabilities";
 import { groupLessonsAsSessions, attendedGroupLessons } from "@/lib/group-calendar";
 import { getGroupLessonsSummary } from "@/lib/groups-api";
-import { academyCurrency, commonCurrency, partsText, sumAs, totalIn, useDashboardRates, type CurrencyAmount } from "@/lib/dashboard-money";
+import {
+  academyCurrency,
+  commonCurrency,
+  sumAs,
+  totalIn,
+  useDashboardRates,
+  type CurrencyAmount,
+  type MoneyTotal,
+} from "@/lib/dashboard-money";
 import { formatMoney, formatNumber } from "@/lib/money";
 import { numeralLocale } from "@/lib/numerals";
 import { formatRelativeTime } from "@/lib/time";
@@ -100,6 +111,7 @@ interface Kpi {
   display?: string;
   chip?: ReactNode;
   note?: string;
+  breakdown?: ReactNode;
   loading: boolean;
   href?: string;
 }
@@ -128,6 +140,9 @@ export function ModernDashboard() {
   const groupsOn = useCapability("groups") && can("group.read");
   const accountingOn = useCapability("accounting");
   const trialsOn = useCapability("trials") && can("trial.read");
+  // The financial-statistics page, for the money row's "view all" (a client on the accounts has
+  // the Accounting overview instead).
+  const statsOn = useCapability("financial_statistics") && can("invoice.read");
   // Opt-in, so strict: no capability list means the Quran picture.
   const coursesArt = session?.capabilities?.includes("courses_art") ?? false;
   const readsLessons = can("schedule.read") || can("session.read");
@@ -138,6 +153,9 @@ export function ModernDashboard() {
   const [pending, setPending] = useState<PendingSession[] | null>(null);
   const [groupOwed, setGroupOwed] = useState(0);
   const [invoices, setInvoices] = useState<InvoiceSummary | null>(null);
+  // This month's bills alone (the money row's "collected this month"), same source as the
+  // financial-statistics page for the month.
+  const [monthInvoices, setMonthInvoices] = useState<InvoiceSummary | null>(null);
   const [week, setWeek] = useState<CalendarSession[] | null>(null);
   const [trialIds, setTrialIds] = useState<Set<string>>(new Set());
   const [bookedTrials, setBookedTrials] = useState<WeekTrial[]>([]);
@@ -163,6 +181,10 @@ export function ModernDashboard() {
         : Promise.resolve().then(() => setPending([])),
       groupsOn ? getGroupLessonsSummary().then((r) => setGroupOwed(r.owed ?? 0)) : Promise.resolve(),
       can("invoice.read") && !isTeacher ? getInvoiceSummary().then(setInvoices) : Promise.resolve(),
+      can("invoice.read") && !isTeacher
+        ? // The academy's month, not the device's: an owner abroad near midnight must not see last month.
+          getInvoiceSummary({ period_year: academyToday().slice(0, 4), period_month: String(Number(academyToday().slice(5, 7))) }).then(setMonthInvoices)
+        : Promise.resolve(),
       readsLessons
         ? getCalendar({ from, to })
             .then((r) => setWeek([...r.sessions, ...groupLessonsAsSessions(attendedGroupLessons(r.group_lessons ?? []))]))
@@ -209,9 +231,23 @@ export function ModernDashboard() {
     ...invMoney.map((m) => ({ currency: m.currency, minor: m.billed_minor })),
     ...revenueAmounts,
   ]);
+  // This month: what came in on the month's bills, and what the teachers are owed for it.
+  const monthCollected = useMemo<CurrencyAmount[]>(
+    () => (monthInvoices?.money ?? []).map((m) => ({ currency: m.currency, minor: m.collected_minor })),
+    [monthInvoices],
+  );
+  const monthBilled = useMemo<CurrencyAmount[]>(
+    () => (monthInvoices?.money ?? []).map((m) => ({ currency: m.currency, minor: m.billed_minor })),
+    [monthInvoices],
+  );
+  const monthPayouts = useMemo<CurrencyAmount[]>(
+    () => (revenue?.[revenue.length - 1]?.rows ?? []).map((r) => ({ currency: r.currency, minor: r.payouts_minor })),
+    [revenue],
+  );
   const { fx, pending: fxPending } = useDashboardRates([
     ...invMoney.filter((m) => m.due_minor !== 0).map((m) => m.currency),
     ...revenueAmounts.filter((a) => a.minor !== 0).map((a) => a.currency),
+    ...[...monthCollected, ...monthBilled, ...monthPayouts].filter((a) => a.minor !== 0).map((a) => a.currency),
   ]);
   const money = (minor: number, cur = currency) => formatMoney({ amount: minor, currency: cur }, locale, { trimZeroDecimals: true });
   const timeOf = (iso: string) =>
@@ -270,13 +306,20 @@ export function ModernDashboard() {
     [week, trialIds, bookedTrials],
   );
 
-  // ── Up to four numbers, each only for someone who may read it ──
+  // ── Up to four numbers about people and lessons, each only for someone who may read it ──
+  // Money has a row of its own below (Ahmed, 11-22: "a row of financial statistics only, kept apart").
   const due = invoices === null ? null : totalIn(invMoney.map((m) => ({ currency: m.currency, minor: m.due_minor })), currency, fx);
-  const dueNote = [
-    invoices && invoices.counts.OPEN > 0 ? t("kpi.openBills", { count: invoices.counts.OPEN }) : null,
-    due && due.minor === null ? tDash("finance.noRate", { parts: partsText(due.parts, locale) }) : null,
-    due && due.minor !== null && due.converted ? tDash("finance.converted", { parts: partsText(due.parts, locale) }) : null,
-  ].filter((n): n is string => n !== null);
+  // The currencies behind a money total, spelled out inside the card (nothing for one currency).
+  const breakdownOf = (total: MoneyTotal | null) =>
+    total !== null && total.parts.length > 1 ? <CurrencyBreakdown total={total} fx={fx} locale={locale} /> : undefined;
+  const joinNotes = (...notes: (string | null | undefined)[]) => {
+    const kept = notes.filter((n): n is string => !!n);
+    return kept.length > 0 ? kept.join(" · ") : undefined;
+  };
+  const moneyFigure = (total: MoneyTotal | null) => ({
+    value: total === null ? null : total.minor,
+    display: total === null || total.minor === null ? undefined : money(total.minor, total.currency),
+  });
   const kpis: Kpi[] = [];
   if (can("student.read")) {
     kpis.push({ key: "students", Icon: GraduationCap, tone: "violet", label: t("kpi.students"), value: studentsTotal, loading, href: "/students" });
@@ -302,19 +345,6 @@ export function ModernDashboard() {
       href: "/attendance",
     });
   }
-  if (due !== null || (can("invoice.read") && !isTeacher)) {
-    kpis.push({
-      key: "due",
-      Icon: Wallet,
-      tone: "rose",
-      label: t("kpi.due"),
-      value: due === null ? null : due.minor,
-      display: due === null || due.minor === null ? undefined : money(due.minor, due.currency),
-      note: dueNote.length > 0 ? dueNote.join(" · ") : undefined,
-      loading: loading || fxPending,
-      href: accountingOn ? "/accounting/arrears" : "/invoices",
-    });
-  }
   if (can("payout.read_own") && isTeacher) {
     kpis.push({
       key: "earnings",
@@ -325,6 +355,82 @@ export function ModernDashboard() {
       display: earnings === null ? undefined : money(earnings.amount, earnings.currency ?? currency),
       loading,
       href: "/payroll",
+    });
+  }
+
+  // ── The money row: financial statistics only, for the academy's money readers ──
+  const readsBills = can("invoice.read") && !isTeacher;
+  const readsPay = can("payout.read") && !isTeacher;
+  const moneyLoading = loading || fxPending;
+  const collectedMonth = monthInvoices === null ? null : totalIn(monthCollected, currency, fx);
+  const billedMonth = monthInvoices === null ? null : totalIn(monthBilled, currency, fx);
+  const salariesMonth = revenue === null ? null : totalIn(monthPayouts, currency, fx);
+  // Net = collected this month − teacher salaries this month, in ONE currency (never per currency:
+  // dollars in minus pounds out is not a dollar profit and a pound loss).
+  const netCurrency = commonCurrency([...monthCollected, ...monthPayouts], currency, fx);
+  const netMonth: MoneyTotal | null =
+    monthInvoices === null || revenue === null
+      ? null
+      : netCurrency === null
+        ? { currency, minor: null, converted: true, parts: [], missing: [] }
+        : {
+            currency: netCurrency,
+            minor: sumAs(monthCollected, netCurrency, fx) - sumAs(monthPayouts, netCurrency, fx),
+            converted: new Set([...monthCollected, ...monthPayouts].filter((a) => a.minor !== 0).map((a) => a.currency)).size > 1,
+            parts: [],
+            missing: [],
+          };
+  const moneyKpis: Kpi[] = [];
+  if (readsBills) {
+    moneyKpis.push({
+      key: "collected",
+      Icon: BadgeDollarSign,
+      tone: "emerald",
+      label: t("money.collected"),
+      ...moneyFigure(collectedMonth),
+      note: joinNotes(
+        billedMonth && billedMonth.minor !== null && billedMonth.minor > 0
+          ? t("money.collectedOf", { amount: money(billedMonth.minor, billedMonth.currency) })
+          : null,
+      ),
+      breakdown: breakdownOf(collectedMonth),
+      loading: moneyLoading,
+      href: accountingOn ? "/accounting" : "/invoices",
+    });
+    moneyKpis.push({
+      key: "due",
+      Icon: Wallet,
+      tone: "rose",
+      label: t("kpi.due"),
+      ...moneyFigure(due),
+      note: joinNotes(invoices && invoices.counts.OPEN > 0 ? t("kpi.openBills", { count: invoices.counts.OPEN }) : null),
+      breakdown: breakdownOf(due),
+      loading: moneyLoading,
+      href: accountingOn ? "/accounting/arrears" : "/invoices",
+    });
+  }
+  if (readsPay) {
+    moneyKpis.push({
+      key: "salaries",
+      Icon: Banknote,
+      tone: "amber",
+      label: t("money.salaries"),
+      ...moneyFigure(salariesMonth),
+      breakdown: breakdownOf(salariesMonth),
+      loading: moneyLoading,
+      href: "/payroll",
+    });
+  }
+  if (readsBills && readsPay) {
+    moneyKpis.push({
+      key: "net",
+      Icon: Scale,
+      tone: netMonth !== null && (netMonth.minor ?? 0) < 0 ? "rose" : "sky",
+      label: t("money.net"),
+      ...moneyFigure(netMonth),
+      note: joinNotes(t("money.netNote"), netMonth?.converted ? tDash("finance.chartCurrency", { currency: netMonth.currency }) : null),
+      loading: moneyLoading,
+      href: statsOn ? "/financial-statistics" : "/payroll",
     });
   }
 
@@ -402,10 +508,37 @@ export function ModernDashboard() {
       {isTeacher && <MyLessonsToday groups={groupsOn} />}
 
       {kpis.length > 0 && (
-        <section className={"grid grid-cols-2 gap-3 sm:gap-4 " + (kpis.length >= 4 ? "xl:grid-cols-4" : kpis.length === 3 ? "xl:grid-cols-3" : "")}>
+        <section className={"grid grid-cols-2 gap-3 sm:gap-4 " + (kpis.length >= 4 ? "xl:grid-cols-4" : kpis.length === 3 ? "xl:grid-cols-3" : "")} data-testid="kpi-row">
           {kpis.map(({ key, ...kpi }) => (
             <KpiCard key={key} {...kpi} locale={locale} />
           ))}
+        </section>
+      )}
+
+      {/* ── Financial statistics only, a row of their own under the people and the lessons ── */}
+      {moneyKpis.length > 0 && (
+        <section className="space-y-2.5 sm:space-y-3" data-testid="money-row">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-base font-bold sm:text-lg">
+              <span className="flex size-8 items-center justify-center rounded-lg bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+                <Wallet className="size-4" aria-hidden />
+              </span>
+              {t("money.title")}
+            </h2>
+            {(statsOn || accountingOn) && (
+              <Link
+                href={statsOn ? "/financial-statistics" : "/accounting"}
+                className="text-muted-foreground hover:text-foreground text-xs font-semibold transition-colors"
+              >
+                {t("money.viewAll")}
+              </Link>
+            )}
+          </div>
+          <div className={"grid grid-cols-2 gap-3 sm:gap-4 " + (moneyKpis.length >= 4 ? "xl:grid-cols-4" : moneyKpis.length === 3 ? "xl:grid-cols-3" : "")}>
+            {moneyKpis.map(({ key, ...kpi }) => (
+              <KpiCard key={key} {...kpi} locale={locale} />
+            ))}
+          </div>
         </section>
       )}
 

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiFetch } from "@/lib/api";
-import { formatMoney } from "@/lib/money";
 
 /**
  * Money across currencies for the home screens' cards.
@@ -143,11 +142,6 @@ export function sumAs(amounts: CurrencyAmount[], currency: string, fx: FxTable |
     if (rate !== null) minor += Math.round(a.minor * rate);
   }
   return minor;
-}
-
-/** "$1,200 · £300 · 5,000 ج.م" — the real amounts under a converted card. */
-export function partsText(parts: CurrencyAmount[], locale: string): string {
-  return parts.map((p) => formatMoney({ amount: p.minor, currency: p.currency }, locale, { trimZeroDecimals: true })).join(" · ");
 }
 
 /**

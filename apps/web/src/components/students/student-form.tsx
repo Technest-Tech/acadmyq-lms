@@ -334,9 +334,15 @@ export function StudentForm({
   const [billingPick, setBilling] = useState<Billing | null>(null);
   // A centre enrols the student in their groups in the same save (docs/groups/01-ACCOUNTING.md,
   // "Centre mode"): the chosen groups, and the active ones to choose from.
-  const groupsOn = centre && (session?.capabilities?.includes("groups") ?? false) && can("group.manage");
+  // A Quran academy with course-only students (`course_students`, Ana Muslim 2026-11-21): the same
+  // "groups only" path a centre has, as a third card beside package and monthly. Nothing else on the
+  // form changes for it, and nothing at all for an academy without the switch.
+  const courseStudents = !centre && (session?.capabilities?.includes("course_students") ?? false);
+  const groupsOn = (centre || courseStudents) && (session?.capabilities?.includes("groups") ?? false) && can("group.manage");
   // A centre student may take groups alone: the first tile is then "no private subscription".
   const groupsOnlyChoice = centre && groupsOn;
+  // The Quran academy's version: "group / course only" is picked, never the default.
+  const courseOnlyChoice = courseStudents && groupsOn;
   // A centre with groups starts on "no private subscription": a private block is only ever sold by
   // picking it. Starting on it sold one to every group-only student whose tile nobody touched (lingo).
   const billing: Billing =
@@ -360,7 +366,9 @@ export function StudentForm({
   }, [groupsOn]);
   const onPackage = !centre && packagesAvailable && billing === "package";
   const onSubscription = subscriptionAvailable && billing === "subscription";
-  const groupsOnly = groupsOnlyChoice && billing === "none";
+  const groupsOnly = (groupsOnlyChoice || courseOnlyChoice) && billing === "none";
+  // A centre picks groups for any student; a course-only academy only on the "group / course only" card.
+  const groupPickerShown = centre ? groupsOn : groupsOnly;
 
   function pickGroup(id: string) {
     const g = groupOptions?.find((x) => x.id === id);
@@ -625,7 +633,8 @@ export function StudentForm({
       // The groups: each enrolment is its own call; one that fails leaves the student made and
       // the form open to say which one, rather than losing the save.
       const failed: string[] = [];
-      for (const pick of groupPicks) {
+      // Groups picked on the card and then left for another card are not joined.
+      for (const pick of groupPickerShown ? groupPicks : []) {
         try {
           await addGroupMembers(pick.id, { student_ids: [res.studentId], joined_on: pick.joinedOn });
         } catch {
@@ -672,6 +681,91 @@ export function StudentForm({
       setBusy(false);
     }
   }
+
+  // The groups the student joins, each from its own date: at the top for a centre, under the cards
+  // (on "group / course only") for a course-only academy.
+  const groupPicker = (
+    <div className="space-y-2 rounded-xl border bg-background/60 p-3" data-testid="group-subs">
+      <div>
+        <p className="text-sm font-semibold">{t("form.groupSubs")}</p>
+        <p className="text-muted-foreground text-xs">{t("form.groupSubsHint")}</p>
+      </div>
+      {groupPicks.length > 0 && (
+        <ul className="divide-y rounded-lg border bg-background" data-testid="group-subs-list">
+          {groupPicks.map((pick) => {
+            const g = groupOptions?.find((x) => x.id === pick.id);
+            const pr = g?.pricing ?? null;
+            const price = pr?.price_minor != null && pr.currency ? formatMoney({ amount: pr.price_minor, currency: pr.currency }, locale) : null;
+            const summary =
+              price === null
+                ? t("form.groupNoPrice")
+                : pr?.billing_mode === "MONTHLY" && pr.month_minutes
+                  ? centre && g?.slots
+                    ? t("form.groupPriceLessons", { price, lessons: monthLessons(pr.month_minutes, g.slots) })
+                    : t("form.groupPrice", { price, hours: hoursText(pr.month_minutes) })
+                  : pr?.billing_mode === "PER_LESSON"
+                    ? t("form.groupPriceLesson", { price })
+                    : pr?.billing_mode === "COURSE"
+                      ? t("form.groupPriceCourse", { price })
+                      : t("form.groupPriceMonthly", { price });
+            return (
+              <li key={pick.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm" data-testid={`group-sub-${pick.id}`}>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{g?.name ?? pick.id}</span>
+                  <span className="text-muted-foreground block text-xs">{[g?.teacher_name, summary].filter(Boolean).join(" · ")}</span>
+                </span>
+                <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
+                  {t("form.groupFrom")}
+                  <input
+                    type="date"
+                    className={cn(inputBase, "w-36 px-2 py-1 text-xs")}
+                    value={pick.joinedOn}
+                    min={g?.start_date}
+                    onChange={(e) => setGroupPicks((prev) => prev.map((x) => (x.id === pick.id ? { ...x, joinedOn: e.target.value } : x)))}
+                    data-testid={`group-sub-from-${pick.id}`}
+                  />
+                </label>
+                <button type="button" onClick={() => setGroupPicks((prev) => prev.filter((x) => x.id !== pick.id))} className="text-muted-foreground hover:text-destructive text-xs">
+                  {t("form.removeGroup")}
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {/* Always under the list, full width: where the next group is added. */}
+      <GroupSearchBox count={groupOptions?.length ?? 0} value={groupQuery} onChange={setGroupQuery} testId="group-subs-search" />
+      <div className="relative">
+        <Plus className="text-primary pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
+        <select
+          className={cn(inputBase, "border-primary/40 text-primary border-dashed py-2 ps-9 pe-3 text-sm font-medium")}
+          value=""
+          onChange={(e) => pickGroup(e.target.value)}
+          aria-label={t("form.pickGroup")}
+          disabled={groupOptions !== null && groupOptions.filter((g) => !groupIds.includes(g.id)).length === 0}
+          data-testid="group-subs-pick"
+        >
+          <option value="">
+            {groupOptions === null
+              ? "…"
+              : groupOptions.length === 0
+                ? t("form.noGroups")
+                : groupPicks.length === 0
+                  ? t("form.addGroup")
+                  : t("form.addAnotherGroup")}
+          </option>
+          {filterGroups(groupOptions ?? [], groupQuery)
+            .filter((g) => !groupIds.includes(g.id))
+            .map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name}
+                {g.teacher_name ? ` · ${g.teacher_name}` : ""}
+              </option>
+            ))}
+        </select>
+      </div>
+    </div>
+  );
 
   const packageCard = (
     <ChoiceCard
@@ -1122,88 +1216,7 @@ export function StudentForm({
             hint={onSubscription ? tSubs("studentForm.intro") : onPackage ? t("form.billingPackageIntro") : groupsOnly ? t("form.groupsOnlyIntro") : t("form.packageHint")}
             testId="billing-details"
           >
-            {groupsOn && (
-              <div className="space-y-2 rounded-xl border bg-background/60 p-3" data-testid="group-subs">
-                <div>
-                  <p className="text-sm font-semibold">{t("form.groupSubs")}</p>
-                  <p className="text-muted-foreground text-xs">{t("form.groupSubsHint")}</p>
-                </div>
-                {groupPicks.length > 0 && (
-                  <ul className="divide-y rounded-lg border bg-background" data-testid="group-subs-list">
-                    {groupPicks.map((pick) => {
-                      const g = groupOptions?.find((x) => x.id === pick.id);
-                      const pr = g?.pricing ?? null;
-                      const price = pr?.price_minor != null && pr.currency ? formatMoney({ amount: pr.price_minor, currency: pr.currency }, locale) : null;
-                      const summary =
-                        price === null
-                          ? t("form.groupNoPrice")
-                          : pr?.billing_mode === "MONTHLY" && pr.month_minutes
-                            ? centre && g?.slots
-                              ? t("form.groupPriceLessons", { price, lessons: monthLessons(pr.month_minutes, g.slots) })
-                              : t("form.groupPrice", { price, hours: hoursText(pr.month_minutes) })
-                            : pr?.billing_mode === "PER_LESSON"
-                              ? t("form.groupPriceLesson", { price })
-                              : pr?.billing_mode === "COURSE"
-                                ? t("form.groupPriceCourse", { price })
-                                : t("form.groupPriceMonthly", { price });
-                      return (
-                        <li key={pick.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm" data-testid={`group-sub-${pick.id}`}>
-                          <span className="min-w-0 flex-1">
-                            <span className="block font-medium">{g?.name ?? pick.id}</span>
-                            <span className="text-muted-foreground block text-xs">{[g?.teacher_name, summary].filter(Boolean).join(" · ")}</span>
-                          </span>
-                          <label className="text-muted-foreground flex items-center gap-1.5 text-xs">
-                            {t("form.groupFrom")}
-                            <input
-                              type="date"
-                              className={cn(inputBase, "w-36 px-2 py-1 text-xs")}
-                              value={pick.joinedOn}
-                              min={g?.start_date}
-                              onChange={(e) => setGroupPicks((prev) => prev.map((x) => (x.id === pick.id ? { ...x, joinedOn: e.target.value } : x)))}
-                              data-testid={`group-sub-from-${pick.id}`}
-                            />
-                          </label>
-                          <button type="button" onClick={() => setGroupPicks((prev) => prev.filter((x) => x.id !== pick.id))} className="text-muted-foreground hover:text-destructive text-xs">
-                            {t("form.removeGroup")}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-                {/* Always under the list, full width: where the next group is added. */}
-                <GroupSearchBox count={groupOptions?.length ?? 0} value={groupQuery} onChange={setGroupQuery} testId="group-subs-search" />
-                <div className="relative">
-                  <Plus className="text-primary pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2" aria-hidden />
-                  <select
-                    className={cn(inputBase, "border-primary/40 text-primary border-dashed py-2 ps-9 pe-3 text-sm font-medium")}
-                    value=""
-                    onChange={(e) => pickGroup(e.target.value)}
-                    aria-label={t("form.pickGroup")}
-                    disabled={groupOptions !== null && groupOptions.filter((g) => !groupIds.includes(g.id)).length === 0}
-                    data-testid="group-subs-pick"
-                  >
-                    <option value="">
-                      {groupOptions === null
-                        ? "…"
-                        : groupOptions.length === 0
-                          ? t("form.noGroups")
-                          : groupPicks.length === 0
-                            ? t("form.addGroup")
-                            : t("form.addAnotherGroup")}
-                    </option>
-                    {filterGroups(groupOptions ?? [], groupQuery)
-                      .filter((g) => !groupIds.includes(g.id))
-                      .map((g) => (
-                        <option key={g.id} value={g.id}>
-                          {g.name}
-                          {g.teacher_name ? ` · ${g.teacher_name}` : ""}
-                        </option>
-                      ))}
-                  </select>
-                </div>
-              </div>
-            )}
+            {centre && groupPickerShown && groupPicker}
 
             {centre && (subscriptionAvailable || groupsOnlyChoice) ? (
               <div className="space-y-1.5" data-testid="centre-private-choice">
@@ -1230,6 +1243,27 @@ export function StudentForm({
                     />
                   )}
                 </div>
+              </div>
+            ) : courseOnlyChoice ? (
+              // Course-only students: package and monthly exactly as before, plus "group / course only".
+              <div className={cn("grid grid-cols-1 gap-2", packagesAvailable ? "sm:grid-cols-3" : "sm:grid-cols-2")} data-testid="course-only-choice">
+                {packagesAvailable && packageCard}
+                <ChoiceCard
+                  icon={CalendarRange}
+                  title={t("form.billingMonthly")}
+                  hint={t("form.billingMonthlyHint")}
+                  selected={billing === "monthly"}
+                  onSelect={() => setBilling("monthly")}
+                  testId="billing-monthly"
+                />
+                <ChoiceCard
+                  icon={Users}
+                  title={t("form.courseOnly")}
+                  hint={t("form.courseOnlyHint")}
+                  selected={billing === "none"}
+                  onSelect={() => setBilling("none")}
+                  testId="billing-course-only"
+                />
               </div>
             ) : (packagesAvailable || groupsOnlyChoice) && (
               <div className="space-y-1.5">
@@ -1274,7 +1308,9 @@ export function StudentForm({
                 <PackageTermsFields terms={terms} idPrefix="new-student-pkg" simple />
                 {canMarkPaid && <PaidFirstPackageField state={paidFirst} priceMinor={terms.priceMinor} idPrefix="new-student-pkg" />}
               </>
-            ) : groupsOnly ? null : (
+            ) : groupsOnly ? (
+              centre ? null : groupPicker
+            ) : (
               <MonthlyTermsFields terms={monthly} idPrefix="new-student-monthly" />
             )}
           </FormSection>

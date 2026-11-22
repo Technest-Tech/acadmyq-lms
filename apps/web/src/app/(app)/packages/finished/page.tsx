@@ -1,16 +1,10 @@
-import { Suspense } from "react";
-import { PackagesScreen } from "../screen";
+import { redirect } from "next/navigation";
 
 /**
- * Finished packages — blocks that ran out or were closed, with the ones still to follow up first.
- * Its own sidebar item, carrying the red badge; `/packages` is the open half of the same screen.
- *
- * Suspense for the same reason as `/packages`: the screen reads its search params.
+ * Finished packages was dropped (Ahmed 2026-11-22): what a finished package still owes is on Due,
+ * and what was paid is on Due's Paid tab. A student still taught after their block ran out shows
+ * on Open packages. Old links and bookmarks land on Due.
  */
 export default function FinishedPackagesPage() {
-  return (
-    <Suspense>
-      <PackagesScreen view="finished" />
-    </Suspense>
-  );
+  redirect("/packages/due");
 }

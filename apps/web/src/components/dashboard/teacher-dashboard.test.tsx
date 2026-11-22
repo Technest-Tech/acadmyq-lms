@@ -133,12 +133,13 @@ describe("TeacherDashboard — a teacher's own home", () => {
     expect(screen.queryByTestId("teacher-alert-overdue")).toBeNull();
 
     const reportsCard = (await screen.findByText(t.kpi.reports)).closest("[data-testid=kpi-card]") as HTMLElement;
-    await vi.waitFor(() => expect(reportsCard.textContent).toContain(formatNumber(7, "ar")));
+    // The figures count up over 800ms (CountUp): wait past that, or a busy run reads one mid-count.
+    await vi.waitFor(() => expect(reportsCard.textContent).toContain(formatNumber(7, "ar")), { timeout: 3000 });
     const studentsCard = screen
       .getAllByText(t.kpi.students)
       .map((el) => el.closest("[data-testid=kpi-card]"))
       .find(Boolean) as HTMLElement;
-    await vi.waitFor(() => expect(studentsCard.textContent).toContain(formatNumber(12, "ar")));
+    await vi.waitFor(() => expect(studentsCard.textContent).toContain(formatNumber(12, "ar")), { timeout: 3000 });
 
     // This month's counts are asked from the first of the month.
     const monthQuery = api.listLessonReports.mock.calls.map((c) => c[0] as { pageSize: number; filter?: { from?: string } }).find((q) => q.pageSize === 1);

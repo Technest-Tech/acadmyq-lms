@@ -179,6 +179,35 @@ final class NotificationController extends Controller
     {
         Gate::authorize('notification.read');
 
+        // `ids`: just these alerts. The page is split by what an alert asks of the owner (a decision,
+        // a follow-up, a log), so "mark all read" on one section must leave the others alone.
+        $data = $request->validate([
+            'ids' => ['sometimes', 'array', 'max:500'],
+            'ids.*' => ['uuid'],
+            'types' => ['sometimes', 'array', 'max:50'],
+            'types.*' => ['string', 'max:64'],
+        ]);
+        // `types`: every unread alert of these types — a whole section, not just the rows the page
+        // happened to load (the list stops at 200; an academy with hundreds of overdue reports would
+        // otherwise keep most of them unread). The logs are never reached this way.
+        if (array_key_exists('types', $data)) {
+            $marked = $data['types'] === [] ? 0 : $this->visibleQuery()
+                ->whereNull('n.read_at')
+                ->whereIn('n.type', $data['types'])
+                ->whereNotIn('n.category', self::LOGS)
+                ->update(['read_at' => now()]);
+
+            return response()->json(['ok' => true, 'marked' => $marked]);
+        }
+        if (array_key_exists('ids', $data)) {
+            $marked = $data['ids'] === [] ? 0 : $this->visibleQuery()
+                ->whereNull('n.read_at')
+                ->whereIn('n.id', $data['ids'])
+                ->update(['read_at' => now()]);
+
+            return response()->json(['ok' => true, 'marked' => $marked]);
+        }
+
         $log = self::logCategory($request->input('category'));
 
         $marked = $this->visibleQuery()

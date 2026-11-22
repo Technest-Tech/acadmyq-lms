@@ -802,6 +802,7 @@ final class PayoutController extends Controller
             'rewards_minor' => 0,
             'deductions_minor' => 0,
             'has_open' => false,
+            'statements' => [],
         ];
 
         foreach ($lessons as $row) {
@@ -837,17 +838,14 @@ final class PayoutController extends Controller
             $rows[$k][$field] += (int) $row->amount_minor;
         }
 
-        $teachers = array_values(array_map(static function (array $row): array {
+        $rows = array_map(static function (array $row): array {
             $row['net_minor'] = $row['base_minor'] + $row['lessons_minor'] + $row['rewards_minor'] - $row['deductions_minor'];
 
             return $row;
-        }, $rows));
-
-        // Biggest salary first — the list is read to check the payroll bill, not alphabetically.
-        usort($teachers, static fn (array $a, array $b): int => $b['net_minor'] <=> $a['net_minor']);
+        }, $rows);
 
         $currencies = [];
-        foreach ($teachers as $row) {
+        foreach ($rows as $row) {
             $cur = $row['currency'];
             $currencies[$cur] ??= [
                 'currency' => $cur,
@@ -865,6 +863,75 @@ final class PayoutController extends Controller
                 $currencies[$cur][$field] += $row[$field];
             }
         }
+
+        // The monthly statements the window touches, on each teacher's own row. The page used to list
+        // the teachers twice — once for the window's figures, once more for the statements to open and
+        // tick as transferred — and owners could not tell the two lists apart (Ahmed 2026-11-22). A
+        // statement is a month, so "touches" means overlap, the same rule as `period_from/to` on index.
+        // Attached after the totals: a teacher whose only link to the window is a statement from a
+        // month it cuts into still gets a row to reach it, but adds nothing to what the window costs.
+        $statements = DB::table('payouts as p')
+            ->leftJoin('teachers as t', 't.id', '=', 'p.teacher_id')
+            ->leftJoin('users as tu', 'tu.id', '=', 'p.transferred_by')
+            ->whereRaw('p.period_year * 100 + p.period_month between ? and ?', [self::periodKey($from), self::periodKey($to)])
+            ->orderBy('p.period_year')
+            ->orderBy('p.period_month')
+            ->select([
+                'p.id',
+                'p.teacher_id',
+                'p.period_year',
+                'p.period_month',
+                'p.total_minor',
+                'p.currency',
+                'p.finalized_at',
+                'p.created_at',
+                'p.transferred_at',
+                'p.transferred_minor',
+                DB::raw('tu.full_name as transferred_by_name'),
+                DB::raw(self::PAID_OUT_SQL.' as paid_out_minor'),
+                DB::raw('t.full_name as teacher_name'),
+            ])
+            ->get();
+
+        foreach ($statements as $row) {
+            $k = $key((string) $row->teacher_id, (string) $row->currency);
+            if (! isset($rows[$k])) {
+                // Nothing in the window, nothing owed and nothing left to do: not worth a line. An
+                // OPEN statement at 0 still gets one — it can take a reward or a correction, and
+                // this table is now the only door to it.
+                if ((int) $row->total_minor === 0 && $row->finalized_at !== null) {
+                    continue;
+                }
+                $rows[$k] = [
+                    ...$blank((string) $row->teacher_id, $row->teacher_name !== null ? (string) $row->teacher_name : null, (string) $row->currency),
+                    'net_minor' => 0,
+                ];
+            }
+
+            $rows[$k]['statements'][] = [
+                'id' => (string) $row->id,
+                'teacher_id' => (string) $row->teacher_id,
+                'teacher_name' => $row->teacher_name !== null ? (string) $row->teacher_name : null,
+                'period_year' => (int) $row->period_year,
+                'period_month' => (int) $row->period_month,
+                'status' => $row->finalized_at === null ? 'OPEN' : 'FINALIZED',
+                'total_minor' => (int) $row->total_minor,
+                'currency' => (string) $row->currency,
+                'finalized_at' => $row->finalized_at,
+                'created_at' => $row->created_at,
+                'transferred_at' => $row->transferred_at,
+                'transferred_minor' => $row->transferred_minor !== null ? (int) $row->transferred_minor : null,
+                'transferred_by_name' => $row->transferred_by_name,
+                'paid_out_minor' => (int) $row->paid_out_minor,
+            ];
+            // `has_open` keeps its meaning — the statements behind the FIGURES — so a month the window
+            // only touches does not flag fixed figures as movable. Each statement carries its own status.
+        }
+
+        $teachers = array_values($rows);
+
+        // Biggest salary first — the list is read to check the payroll bill, not alphabetically.
+        usort($teachers, static fn (array $a, array $b): int => $b['net_minor'] <=> $a['net_minor']);
 
         return response()->json([
             'from' => $from,

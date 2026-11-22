@@ -53,21 +53,21 @@ const en: HelpContent = {
   notifications: {
     title: "Notifications",
     summary:
-      "What needs a decision from you lands here: teachers asking to cancel a lesson or make it free, and reports that are late.",
+      "The page is split by what each alert asks of you: what waits for your decision first, then what to follow up, then a log of what happened.",
     tasks: {
       tabs: {
-        title: "What does each tab mean?",
+        title: "What does each section mean?",
         steps: [
-          "[[Classes]]: teachers asking to cancel a lesson or make it free. These need your decision.",
-          "[[Attended classes]]: a log of the lessons recorded as attended. For reading only.",
-          "[[Reports]]: lessons that ended with no report from the teacher.",
-          "Once you have read an alert, press [[Mark read]] to take it off the counter.",
+          "[[Needs your decision]]: teachers asking to cancel a lesson or make it free, money not collected, and lessons taken with no package.",
+          "[[To follow up]]: reports not written, grouped per teacher, and packages nearly done or finished.",
+          "[[Log]]: attended lessons, cancelled group lessons and the requests you decided. For reading only.",
+          "Once you have read an alert, press [[Mark read]] to move it under \"Already seen\" and off the counter.",
         ],
       },
       approve: {
         title: "How do I approve or reject a cancellation request?",
         steps: [
-          "Open the [[Classes]] tab.",
+          "Open [[Needs your decision]].",
           "Press [[Approve]] on the request.",
           "Answer [[Charge the student]] with yes or no, choose how much the teacher is paid, and write the [[Reason]].",
           "Press [[Apply]]. Or press [[Reject]] to leave the lesson as it is.",
@@ -534,7 +534,7 @@ const en: HelpContent = {
 
   trials: {
     title: "Free Trials",
-    summary: "Trial lessons: what is on today, what is waiting for a decision, and who became a student.",
+    summary: "Trial lessons: today's, the ones waiting for a decision, the upcoming ones, and the whole record.",
     tasks: {
       book: {
         title: "How do I book a trial lesson?",
@@ -548,16 +548,16 @@ const en: HelpContent = {
       decide: {
         title: "How do I record how a trial went?",
         steps: [
-          "Once the trial's time has started, its card shows [[Attended]] and [[No-show]].",
+          "Once the trial's time has started, its row shows [[Attended]] and [[No-show]].",
           "Press what actually happened.",
           "Made a mistake? Press [[Undo]].",
         ],
-        note: "Trials that ended with no decision stay in the red panel at the top of the page until they are decided.",
+        note: "Trials that ended with no decision are counted on the [[Need a decision]] card at the top — press it to list them all.",
       },
       convert: {
         title: "How do I turn a trial into a student?",
         steps: [
-          "On the card of a trial the person attended, press [[Convert to student]].",
+          "On the row of a trial the person attended, press [[Convert to student]].",
           "Complete the student's and the parent's details.",
           "Save. The student now appears on the Students page.",
         ],
@@ -703,11 +703,11 @@ const en: HelpContent = {
       "Blocks of hours sold up front. Every lesson takes its length off the block, and when the block runs out it closes itself and its bill goes out.",
     tasks: {
       pages: {
-        title: "What is the difference between open, due and finished?",
+        title: "What is the difference between open and due?",
         steps: [
-          "[[Open packages]]: blocks being used right now.",
-          "[[Due packages]]: every package with money still owed, oldest first.",
-          "[[Finished packages]]: the history of packages that ran out or were closed.",
+          "[[Open packages]]: every student studying now — what they have left, their next lesson, and whether the package is paid.",
+          "Press a card such as [[Running low]] or [[Ran out, not renewed]] to see only those students.",
+          "[[Due packages]]: every package with money still owed, oldest first. What was paid is on the same page's Paid tab.",
         ],
       },
       open: {
@@ -724,7 +724,7 @@ const en: HelpContent = {
       pay: {
         title: "How do I record a package payment?",
         steps: [
-          "On the package's card, press [[Mark as paid]].",
+          "On [[Due packages]], press [[Mark as paid]] next to the package.",
           "Choose the payment method, and type the amount if it is part.",
           "Confirm.",
         ],
@@ -845,7 +845,7 @@ const en: HelpContent = {
         title: "How do I see my pay?",
         steps: [
           "Choose the period: [[This month]] or [[Last month]].",
-          "Under [[Monthly statements]], press [[View]] on the month.",
+          "Press [[View]] on the month.",
           "You see each lesson and its pay, along with rewards and deductions.",
         ],
         note: "A lesson does not reach your pay until its outcome is recorded.",
@@ -854,8 +854,8 @@ const en: HelpContent = {
         title: "How do I see each teacher's pay?",
         steps: [
           "Choose the period: [[This month]] or [[Last month]].",
-          "Under [[Salary per teacher]], press a teacher's name to see their lessons.",
-          "Under [[Monthly statements]], press [[View]] to open the teacher's statement.",
+          "Under [[Teacher salaries]], press a teacher's name to see their lessons.",
+          "Press [[Statement]] on their row to open the month's statement.",
         ],
       },
       adjust: {
@@ -868,22 +868,13 @@ const en: HelpContent = {
         ],
         note: "The teacher sees the reason on their statement.",
       },
-      finalize: {
-        title: "How do I finalize the month's payroll?",
-        steps: [
-          "Press [[Finalize period]].",
-          "Choose the year and the month.",
-          "Press [[Finalize]].",
-        ],
-        note: "The system finalizes last month by itself on the 3rd of each month.",
-      },
       transfer: {
         title: "How do I note that I sent the salary?",
         steps: [
-          "In the monthly statements table, find the teacher's row.",
+          "Under [[Teacher salaries]], find the teacher's row.",
           "Switch on [[Transfer]].",
         ],
-        note: "The switch is a note for you only. It moves no money.",
+        note: "The switch is a note for you only. It moves no money. The system finalizes last month's statements by itself on the 3rd of each month.",
       },
     },
   },

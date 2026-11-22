@@ -391,10 +391,15 @@ it('reports fixed salaries in the salary window, anchored on the month they are 
         ->assertJsonPath('teachers.0.net_minor', 400000)
         ->assertJsonPath('currencies.0.base_minor', 400000);
 
-    // A window that starts after the 1st does not carry a slice of the month's salary.
+    // A window that starts after the 1st does not carry a slice of the month's salary. The teacher
+    // keeps a row only so June's statement can still be opened and ticked from it — at 0.
     $this->getJson('/api/payouts/range?from=2026-06-10&to=2026-06-30')
         ->assertOk()
-        ->assertJsonCount(0, 'teachers');
+        ->assertJsonCount(1, 'teachers')
+        ->assertJsonPath('teachers.0.base_minor', 0)
+        ->assertJsonPath('teachers.0.net_minor', 0)
+        ->assertJsonCount(1, 'teachers.0.statements')
+        ->assertJsonCount(0, 'currencies');
 });
 
 it('opens statements daily for active salaried teachers only, once', function () {

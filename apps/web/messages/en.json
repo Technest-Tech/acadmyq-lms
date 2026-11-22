@@ -109,6 +109,15 @@
         "thisMonth": "this month",
         "empty": "No revenue in the last 6 months yet."
       },
+      "money": {
+        "title": "Financial statistics",
+        "viewAll": "View all",
+        "collected": "Collected this month",
+        "collectedOf": "of {amount} billed this month",
+        "salaries": "Teacher salaries this month",
+        "net": "Net profit this month",
+        "netNote": "Collected minus teacher salaries"
+      },
       "trials": {
         "attended": "Attended",
         "upcoming": "Upcoming",
@@ -194,10 +203,10 @@
       "outstandingNote": "pending collection",
       "invoiceBreakdown": "Invoice Breakdown",
       "ofBilled": "of",
-      "converted": "At today's rate, from: {parts}",
-      "noRate": "No exchange rate right now: {parts}",
-      "missing": "Excludes {list} (no exchange rate)",
-      "chartCurrency": "Amounts in {currency} at today's rate"
+      "chartCurrency": "Amounts in {currency} at today's rate",
+      "todayRate": "Total converted to {currency} at today's rate",
+      "noRateShort": "no exchange rate",
+      "noRateAll": "No exchange rate right now, so each currency is shown on its own"
     },
     "week": {
       "title": "This Week's Lessons",
@@ -2759,6 +2768,8 @@
       "privateTitle": "Private subscription (optional)",
       "groupsOnlyIntro": "Billed by their groups only.",
       "groupOrPrivateRequired": "Pick at least one group, or choose a private subscription.",
+      "courseOnly": "Group or course only",
+      "courseOnlyHint": "No private lessons; billed by the group. When the course ends they can become a former student.",
       "sectionStudent": "Student details",
       "sectionTeachers": "Teacher & timetable",
       "timetableAdd": "Add the weekly timetable",
@@ -3359,21 +3370,47 @@
   },
   "notifications": {
     "title": "Notifications",
-    "subtitle": "Cancellation approvals and overdue-report alerts.",
+    "subtitle": "What waits for your decision first, then what to follow up, and a log of what happened.",
     "noPermission": "You don't have permission to view notifications.",
     "loading": "Loading…",
-    "tabs": {
-      "classes": "Classes",
-      "reports": "Reports",
-      "studentReports": "Student Reports",
-      "packages": "Packages",
-      "attended": "Attended classes"
+    "sections": {
+      "action": "Needs your decision",
+      "actionHint": "Requests to approve and money not collected",
+      "follow": "To follow up",
+      "followHint": "Overdue reports and packages nearly done",
+      "log": "Log",
+      "logHint": "What happened, to read only"
     },
+    "groups": {
+      "requests": "Requests waiting for you",
+      "money": "Money not collected",
+      "noPackage": "Lessons with no package",
+      "reports": "Reports not written",
+      "low": "Packages nearly done",
+      "finished": "Packages finished",
+      "seen": "Already seen ({count})"
+    },
+    "calm": {
+      "action": "Nothing is waiting for your decision.",
+      "follow": "Nothing needs following up right now."
+    },
+    "reportsGroup": {
+      "count": "{count, plural, one {one report late} other {# reports late}}",
+      "oldest": "oldest {when}",
+      "show": "Show the lessons",
+      "hide": "Hide the lessons",
+      "openLesson": "Open lesson"
+    },
+    "log": {
+      "attended": "Attended lessons",
+      "cancelled": "Cancelled group lessons",
+      "decided": "Decided requests"
+    },
+    "decided": {
+      "by": "by {name}"
+    },
+    "requestedWhen": "requested {when}",
     "empty": {
-      "classes": "No pending class requests.",
-      "reports": "No report alerts. You're all caught up.",
-      "studentReports": "No student reports to review.",
-      "packages": "No package alerts. Every balance is healthy and every finished package is settled.",
       "attended": "No attended lessons yet. Every lesson a teacher marks attended shows up here."
     },
     "status": {
@@ -3421,14 +3458,18 @@
         "title": "{student} has no open package",
         "body": "A lesson was delivered with no package to take it. It has been billed the ordinary way — open the next block."
       },
-      "lessonsLeft": "{count, plural, =0 {less than a lesson} one {one lesson} other {# lessons}}"
+      "lessonsLeft": "{count, plural, =0 {less than a lesson} one {one lesson} other {# lessons}}",
+      "collect": "Collect",
+      "openPackage": "Open a package",
+      "renew": "Renew"
     },
     "attended": {
       "title": "{teacher} taught {student}",
       "markedBy": "Marked by {name}",
       "open": "Open lesson",
       "groupTitle": "Sheet saved: {group}, {present}/{expected} present",
-      "openGroup": "Open the group"
+      "openGroup": "Open the group",
+      "dayCount": "{count, plural, one {one lesson} other {# lessons}}"
     },
     "groupCancelled": {
       "heading": "Cancelled group lessons",
@@ -4196,7 +4237,7 @@
     "pages": {
       "open": {
         "title": "Open packages",
-        "subtitle": "Blocks of hours being used right now. Every lesson burns its own length; when a block runs out, the next one opens by itself and the old one moves to Finished packages."
+        "subtitle": "What each student has left, their next lesson, and whether the package is paid."
       },
       "finished": {
         "title": "Finished packages",
@@ -4208,6 +4249,26 @@
       }
     },
     "emptyOpen": "No open packages right now.",
+    "openTable": {
+      "student": "Student",
+      "package": "Package",
+      "left": "Left",
+      "nextLesson": "Next lesson",
+      "payment": "Payment",
+      "actions": "Actions",
+      "leftOf": "{left} of {total}",
+      "shape": "{count, plural, one {{n} lesson} other {{n} lessons}} × {len} min",
+      "hours": "{count, plural, one {{n} hour} other {{n} hours}}",
+      "ranOut": "Ran out · {count, plural, =0 {not renewed yet} one {{n} lesson since, no package} other {{n} lessons since, no package}}",
+      "earlierUnpaid": "Earlier unpaid · {amount}"
+    },
+    "openStats": {
+      "open": "Open packages",
+      "low": "Running low",
+      "unpaid": "Not paid",
+      "ranOut": "Ran out, not renewed",
+      "emptyFilter": "No packages here."
+    },
     "dueTable": {
       "family": "Family",
       "student": "Student",
@@ -4785,7 +4846,6 @@
     "colStatus": "Status",
     "colTotal": "Total",
     "view": "View",
-    "filterStatus": "Status",
     "status": {
       "OPEN": "Open",
       "FINALIZED": "Finalized"
@@ -4807,14 +4867,6 @@
     "noReport": "No report was filled for this session.",
     "finalizedAt": "Finalized",
     "notesLabel": "Notes",
-    "finalizePeriod": "Finalize period",
-    "finalizeTitle": "Finalize payouts",
-    "finalizeDesc": "This finalizes all open salaries for {period}. You can still correct them later unless they were paid from the treasury.",
-    "finalizeConfirm": "Finalize",
-    "finalizing": "Finalizing…",
-    "finalizeSuccess": "Finalized {count} payout(s) for {period}.",
-    "year": "Year",
-    "month": "Month",
     "cancel": "Cancel",
     "profitCurrency": "Currency",
     "netPay": "Net pay",
@@ -4851,8 +4903,6 @@
     "rangeTeachers": "{count} teachers",
     "rangeTaught": "{hours} taught",
     "rangeTaughtShort": "Hours",
-    "rangeByTeacher": "Salary per teacher",
-    "rangeByTeacherHint": "For the chosen period, across every statement it touches",
     "rangePreset": {
       "thisMonth": "This month",
       "lastMonth": "Last month",
@@ -4865,8 +4915,6 @@
     "transferTreasury": "Paid from the treasury",
     "transferTreasuryPart": "From the treasury: {amount}",
     "transferDiffers": "{sent} sent, the statement is now {total}",
-    "statementsTitle": "Monthly statements",
-    "statementsHint": "Every statement the period touches — open one to see its lessons or finalize it",
     "breakdownFixed": "Fixed salary",
     "breakdownFixedSub": "For the month",
     "byStudent": "By student",
@@ -4917,14 +4965,28 @@
     "lessonNotOnSalaryHint": "Unmarked or cancelled lessons. “Count it” records one as attended, so it goes on the salary and the student's bill.",
     "lessonEditMonth": "Edit this month's lessons",
     "lessonEditMonthHint": "A lesson extra, missing or the wrong length? Correct it here.",
-    "rangeTapHint": "Tap a teacher to see or correct their lessons",
     "blocksHint": "Click a row to see its lessons.",
     "deleteStatement": "Delete statement",
     "deleteStatementTitle": "Delete this statement?",
     "deleteStatementBody": "The {period} statement for {name} is deleted in full ({amount}): its lessons, rewards and deductions. The lessons themselves stay recorded and only count again if you add them back.",
     "paidOutNote": "{amount} of this statement was paid from the treasury, so it cannot be edited or deleted. Void that payment first, or correct its lessons and the difference goes on the open statement.",
     "searchTeacher": "Search by teacher name",
-    "searchNoTeacher": "No teacher by that name in this period."
+    "searchNoTeacher": "No teacher by that name in this period.",
+    "rangeEmptyHint": "Try “Last month” or pick other dates.",
+    "loadError": "Could not load salaries. Refresh the page and try again.",
+    "teachersTitle": "Teacher salaries",
+    "teachersHint": "Figures for the chosen period · tap a teacher to see or correct their lessons",
+    "colStatement": "Monthly statement",
+    "openStatement": "Statement",
+    "lessonsLink": "Lessons",
+    "statTransferred": "{sent} of {total}",
+    "statWaiting": "{count} waiting",
+    "transferViewEmpty": "No teacher here for this period.",
+    "transferView": {
+      "ALL": "All",
+      "PENDING": "Not sent",
+      "DONE": "Transferred"
+    }
   },
   "audit": {
     "title": "Audit Log",
@@ -5030,7 +5092,8 @@
       "courses_art": "Courses & curricula theme — for English and curriculum academies: the modern look in ocean blue and coral instead of navy and gold, no ornaments, and a books-and-course picture instead of the mushaf and mosque",
       "packages_in_lessons": "Packages in lessons — a block counts lessons, not minutes: every lesson takes one whatever its length (the length only pays the teacher); running blocks are converted by the platform",
       "centre": "Centre mode — lesson subscriptions, groups first, any student on a manual lesson, salary blocks",
-      "student_cancel_charged": "A student's cancellation counts as a lesson taken — charged (off the package, or on the bill) unless the office says not to; teachers' pay unchanged"
+      "student_cancel_charged": "A student's cancellation counts as a lesson taken — charged (off the package, or on the bill) unless the office says not to; teachers' pay unchanged",
+      "course_students": "Course-only students — a student may join on a group or course alone, with no private lessons, and a finished course turns its students into former students in one go"
     }
   },
   "adminDashboard": {
@@ -8072,58 +8135,22 @@
   },
   "trials": {
     "title": "Free Trials",
-    "subtitle": "Today's trials, the ones waiting for a decision, and every trial on record.",
     "back": "Back",
     "empty": "You don't have access to free trials.",
-    "stats": {
-      "upcoming": "Upcoming",
-      "today": "Today",
-      "awaitingOutcome": "Awaiting result",
-      "completed": "Completed",
-      "converted": "Became students",
-      "conversionRate": "Conversion rate",
-      "total": "All trials",
-      "totalSub": "Every trial on record",
-      "upcomingSub": "Scheduled, still ahead",
-      "completedSub": "Outcome recorded",
-      "convertedSub": "Became students",
-      "filterHint": "Pick a tile to narrow the list below — pick it again to see everyone."
-    },
     "table": {
-      "empty": "No trials yet — add one with “Add trial”, or move a CRM lead into the Trial stage.",
       "name": "Name",
-      "leadTag": "Lead",
+      "when": "When",
       "teacher": "Teacher",
-      "when": "When",
-      "duration": "Duration",
       "status": "Status",
-      "recordOutcome": "Outcome",
-      "convert": "Convert",
-      "cancel": "Cancel trial",
-      "delete": "Delete trial",
-      "crmTag": "CRM",
-      "awaitingOutcome": "Result missing",
       "minutes": "{count} min",
-      "title": "Trial record",
-      "hint": "Every trial booked, with what came of it — click a row for its details",
-      "needsDecision": "Needs a decision"
-    },
-    "filters": {
-      "status": "Status",
-      "origin": "Source",
-      "originCrm": "From the CRM",
-      "originDirect": "Booked directly",
-      "when": "When",
-      "upcomingOnly": "Upcoming only",
-      "decision": "Decision",
-      "needsDecision": "Needs a decision"
+      "empty": "No trials yet — add one with “Add trial”, or move a CRM lead into the Trial stage."
     },
     "status": {
       "SCHEDULED": "Scheduled",
-      "COMPLETED": "Completed",
+      "COMPLETED": "Attended",
       "NO_SHOW": "No-show",
       "CANCELLED": "Cancelled",
-      "CONVERTED": "Converted"
+      "CONVERTED": "Became a student"
     },
     "outcome": {
       "title": "Notes & outcome",
@@ -8171,66 +8198,6 @@
       "decisionFailed": "Couldn't save the decision. Please try again."
     },
     "bookInCrm": "Book in the CRM",
-    "breakdown": {
-      "title": "Where the trials landed",
-      "total": "{count} in total",
-      "fromCrm": "{count} from the CRM",
-      "scheduled": "Booked",
-      "completed": "Completed",
-      "converted": "Became students",
-      "no_show": "No-show",
-      "cancelled": "Cancelled"
-    },
-    "hero": {
-      "awaiting": "{count} awaiting outcome",
-      "needsDecision": "{count, plural, one {# needs a decision} other {# need a decision}}"
-    },
-    "tabs": {
-      "agenda": "Agenda",
-      "all": "All trials"
-    },
-    "board": {
-      "prevWeek": "Previous week",
-      "nextWeek": "Next week",
-      "today": "Today",
-      "pickDate": "Go to date",
-      "todayHeading": "Today",
-      "now": "Now",
-      "emptyToday": "No trials today.",
-      "emptyDay": "No trials on this day.",
-      "filteredEmpty": "Nothing here with this filter.",
-      "allTeachers": "All teachers",
-      "studentTag": "Student",
-      "dayNeedsDecision": "{count} waiting for a decision",
-      "filter": {
-        "all": "All",
-        "open": "Waiting",
-        "decided": "Decided"
-      },
-      "phase": {
-        "upcoming": "Upcoming",
-        "live": "In progress",
-        "overdue": "Needs a decision"
-      },
-      "actions": {
-        "attended": "Attended",
-        "noShow": "No-show",
-        "reschedule": "Reschedule",
-        "rebook": "Book again",
-        "reopen": "Change decision",
-        "convert": "Convert to student",
-        "notes": "Notes",
-        "more": "More actions",
-        "message": "Message on WhatsApp"
-      }
-    },
-    "needs": {
-      "title": "Trials waiting for a decision",
-      "subtitle": "These trials are over and nobody recorded whether the student came. Decide each one — the staff WhatsApp group is reminded until you do.",
-      "showAll": "Show {count} more",
-      "showLess": "Show less",
-      "truncated": "Showing the oldest {shown} of {total}."
-    },
     "decided": {
       "COMPLETED": "{name} — marked as attended.",
       "NO_SHOW": "{name} — marked as no-show.",
@@ -8288,9 +8255,77 @@
       "at": "Student's time {time}",
       "gap": "{sign}{hours}h",
       "sameHour": "Same hour for the student at this date."
+    },
+    "views": {
+      "today": "Today's trials",
+      "needs": "Need a decision",
+      "upcoming": "Upcoming",
+      "all": "All trials",
+      "conversion": "{rate}% became students"
+    },
+    "list": {
+      "search": "Search by name or WhatsApp number…",
+      "allTeachers": "All teachers",
+      "allStatuses": "All statuses",
+      "actions": "Actions",
+      "emptyToday": "No trials today.",
+      "emptyNeeds": "Nothing waiting for a decision — every trial that ended has its result.",
+      "emptyUpcoming": "No upcoming trials.",
+      "filteredEmpty": "Nothing here with this search.",
+      "failed": "Couldn't load the trials. Try again.",
+      "today": "Today",
+      "tomorrow": "Tomorrow",
+      "yesterday": "Yesterday",
+      "showing": "{from}–{to} of {total}",
+      "prev": "Previous",
+      "next": "Next",
+      "capped": "Showing the first {shown} of {total}."
+    },
+    "phase": {
+      "upcoming": "Upcoming",
+      "live": "In progress",
+      "overdue": "Needs a decision",
+      "COMPLETED": "Attended",
+      "NO_SHOW": "No-show",
+      "CONVERTED": "Became a student",
+      "CANCELLED": "Cancelled"
+    },
+    "actions": {
+      "attended": "Attended",
+      "noShow": "No-show",
+      "reschedule": "Reschedule",
+      "rebook": "Book again",
+      "reopen": "Change decision",
+      "convert": "Convert to student",
+      "notes": "Notes",
+      "cancel": "Cancel trial",
+      "delete": "Delete trial",
+      "more": "More actions",
+      "message": "Message on WhatsApp"
     }
   },
   "groups": {
+    "formerStudents": {
+      "title": "The course is over",
+      "subtitle": "{count, plural, one {One student} other {# students}} in this group {count, plural, one {has} other {have}} no other lessons. Make them former students so they no longer count as active.",
+      "open": "Make former students",
+      "modalTitle": "Make the course's students former students",
+      "modalSubtitle": "The same as deactivating each one: out of the active students and the reminders, with every record kept.",
+      "moving": "Will become former students ({count})",
+      "staying": "Will stay as they are ({count})",
+      "reason": {
+        "OTHER_GROUP": "In another running group",
+        "PRIVATE": "Has private lessons",
+        "ALREADY_FORMER": "Already a former student",
+        "GRADUATE": "Will move"
+      },
+      "kept": "Name, phone, parent, attendance and bills stay as they are, and anything owed stays owed. Find them on the Students page under \"Inactive only\"; the Reactivate button on a student's page brings them back.",
+      "apply": "Move {count, plural, one {one student} other {# students}}",
+      "cancel": "Cancel",
+      "failed": "Couldn't move them. Try again.",
+      "done": "{count, plural, =0 {Nobody was} one {One student was} other {# students were}} made former students.",
+      "filter": "Group / course"
+    },
     "title": "Groups",
     "subtitle": "Group classes — one teacher, several students, their own timetable and attendance.",
     "noAccess": "You don't have access to group classes.",

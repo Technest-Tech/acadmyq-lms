@@ -66,7 +66,6 @@ import {
 } from "@/components/scheduling/calendar/utils";
 import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { PageHero } from "@/components/ui/page-hero";
 import { SegmentTile } from "@/components/ui/segment-tile";
 import {
   getSessionsByDay,
@@ -609,57 +608,10 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
 
   return (
     <div className="space-y-5">
-      <PageHero
-        latticeId="attendance-hero-lattice"
-        icon={ClipboardCheck}
-        title={t("managerTitle")}
-        subtitle={t("managerSubtitle")}
-        actions={
-          <>
-            {/* The backlog's size from either tab, and the way into it. */}
-            {overdue.count > 0 && (
-              <button
-                type="button"
-                data-testid="hero-overdue"
-                onClick={() => setSection("overdue")}
-                className="inline-flex items-center gap-1.5 rounded-full border border-rose-300/60 bg-rose-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm transition-colors hover:bg-rose-700"
-              >
-                <AlarmClock className="size-3.5" aria-hidden />
-                {t("overdueTitle")} {overdue.count}
-              </button>
-            )}
-            {pendingCount > 0 && (
-              <span className="border-gold/50 bg-gold text-gold-foreground inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-bold shadow-sm">
-                <UserX className="size-3.5" aria-hidden />
-                {t("pendingCount")} {pendingCount}
-              </span>
-            )}
-            {!showsToday && section === "period" && (
-              <Button
-                type="button"
-                size="lg"
-                data-testid="hero-today"
-                onClick={() => setDate(today)}
-                className="gap-2 border-white/25 bg-white/15 text-white backdrop-blur-sm hover:bg-white/25"
-              >
-                {t("today")}
-              </Button>
-            )}
-            {canCreateClass && (
-              <Button
-                type="button"
-                size="lg"
-                data-testid="create-class"
-                className="gap-2 border-transparent bg-white px-4 text-emerald-800 shadow-md hover:bg-white/90"
-                onClick={() => setCreating(true)}
-              >
-                <CalendarPlus className="size-4" aria-hidden />
-                {t("createClass")}
-              </Button>
-            )}
-          </>
-        }
-      />
+      {/* No hero banner (Ahmed 2026-11-22). Its badges were already on the page — the held-up
+          count on its tab, "today" in the period bar, the unmarked count in the tiles — and
+          "create a lesson" moved beside the tabs. */}
+      <h1 className="sr-only">{t("managerTitle")}</h1>
 
       {header}
 
@@ -704,54 +656,68 @@ export function AttendanceManager({ header }: { header?: React.ReactNode } = {})
           is about everything that window left behind. Stacked on one page, the backlog was a
           five-row strip fighting the day's list for attention — as its own tab it gets the full
           set of filters and the counts it needs to be worked, and its badge keeps it loud. */}
-      <div
-        role="tablist"
-        aria-label={t("section.label")}
-        data-testid="attendance-section"
-        className="no-scrollbar bg-muted/60 flex gap-1 overflow-x-auto rounded-2xl p-1"
-      >
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === "period"}
-          data-testid="section-period"
-          onClick={() => setSection("period")}
-          className={cn(
-            "inline-flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4",
-            section === "period"
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
-          )}
+      <div className="flex flex-wrap items-center gap-2">
+        <div
+          role="tablist"
+          aria-label={t("section.label")}
+          data-testid="attendance-section"
+          className="no-scrollbar bg-muted/60 flex min-w-0 flex-1 gap-1 overflow-x-auto rounded-2xl p-1"
         >
-          <ClipboardCheck className="size-4" aria-hidden />
-          {t("section.period")}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === "overdue"}
-          data-testid="section-overdue"
-          onClick={() => setSection("overdue")}
-          className={cn(
-            "inline-flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4",
-            section === "overdue"
-              ? "bg-background text-rose-700 shadow-sm ring-1 ring-rose-300 dark:text-rose-300 dark:ring-rose-900/60"
-              : overdue.count > 0
-                ? "text-rose-700 hover:text-rose-800 dark:text-rose-300"
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === "period"}
+            data-testid="section-period"
+            onClick={() => setSection("period")}
+            className={cn(
+              "inline-flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4",
+              section === "period"
+                ? "bg-background text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
-          )}
-        >
-          <AlarmClock className="size-4" aria-hidden />
-          {t("section.overdue")}
-          {overdue.count > 0 && (
-            <span
-              data-testid="section-overdue-count"
-              className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[11px] font-bold tabular-nums text-white"
-            >
-              {overdue.count.toLocaleString()}
-            </span>
-          )}
-        </button>
+            )}
+          >
+            <ClipboardCheck className="size-4" aria-hidden />
+            {t("section.period")}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === "overdue"}
+            data-testid="section-overdue"
+            onClick={() => setSection("overdue")}
+            className={cn(
+              "inline-flex flex-1 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors sm:px-4",
+              section === "overdue"
+                ? "bg-background text-rose-700 shadow-sm ring-1 ring-rose-300 dark:text-rose-300 dark:ring-rose-900/60"
+                : overdue.count > 0
+                  ? "text-rose-700 hover:text-rose-800 dark:text-rose-300"
+                  : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            <AlarmClock className="size-4" aria-hidden />
+            {t("section.overdue")}
+            {overdue.count > 0 && (
+              <span
+                data-testid="section-overdue-count"
+                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-rose-600 px-1.5 text-[11px] font-bold tabular-nums text-white"
+              >
+                {overdue.count.toLocaleString()}
+              </span>
+            )}
+          </button>
+        </div>
+        {canCreateClass && (
+          <Button
+            type="button"
+            size="lg"
+            data-testid="create-class"
+            className="gap-2 shadow-sm"
+            onClick={() => setCreating(true)}
+          >
+            <CalendarPlus className="size-4" aria-hidden />
+            {t("createClass")}
+          </Button>
+        )}
       </div>
 
       {error && <AlertBanner variant="error" message={error} onDismiss={() => setError(null)} />}

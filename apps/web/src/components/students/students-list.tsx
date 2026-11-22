@@ -1,6 +1,5 @@
 "use client";
 
-import { SUBSCRIPTION_STATUS } from "@academiq/contracts";
 import {
   BookCheck,
   CalendarClock,
@@ -35,18 +34,12 @@ import { fetchRoster } from "@/lib/roster";
 import { COUNTRIES } from "@/lib/countries";
 import { type ExcelColumn } from "@/lib/export-excel";
 import { type Level, listLevels } from "@/lib/levels-api";
+import { useCourseStudents } from "@/lib/capabilities";
+import { listGroups } from "@/lib/groups-api";
 import { formatMoney } from "@/lib/money";
 import { usePlanLabel } from "@/lib/plan-label";
 import { cn } from "@/lib/utils";
 import { useLevelsOn, useLevelWord } from "@/lib/levels";
-
-/** The four stages a student record moves through — the server's `students.status`. */
-const STUDENT_STAGES = [
-  "REGULAR",
-  "TRIAL",
-  "TRIAL_BOOKED",
-  "DEACTIVATED",
-] as const;
 
 function countryCell(code: string | null): { flag: string; code: string; name: string } | null {
   if (!code) return null;
@@ -226,6 +219,19 @@ export function StudentsList({
   const levelsOn = useLevelsOn();
   const [levels, setLevels] = useState<Level[]>([]);
   const actors = useTeamActors();
+  // Course-only students (`course_students`): filter by the group / course a student was ever in, the
+  // ended ones too, so a course's former students can be found and exported later.
+  const tGroups = useTranslations("groups");
+  const courseStudents = useCourseStudents();
+  const groupFilterOn = courseStudents && can("group.read");
+  const [groupOptions, setGroupOptions] = useState<{ id: string; name: string }[]>([]);
+
+  useEffect(() => {
+    if (!groupFilterOn) return;
+    void Promise.all([listGroups({ state: "ACTIVE" }), listGroups({ state: "ARCHIVED" })])
+      .then(([running, archived]) => setGroupOptions([...running.groups, ...archived.groups].map((g) => ({ id: g.id, name: g.name }))))
+      .catch(() => setGroupOptions([]));
+  }, [groupFilterOn]);
 
   useEffect(() => {
     void fetchRoster(listTeachers, { filter: { status: "active" } })
@@ -486,22 +492,19 @@ export function StudentsList({
 
   const filters = useMemo<FilterDef[]>(
     () => [
+      // Only the filters the tiles above cannot do (Ahmed 2026-11-22: "remove the filters that don't
+      // matter"). Active / inactive / trials is the tiles' job, so the status, stage and
+      // subscription dropdowns that repeated them are gone. `status` stays declared, hidden, because
+      // the "Active" and "Inactive" tiles set it and the chip row has to name and clear it.
       {
         key: "status",
         label: t("filter.status"),
+        hidden: true,
         options: [
           { value: "active", label: t("filter.active") },
           { value: "inactive", label: t("filter.inactive") },
           { value: "all", label: t("filter.all") },
         ],
-      },
-      {
-        key: "student_status",
-        label: t("filter.stage"),
-        options: STUDENT_STAGES.map((s) => ({
-          value: s,
-          label: t(`studentStatus.${s}`),
-        })),
       },
       {
         key: "teacher_id",
@@ -511,17 +514,12 @@ export function StudentsList({
           label: tch.full_name,
         })),
       },
-      {
-        key: "subscription_status",
-        label: t("filter.subscriptionStatus"),
-        options: SUBSCRIPTION_STATUS.map((s) => ({
-          value: s,
-          label: t(`subStatus.${s}`),
-        })),
-      },
       // A centre's level / grade — only once the academy has written its list.
       ...(levelsOn && levels.length > 0
         ? [{ key: "level_id", label: tLevels("filter", { word }), options: levels.map((l) => ({ value: l.id, label: l.name })) }]
+        : []),
+      ...(groupFilterOn && groupOptions.length > 0
+        ? [{ key: "group_id", label: tGroups("formerStudents.filter"), options: groupOptions.map((g) => ({ value: g.id, label: g.name })) }]
         : []),
       // Set only by the "Trials" tile above the table — TRIAL and TRIAL_BOOKED at once, which no
       // single `student_status` value can express. Declared so the chip row can name and clear it.
@@ -533,7 +531,7 @@ export function StudentsList({
       },
       ...addedByFilter(actors, tDone),
     ],
-    [t, tDone, tLevels, word, teachers, actors, levelsOn, levels],
+    [t, tDone, tLevels, tGroups, word, teachers, actors, levelsOn, levels, groupFilterOn, groupOptions],
   );
 
   const exportColumns = useMemo<ExcelColumn<StudentRow>[]>(() => {

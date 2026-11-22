@@ -5287,6 +5287,12 @@ export interface PayrollRangeTeacher {
   net_minor: number;
   /** At least one statement behind these figures is still OPEN, so the total can still move. */
   has_open: boolean;
+  /**
+   * The monthly statements the window touches, oldest month first: the ones to open, finalize or
+   * tick as transferred. A month the window only cuts into can carry a statement while every
+   * figure above is 0.
+   */
+  statements: PayoutRow[];
 }
 
 export interface PayrollRangeCurrency {
@@ -6351,6 +6357,19 @@ export function markAllNotificationsRead(category?: "ATTENDED" | "CLASSES"): Pro
     method: "POST",
     ...(category ? { body: JSON.stringify({ category }) } : {}),
   });
+}
+
+/** Mark just these alerts read: one section of the page, never the whole inbox. */
+export function markNotificationsRead(ids: string[]): Promise<{ ok: boolean; marked: number }> {
+  return apiFetch("/api/notifications/read-all", { method: "POST", body: JSON.stringify({ ids }) });
+}
+
+/**
+ * Mark every unread alert of these types read — a whole section, including the ones past the 200 the
+ * list returns. The logs (attended, cancelled) are never reached this way.
+ */
+export function markNotificationTypesRead(types: NotificationType[]): Promise<{ ok: boolean; marked: number }> {
+  return apiFetch("/api/notifications/read-all", { method: "POST", body: JSON.stringify({ types }) });
 }
 
 // ── Student progress reports (teacher writes → owner reviews) ──────────────────
