@@ -89,6 +89,14 @@ final class Invoicing implements BillingHook
             return;
         }
 
+        // An academy that bills by the month IN ADVANCE ({@see PrepaidMonthly}, its own choice in
+        // Settings): this lesson's month is already on the student's monthly bill, so attendance adds
+        // nothing. A lesson that ends not charged comes off next month's bill instead. Every academy
+        // billing "after the lessons" — the default — never gets past the first, cheap check inside.
+        if (app(PrepaidMonthly::class)->coversLesson($session)) {
+            return;
+        }
+
         $tz = $academy->timezone ?: 'UTC';
         $local = Carbon::parse($session->scheduled_at_utc)->setTimezone($tz);
         $year = (int) $local->year;
@@ -182,6 +190,12 @@ final class Invoicing implements BillingHook
         // equivalent of the closed-invoice immutability guard — the throw rolls the whole
         // attendance change back. The same policy that took the lesson's money gives it back.
         if (MoneyPolicy::for((string) $session->academy_id)->onUnbilled($session)) {
+            return;
+        }
+
+        // Billed by the month in advance: there is no lesson line to take back — the monthly bill
+        // reconciles the lesson next month ({@see PrepaidMonthly}).
+        if (app(PrepaidMonthly::class)->coversLesson($session)) {
             return;
         }
 

@@ -254,7 +254,10 @@ function LineItemRow({
   showStudent: boolean;
 }) {
   const charged = isCharged(li);
-  const headline = charged ? null : nonChargedLabel(li);
+  // A negative line is money taken OFF the bill (a monthly bill paid in advance lists the lessons it
+  // deducts): it reads as its own description with a minus amount, never as "Not charged".
+  const credit = li.amount_minor < 0;
+  const headline = charged || credit ? null : nonChargedLabel(li);
 
   const sub: React.ReactNode[] = [];
   if (li.session_date) sub.push(<DateText key="d" iso={li.session_date} />);
@@ -282,8 +285,10 @@ function LineItemRow({
           </p>
         )}
       </div>
-      {charged ? (
-        <span className="shrink-0 text-sm font-semibold tabular-nums text-slate-900">
+      {charged || credit ? (
+        <span
+          className={`shrink-0 text-sm font-semibold tabular-nums ${credit ? "text-emerald-700" : "text-slate-900"}`}
+        >
           <Money minor={li.amount_minor} currency={currency} />
         </span>
       ) : (

@@ -14,6 +14,7 @@ use App\Jobs\FlagOverdueReportsJob;
 use App\Jobs\LessonReminderJob;
 use App\Jobs\MonthlyStudentBillingJob;
 use App\Jobs\OpenFixedSalaryPayoutsJob;
+use App\Jobs\PrepaidMonthlyBillingJob;
 use App\Jobs\PurgeExpiredRecordingsJob;
 use App\Jobs\RollSessionWindowJob;
 use App\Services\Whatsapp\GatewayAdminClient;
@@ -49,6 +50,7 @@ final class SystemHealth
         'auto-deduct-unreported' => AutoDeductUnreportedSessionsJob::class,
         'expire-academy-trials' => ExpireAcademyTrialsJob::class,
         'accounts-daily' => AccountsDailyJob::class,
+        'prepaid-monthly-billing' => PrepaidMonthlyBillingJob::class,
         'type1-student-billing' => MonthlyStudentBillingJob::class,
         'type1-student-billing-retry-1' => MonthlyStudentBillingJob::class,
         'type1-student-billing-retry-2' => MonthlyStudentBillingJob::class,

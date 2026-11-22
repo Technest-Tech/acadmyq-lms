@@ -12,6 +12,7 @@ use App\Jobs\FlagOverdueReportsJob;
 use App\Jobs\LessonReminderJob;
 use App\Jobs\MonthlyStudentBillingJob;
 use App\Jobs\OpenFixedSalaryPayoutsJob;
+use App\Jobs\PrepaidMonthlyBillingJob;
 use App\Jobs\PurgeExpiredRecordingsJob;
 use App\Jobs\RollSessionWindowJob;
 use App\Support\JobRuns;
@@ -126,6 +127,14 @@ Schedule::job(new AccountsDailyJob)->dailyAt('09:00')->name('accounts-daily')->w
 | the gateway was down or the number was not linked that morning gets its second and third chance
 | (WhatsAppSender::claimRetry) instead of waiting a month.
 */
+/*
+| Prepaid monthly billing (Settings → طريقة التحصيل, App\Services\PrepaidMonthly). Daily: an academy that
+| bills in advance gets next month's bills from its issue day (27th by default) to the month's end —
+| daily so a missed morning heals itself and a student added late still gets the month. Idempotent;
+| academies billing after the lessons are read and left alone.
+*/
+Schedule::job(new PrepaidMonthlyBillingJob)->dailyAt('06:00')->name('prepaid-monthly-billing')->withoutOverlapping();
+
 Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(3, '08:00')->name('type1-student-billing')->withoutOverlapping();
 Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(4, '08:00')->name('type1-student-billing-retry-1')->withoutOverlapping();
 Schedule::job(new MonthlyStudentBillingJob)->monthlyOn(5, '08:00')->name('type1-student-billing-retry-2')->withoutOverlapping();

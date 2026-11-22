@@ -41,9 +41,10 @@ final class InvoiceController extends Controller
      * first package was opened on included). Its two bindings are {@see followUpBindings()}: the
      * academy's today, then the raised-before cutoff.
      */
+    // A monthly bill raised in advance (App\Services\PrepaidMonthly) is the one automatic bill with a
+    // pay-by date, so it is the only automatic bill that joins the follow-up list.
     private const FOLLOW_UP_SQL = <<<'SQL'
-        (inv.kind = 'MANUAL'
-         and inv.hand_made
+        (((inv.kind = 'MANUAL' and inv.hand_made) or (inv.kind = 'AUTO' and inv.due_on is not null))
          and inv.status in ('OPEN', 'CLOSED', 'PARTIALLY_PAID')
          and inv.total_minor > inv.amount_paid_minor
          and (case when inv.due_on is not null then inv.due_on < cast(? as date)

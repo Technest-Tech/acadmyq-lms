@@ -45,6 +45,7 @@ use App\Http\Controllers\Admin\WhatsAppGroupController;
 use App\Http\Controllers\Api\WhatsAppApiController;
 use App\Http\Controllers\AuditController;
 use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\BillingModeController;
 use App\Http\Controllers\Centre\CentreSubscriptionController;
 use App\Http\Controllers\Centre\GroupDefaultsController;
 use App\Http\Controllers\Centre\HolidayController;
@@ -885,6 +886,15 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
     // lessons read-only for teachers. settings.manage for both read and write.
     Route::get('/academy/settings', [AcademySettingsController::class, 'show']);
     Route::put('/academy/settings', [AcademySettingsController::class, 'update']);
+
+    // Settings → طريقة التحصيل: bill after the lessons (default) or monthly in advance
+    // (App\Services\PrepaidMonthly). settings.manage; issuing also needs invoice.create.
+    Route::middleware('entitled:invoicing')->group(function () {
+        Route::get('/academy/billing-mode', [BillingModeController::class, 'show']);
+        Route::put('/academy/billing-mode', [BillingModeController::class, 'update']);
+        Route::get('/academy/billing-mode/preview', [BillingModeController::class, 'preview']);
+        Route::post('/academy/billing-mode/issue', [BillingModeController::class, 'issue']);
+    });
 
     // Settings → Export data: every record the academy holds, as sheets for one workbook (built in
     // the browser). Admins only (ACADEMY_OWNER / entered Super Admin) — checked in the controller.

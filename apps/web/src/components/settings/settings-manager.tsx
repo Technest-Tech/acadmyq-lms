@@ -7,6 +7,7 @@ import { useAuth } from "@/components/auth-provider";
 import { HolidaysManager } from "@/components/holidays/holidays-manager";
 import { AcademyNameCard } from "@/components/settings/academy-name-card";
 import { AdminsCard } from "@/components/settings/admins-card";
+import { BillingModeCard } from "@/components/settings/billing-mode-card";
 import { ControlsManager } from "@/components/settings/controls-manager";
 import { DataExportCard } from "@/components/settings/data-export-card";
 import { GroupDefaultsManager } from "@/components/settings/group-defaults-manager";
@@ -132,7 +133,13 @@ export function SettingsManager() {
         )}
         {active === "lessonReport" && <LessonReportManager />}
         {active === "reportCard" && <ReportCardManager />}
-        {active === "payments" && <PaymentMethodsManager />}
+        {active === "payments" && (
+          <div className="space-y-6">
+            {/* How the academy bills its monthly students: after the lessons, or a month ahead. */}
+            {can("settings.manage") && <BillingModeCard />}
+            <PaymentMethodsManager />
+          </div>
+        )}
         {active === "holidays" && <HolidaysManager />}
         {active === "controls" && <ControlsManager />}
         {active === "account" && (

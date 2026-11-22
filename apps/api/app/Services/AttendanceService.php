@@ -145,7 +145,10 @@ final class AttendanceService
             $billingAction = 'billed';
         } elseif (! $verdict['billableToStudent'] && $wasBilled) {
             $invoiceStatus = $this->invoiceStatusFor((string) $session->id);
-            if ($invoiceStatus !== null && $invoiceStatus !== 'OPEN') {
+            // A month billed in advance ({@see PrepaidMonthly}) keeps no lesson line to protect: an old
+            // line on a bill set aside at the switch is not this lesson's money any more, and the
+            // correction reaches the family as next month's deduction.
+            if ($invoiceStatus !== null && $invoiceStatus !== 'OPEN' && ! app(PrepaidMonthly::class)->coversLesson($session)) {
                 // Immutability after close (R-INV-3, TC-6.12): cannot un-bill a closed invoice.
                 throw ValidationException::withMessages([
                     'status' => ["This session's invoice is already closed and can no longer be changed. / فاتورة هذه الحصة مُقفلة ولا يمكن تعديل حالتها."],
