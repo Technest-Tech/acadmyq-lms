@@ -8585,7 +8585,7 @@
       },
       "pausedHint": "A pause ends this group only. To resume, add them again — their other groups carry on.",
       "leaveNote": "Note",
-      "joinDateHint": "Only while no lesson was held between the two dates. Charges already made keep their amount.",
+      "joinDateHint": "It can go back to an earlier day even across lessons already held — they count for them like any lesson; mark them on those sheets. To move it later past a lesson they are marked on, take them off that lesson first. Charges already raised keep their amount.",
       "changeJoinDate": "Change start date",
       "joinDateTitle": "{name}'s start date",
       "joinDateSaved": "{name}'s start date changed.",

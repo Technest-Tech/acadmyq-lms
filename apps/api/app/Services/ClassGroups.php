@@ -284,9 +284,20 @@ final class ClassGroups
     }
 
     /**
-     * Correct the day an open membership started. Only while the group has held nothing between the
-     * two dates, so no saved sheet, attendance or per-lesson charge rests on it. An
-     * earlier date bills what the wider range now owes (joining's own rule, idempotent); a charge
+     * Correct the day an open membership started.
+     *
+     * EARLIER (Lingo 2026-11-22: "he was in it from the first lesson"): allowed across held lessons.
+     * Nothing about money rests on them for this student — per-lesson charges and the teacher's
+     * per-student pay follow the attendance sheet, not the join date — so the only effect is that
+     * those lessons now count against their hours (absent or not: the class happened), which can
+     * raise their next month at once. The office marks them on those sheets if they were there.
+     * Still refused when it would cover days the student already spent in this group under an
+     * older membership, or in the group they were moved from: the same lessons would count twice.
+     *
+     * LATER: refused across a held lesson the student is on the sheet of — that sheet's charge and
+     * pay rest on them; take them off that lesson first.
+     *
+     * An earlier date bills what the wider range now owes (joining's own rule, idempotent); a charge
      * already raised keeps its amount — money is never rewritten.
      */
     public function changeJoinDate(object $group, string $studentId, string $joinedOn, string $actorUserId, string $actorRole): void
@@ -307,18 +318,39 @@ final class ClassGroups
             return;
         }
 
-        // Only a lesson held BETWEEN the two dates rests on the change (a lesson on or after both
-        // had them either way).
-        $since = min($old, $new);
-        $held = DB::table('class_group_lessons')
+        $heldBetween = DB::table('class_group_lessons')
             ->where('group_id', $group->id)->where('status', 'HELD')
-            ->where('occurrence_local_date', '>=', $since)
-            ->where('occurrence_local_date', '<', max($old, $new))
-            ->exists();
-        if ($held) {
-            throw ValidationException::withMessages([
-                'joined_on' => ["A lesson was already held between {$since} and ".max($old, $new).', so the join date cannot move across it. / عُقدت حصة بالفعل بين '.$since.' و'.max($old, $new).'، لذلك لا يمكن نقل تاريخ الانضمام عبرها.'],
-            ]);
+            ->where('occurrence_local_date', '>=', min($old, $new))
+            ->where('occurrence_local_date', '<', max($old, $new));
+
+        if ($new < $old) {
+            if ((clone $heldBetween)->exists()) {
+                $before = DB::table('class_group_members')
+                    ->where('group_id', $group->id)->where('student_id', $studentId)->where('id', '!=', $member->id)
+                    ->whereNotNull('left_on')->where('left_on', '>', $new)
+                    ->exists();
+                $movedIn = DB::table('class_group_members')
+                    ->where('student_id', $studentId)->where('group_id', '!=', $group->id)
+                    ->where('status', 'LEFT')->where('left_on', $old)
+                    ->where('left_reason', 'like', 'Moved to %')
+                    ->exists();
+                if ($before || $movedIn) {
+                    throw ValidationException::withMessages([
+                        'joined_on' => ["The student was already counted elsewhere before {$old} (an earlier membership or the group they moved from), so the join date cannot go back past it. / الطالب كان محسوبًا قبل {$old} في اشتراك سابق أو في المجموعة التي نُقل منها، لذلك لا يمكن إرجاع تاريخ الانضمام قبله."],
+                    ]);
+                }
+            }
+        } else {
+            $marked = DB::table('class_group_attendance as a')
+                ->join('class_group_lessons as l', 'l.id', '=', 'a.lesson_id')
+                ->where('l.group_id', $group->id)->where('l.status', 'HELD')->where('a.student_id', $studentId)
+                ->where('l.occurrence_local_date', '>=', $old)->where('l.occurrence_local_date', '<', $new)
+                ->exists();
+            if ($marked) {
+                throw ValidationException::withMessages([
+                    'joined_on' => ["The student is on the attendance of a lesson held between {$old} and {$new}; take them off that lesson first. / الطالب مسجّل في حضور حصة عُقدت بين {$old} و{$new}؛ احذفه من تلك الحصة أولًا."],
+                ]);
+            }
         }
 
         // A member moved here already paid the month in the group they left (the move dates both

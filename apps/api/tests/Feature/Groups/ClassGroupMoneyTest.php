@@ -346,6 +346,53 @@ it('by hours: the first month on joining, the next once the group has held its h
     expect(groupLines($this, $groupId)->where('description', 'English A1 — June 2026'))->toHaveCount(0);
 });
 
+it('by hours: a join date moved back across held lessons counts them — the month runs out and the next is raised; past pay and sheets do not move (Lingo 2026-11-22)', function () {
+    // 4 hours a month, Mon + Wed for an hour from 1 June. Adam was entered from the 3rd, but has
+    // been in the class since the 1st.
+    $groupId = moneyGroup($this, ['price_minor' => 48000, 'month_minutes' => 240, 'student_ids' => [$this->kids['Bassel']]]);
+    heldLesson($this, $groupId, '2026-06-01');
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-03'])->assertCreated();
+    foreach (['2026-06-03', '2026-06-08', '2026-06-10'] as $d) {
+        heldLesson($this, $groupId, $d);
+    }
+    $adamLines = fn () => groupLines($this, $groupId)->where('student_id', $this->kids['Adam'])->values();
+    expect($adamLines())->toHaveCount(1); // 3 of his 4 hours used
+    $pay = fn () => groupPayLines($this, $groupId)->sortBy('description')->map(fn ($l) => [(string) $l->class_group_lesson_id, (int) $l->amount_minor])->values()->all();
+    $payBefore = $pay();
+    $firstSheet = fn () => asTenant($this->academy, fn () => DB::table('class_group_attendance')->where('lesson_id', lessonOn($this, $groupId, '2026-06-01')->id)->pluck('student_id')->map(fn ($id) => (string) $id)->sort()->values()->all());
+    $sheetBefore = $firstSheet();
+
+    // Back to the 1st: across a held lesson, and allowed now.
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['joined_on' => '2026-06-01'])->assertOk();
+    $lines = $adamLines();
+    expect($lines)->toHaveCount(2)
+        ->and($lines->last()->description)->toBe('English A1 — month 2 (4 h)')
+        ->and(Carbon::parse($lines->last()->group_period)->format('Y-m-d'))->toBe('2026-06-10');
+    expect($pay())->toBe($payBefore)->and($firstSheet())->toBe($sheetBefore);
+
+    // Forward again across lessons he is on the sheet of: refused, nothing moves.
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['joined_on' => '2026-06-09'])
+        ->assertStatus(422)->assertJsonValidationErrors('joined_on');
+    expect(asTenant($this->academy, fn () => Carbon::parse(DB::table('class_group_members')->where('group_id', $groupId)->where('student_id', $this->kids['Adam'])->value('joined_on'))->format('Y-m-d')))->toBe('2026-06-01');
+});
+
+it('never moves a join date back over days the student already counted in an earlier membership of the group', function () {
+    $groupId = moneyGroup($this, ['price_minor' => 48000, 'month_minutes' => 240, 'student_ids' => [$this->kids['Adam']]]);
+    heldLesson($this, $groupId, '2026-06-01');
+    Sanctum::actingAs($this->owner);
+    // Left on the 3rd, back from the 8th; the 3rd was held while he was out.
+    asTenant($this->academy, fn () => DB::table('class_group_members')->where('group_id', $groupId)->where('student_id', $this->kids['Adam'])
+        ->update(['status' => 'LEFT', 'left_on' => '2026-06-03', 'left_reason' => 'Paused']));
+    heldLesson($this, $groupId, '2026-06-03');
+    $this->postJson("/api/groups/{$groupId}/members", ['student_ids' => [$this->kids['Adam']], 'joined_on' => '2026-06-08'])->assertCreated();
+
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['joined_on' => '2026-06-01'])
+        ->assertStatus(422)->assertJsonValidationErrors('joined_on');
+    // Back to the day he left is fine: nothing overlaps.
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Adam']}", ['joined_on' => '2026-06-03'])->assertOk();
+});
+
 it('by hours: no next month once nothing is left to come', function () {
     // Two lessons in all (1 and 3 June) — exactly one month of two hours.
     $groupId = moneyGroup($this, ['price_minor' => 30000, 'month_minutes' => 120, 'end_date' => '2026-06-03', 'student_ids' => [$this->kids['Adam']]]);
@@ -778,10 +825,11 @@ it('moves a join date when no held lesson lies between the two dates, even after
     $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['joined_on' => '2026-06-17'])->assertOk();
     expect(collect(lessonSheet($this, lessonOn($this, $groupId, '2026-06-17')->id))->pluck('student_id'))->toContain($this->kids['Dina']);
 
-    // Across a held lesson it still refuses.
+    // Back across a held lesson (Lingo 2026-11-22: "she was there from the start"): allowed — that
+    // lesson's sheet now expects her, unmarked, for the office to mark.
     heldLesson($this, $groupId, '2026-06-15');
-    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['joined_on' => '2026-06-15'])
-        ->assertStatus(422)->assertJsonValidationErrors('joined_on');
+    $this->patchJson("/api/groups/{$groupId}/members/{$this->kids['Dina']}", ['joined_on' => '2026-06-15'])->assertOk();
+    expect(collect(lessonSheet($this, lessonOn($this, $groupId, '2026-06-15')->id))->pluck('student_id'))->toContain($this->kids['Dina']);
 });
 
 if (! function_exists('lessonSheet')) {
