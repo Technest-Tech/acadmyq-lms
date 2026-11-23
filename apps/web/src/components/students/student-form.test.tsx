@@ -315,6 +315,55 @@ describe("StudentForm (Sprint 4 §5.1)", () => {
     );
   });
 
+  // "60 a month for 12 half-hours" saved as an hourly rate came back as 59.96 on the bill (انا مسلم,
+  // 2026-11-23): the whole month is saved as the month, exactly.
+  it("takes the price of the whole month and saves it as the month, exactly", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+
+    await user.type(screen.getByLabelText("Full name"), "Yusuf");
+    await user.click(screen.getByTestId("guardian-select"));
+    await user.click(await screen.findByRole("option", { name: /Guardian One/ }));
+    await user.click(screen.getByTestId("intent-enrolled"));
+    await user.type(screen.getByLabelText(enMessages.students.monthly.lessons), "12");
+    await user.selectOptions(screen.getByTestId("new-student-monthly-length"), "30");
+    await user.click(screen.getByTestId("new-student-monthly-unit-month"));
+    await user.type(screen.getByLabelText(enMessages.students.monthly.priceMonth), "100");
+
+    const readout = screen.getByTestId("new-student-monthly-readout");
+    expect(readout).toHaveTextContent("100");
+    expect(readout).toHaveTextContent(enMessages.students.monthly.readoutNoteFixed);
+
+    await user.click(screen.getByRole("button", { name: "Add student" }));
+    await waitFor(() => expect(api.createStudent).toHaveBeenCalled());
+    expect(api.createStudent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        subscription: expect.objectContaining({
+          sessions_per_month: 12,
+          lesson_minutes: 30,
+          price_minor: 10000,
+          price_basis: "PER_MONTH",
+        }),
+      }),
+    );
+  });
+
+  it("restates a monthly price in the hour and back, and asks for the lessons a month pays for", async () => {
+    const user = userEvent.setup();
+    renderForm();
+    await waitFor(() => expect(api.listGuardians).toHaveBeenCalled());
+    await user.click(screen.getByTestId("intent-enrolled"));
+    await user.type(screen.getByLabelText(enMessages.students.monthly.lessons), "8");
+    await user.selectOptions(screen.getByTestId("new-student-monthly-length"), "30");
+    await user.type(screen.getByLabelText("Hourly rate"), "60");
+    await user.click(screen.getByTestId("new-student-monthly-unit-month"));
+    // 8 × 30 min at 60 an hour is 240 a month.
+    expect(screen.getByLabelText(enMessages.students.monthly.priceMonth)).toHaveValue(240);
+    await user.click(screen.getByTestId("new-student-monthly-unit-lesson"));
+    expect(screen.getByLabelText("Price of a 30-minute lesson")).toHaveValue(30);
+  });
+
   it("restates the typed price when the unit is switched, never changing the deal", async () => {
     const user = userEvent.setup();
     renderForm();

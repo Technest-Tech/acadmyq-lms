@@ -12,10 +12,14 @@ import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
 
-/** What the typed price is the price OF. Saved as an hourly rate either way — that is what bills. */
-export type PriceUnit = "hour" | "lesson";
+/**
+ * What the typed price is the price OF. An hour or a lesson is saved as an hourly rate (PER_HOUR —
+ * each lesson bills by its length). The whole month (PER_MONTH) is saved as the month, exactly: a
+ * family told "60 a month" is never billed 59.96 because 60 did not divide into an hourly rate.
+ */
+export type PriceUnit = "hour" | "lesson" | "month";
 
-const PRICE_UNITS: PriceUnit[] = ["hour", "lesson"];
+const PRICE_UNITS: PriceUnit[] = ["hour", "lesson", "month"];
 
 const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({ value: c.code, label: c.code, sublabel: c.name }));
 
@@ -52,15 +56,38 @@ export function useMonthlyTerms({ defaultCurrency = "" }: { defaultCurrency?: st
 
   const lessonCount = lessonCountOf(lessons);
   const priceMinor = Math.round(Number.parseFloat((price || "0").replace(",", ".")) * 100);
-  const hourlyMinor = priceUnit === "hour" ? priceMinor : Math.round((priceMinor * 60) / unitMinutes);
-  const lessonMinor = priceUnit === "lesson" ? priceMinor : Math.round((priceMinor * unitMinutes) / 60);
+  const monthMinutes = lessonCount !== null ? lessonCount * unitMinutes : 0;
+  const hourlyMinor =
+    priceUnit === "hour"
+      ? priceMinor
+      : priceUnit === "lesson"
+        ? Math.round((priceMinor * 60) / unitMinutes)
+        : monthMinutes > 0
+          ? Math.round((priceMinor * 60) / monthMinutes)
+          : 0;
+  const lessonMinor =
+    priceUnit === "lesson"
+      ? priceMinor
+      : priceUnit === "hour"
+        ? Math.round((priceMinor * unitMinutes) / 60)
+        : lessonCount
+          ? Math.round(priceMinor / lessonCount)
+          : 0;
+  /** The month: exactly what was typed for a monthly price, else the lessons at one lesson's price. */
+  const monthMinor = priceUnit === "month" ? priceMinor : lessonCount !== null ? lessonCount * lessonMinor : null;
 
-  const valid = startDate !== "" && (free || (price.trim() !== "" && priceMinor >= 0));
+  // A monthly price needs the lessons it pays for — that is what a missed lesson comes off at.
+  const valid =
+    startDate !== "" &&
+    (free || (price.trim() !== "" && priceMinor >= 0 && (priceUnit !== "month" || (lessonCount ?? 0) > 0)));
 
   /** Switching unit restates the same deal in the new unit — it never quietly changes the price. */
   function setPriceUnit(next: PriceUnit) {
     if (next === priceUnit) return;
-    if (price.trim() !== "") setPrice(majorText(next === "hour" ? hourlyMinor : lessonMinor));
+    if (price.trim() !== "") {
+      const restated = next === "hour" ? hourlyMinor : next === "lesson" ? lessonMinor : monthMinor;
+      setPrice(restated !== null && (next !== "month" || lessonCount) ? majorText(restated) : "");
+    }
     setPriceUnitRaw(next);
   }
 
@@ -70,7 +97,8 @@ export function useMonthlyTerms({ defaultCurrency = "" }: { defaultCurrency?: st
     setLessons(sub.sessions_per_month != null ? String(sub.sessions_per_month) : "");
     // Before a length was recorded the count was hours — the same figure in 60-minute lessons.
     setUnitMinutes(sub.lesson_minutes ?? 60);
-    setPriceUnitRaw("hour");
+    // A monthly price opens as the month it is; everything else as the hourly rate it is stored as.
+    setPriceUnitRaw(sub.price_basis === "PER_MONTH" ? "month" : "hour");
     setPrice(sub.price_basis === "FREE" ? "" : (sub.price_minor / 100).toString());
     setCurrency(sub.currency);
     setStartDate(sub.start_date);
@@ -86,7 +114,9 @@ export function useMonthlyTerms({ defaultCurrency = "" }: { defaultCurrency?: st
     };
     return free
       ? { ...common, plan_label: shape ? t("monthly.planFreeLessons", { shape }) : t("monthly.planFree"), price_minor: 0, price_basis: "FREE" }
-      : { ...common, plan_label: shape ?? t("monthly.planHourly"), price_minor: hourlyMinor, price_basis: "PER_HOUR" };
+      : priceUnit === "month"
+        ? { ...common, plan_label: shape ?? t("monthly.planMonthly"), price_minor: priceMinor, price_basis: "PER_MONTH" }
+        : { ...common, plan_label: shape ?? t("monthly.planHourly"), price_minor: hourlyMinor, price_basis: "PER_HOUR" };
   }
 
   return {
@@ -103,6 +133,7 @@ export function useMonthlyTerms({ defaultCurrency = "" }: { defaultCurrency?: st
     setPriceUnit,
     hourlyMinor,
     lessonMinor,
+    monthMinor,
     currency,
     setCurrency,
     startDate,
@@ -126,7 +157,12 @@ export function MonthlyTermsFields({ terms, idPrefix }: { terms: MonthlyTerms; i
   const money = (minor: number) =>
     terms.currency ? formatMoney({ amount: minor, currency: terms.currency }, locale) : majorText(minor);
   const priceLabel =
-    terms.priceUnit === "hour" ? t("subscription.priceHourly") : t("monthly.priceLesson", { minutes: terms.unitMinutes });
+    terms.priceUnit === "hour"
+      ? t("subscription.priceHourly")
+      : terms.priceUnit === "lesson"
+        ? t("monthly.priceLesson", { minutes: terms.unitMinutes })
+        : t("monthly.priceMonth");
+  const fixedMonth = terms.priceUnit === "month";
   const lessonsLine =
     terms.lessonCount !== null
       ? t("monthly.readoutLessons", {
@@ -249,9 +285,9 @@ export function MonthlyTermsFields({ terms, idPrefix }: { terms: MonthlyTerms; i
             className="bg-primary/[0.07] text-primary rounded-xl px-3 py-2.5 text-center text-sm"
             data-testid={`${idPrefix}-readout`}
           >
-            {terms.lessonCount !== null && (
+            {terms.monthMinor !== null && (
               <span className="block font-semibold">
-                {t("monthly.readoutMonth", { total: money(terms.lessonCount * terms.lessonMinor) })}
+                {t(fixedMonth ? "monthly.readoutMonthFixed" : "monthly.readoutMonth", { total: money(terms.monthMinor) })}
               </span>
             )}
             <span className="mt-0.5 block text-xs">
@@ -263,7 +299,9 @@ export function MonthlyTermsFields({ terms, idPrefix }: { terms: MonthlyTerms; i
                 .filter(Boolean)
                 .join(" · ")}
             </span>
-            <span className="text-primary/70 mt-1 block text-[11px]">{t("monthly.readoutNote")}</span>
+            <span className="text-primary/70 mt-1 block text-[11px]">
+              {t(fixedMonth ? "monthly.readoutNoteFixed" : "monthly.readoutNote")}
+            </span>
           </p>
         )
       )}

@@ -266,6 +266,10 @@ export function BillingModeCard() {
                   <span className="text-muted-foreground text-xs">{t("preview.notYet", { day: state.settings.issue_day })}</span>
                 )}
               </div>
+              {/* Said up front: the list below is what WILL be billed, not bills that exist yet. */}
+              <p className="rounded-lg bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:bg-sky-950/40 dark:text-sky-200" data-testid="billing-preview-note">
+                {t("preview.where", { month: monthName(state.next_period), day: state.settings.issue_day })}
+              </p>
               {issued !== null && (
                 <p className="text-xs font-medium text-emerald-600" data-testid="billing-issued">
                   {t("preview.issued", { count: issued, month: monthName(state.next_period) })}
@@ -327,7 +331,6 @@ export function BillingModeCard() {
                       </table>
                     </div>
                   )}
-                  <p className="text-muted-foreground text-xs">{t("preview.where", { month: monthName(state.next_period) })}</p>
                 </>
               ) : null}
             </div>

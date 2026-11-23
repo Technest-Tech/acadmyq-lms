@@ -139,44 +139,69 @@ final class PrepaidMonthly
     // -------------------------------------------------------------------------
 
     /**
-     * The month's price as the student's profile reads it: lessons × the price of one lesson (an
-     * hourly rate is turned into a lesson price first, rounded, the way the form shows it). Null when
-     * the subscription does not say enough to price a month, or prices it at nothing.
+     * Up to how far (minor units) a month worked out from an hourly or per-lesson price may sit from a
+     * whole amount and still be that whole amount. The desk types an hourly rate it got by dividing
+     * the agreed month ("100 for 12 half-hours" = 16.67 an hour), so the month comes back as 100.08;
+     * the rounding of a rate and of each lesson can drift it by at most ~0.16 a month. A real price
+     * with halves or quarters (62.50) is further than this from a whole number and is left alone.
+     */
+    private const WHOLE_SNAP_MINOR = 20;
+
+    /**
+     * The month's price as agreed with the family. A monthly price (PER_MONTH) is that price, exactly.
+     * One worked out from an hourly or a lesson price is lessons × the price of one lesson (the way the
+     * form reads it back), then put back on the whole amount it was divided from when it lands within
+     * a rounding's drift of one ({@see WHOLE_SNAP_MINOR}) — a parent agreed to 100, never to 99.96.
+     * Null when the subscription does not say enough to price a month, or prices it at nothing.
      */
     public static function monthlyFee(object $sub): ?int
     {
         $price = (int) $sub->price_minor;
         $perMonth = (int) ($sub->sessions_per_month ?? 0);
 
+        if ((string) $sub->price_basis === 'PER_MONTH') {
+            return $price > 0 ? $price : null;
+        }
+
         $fee = match ((string) $sub->price_basis) {
-            'PER_MONTH' => $price,
             // Legacy rows have no lesson length: sessions_per_month was hours, i.e. 60-minute lessons.
             'PER_HOUR' => $perMonth > 0 ? $perMonth * (int) round($price * (int) ($sub->lesson_minutes ?? 60) / 60) : 0,
             'PER_SESSION' => $perMonth > 0 ? $perMonth * $price : 0,
             default => 0,
         };
+        if ($fee <= 0) {
+            return null;
+        }
 
-        return $fee > 0 ? $fee : null;
+        $whole = (int) (round($fee / 100) * 100);
+
+        return $whole > 0 && abs($fee - $whole) <= self::WHOLE_SNAP_MINOR ? $whole : $fee;
     }
 
     /**
      * What one lesson is worth on this subscription — the month's price divided by its lessons, the
-     * way the academy works it out ("100 a month, two lessons off = 25"). With a lesson length on the
-     * profile that is the profile's lesson, whatever length the lesson itself was saved with (a typo
-     * on a timetable slot must not take a fortune off the bill); a legacy row without one prices the
-     * lesson's own minutes. Null when it cannot be told.
+     * way the academy works it out ("100 a month, two lessons off = 25"). Whenever the month counts
+     * lessons (a monthly price, or a lesson length on the profile) it is exactly that, so a lesson is
+     * worth the same whatever length it was saved with (a typo on a timetable slot must not take a
+     * fortune off the bill). A legacy hourly row counted hours, so its lesson is priced by its own
+     * minutes. Null when it cannot be told.
      */
     public static function lessonValue(object $sub, int $minutes): ?int
     {
-        $price = (int) $sub->price_minor;
         $perMonth = (int) ($sub->sessions_per_month ?? 0);
+        $basis = (string) $sub->price_basis;
+        $countsLessons = $basis === 'PER_MONTH' || $basis === 'PER_SESSION' || $sub->lesson_minutes !== null;
 
-        $value = match ((string) $sub->price_basis) {
-            'PER_HOUR' => (int) round($price * (int) ($sub->lesson_minutes ?? $minutes) / 60),
-            'PER_MONTH' => $perMonth > 0 ? (int) round($price / $perMonth) : 0,
-            'PER_SESSION' => $price,
-            default => 0,
-        };
+        if ($countsLessons && $perMonth > 0 && in_array($basis, self::BASES, true)) {
+            $fee = self::monthlyFee($sub);
+            $value = $fee !== null ? (int) round($fee / $perMonth) : 0;
+        } else {
+            $value = match ($basis) {
+                'PER_HOUR' => (int) round((int) $sub->price_minor * $minutes / 60),
+                'PER_SESSION' => (int) $sub->price_minor,
+                default => 0,
+            };
+        }
 
         return $value > 0 ? $value : null;
     }

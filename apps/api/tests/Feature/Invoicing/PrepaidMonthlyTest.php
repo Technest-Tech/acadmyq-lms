@@ -356,6 +356,37 @@ it('takes a lesson off at the price of one lesson of the month, whatever length 
         ->and($jan->lines->where('prepaid_charge', 'LESSON')->pluck('amount_minor')->map(fn ($v) => (int) $v)->all())->toBe([-4000, -4000]);
 });
 
+it('bills the month that was agreed: a monthly price exactly, one worked out from a rate back on its whole amount', function () {
+    $hourly = (object) ['price_basis' => 'PER_HOUR', 'price_minor' => 1667, 'sessions_per_month' => 12, 'lesson_minutes' => 30];
+    $halves = (object) ['price_basis' => 'PER_HOUR', 'price_minor' => 1250, 'sessions_per_month' => 5, 'lesson_minutes' => null];
+    $monthly = (object) ['price_basis' => 'PER_MONTH', 'price_minor' => 25000, 'sessions_per_month' => 8, 'lesson_minutes' => 40];
+    // "100 for 12 half-hours" typed as 16.67 an hour: 100.08 worked out, 100 agreed.
+    expect(PrepaidMonthly::monthlyFee($hourly))->toBe(10000)
+        ->and(PrepaidMonthly::lessonValue($hourly, 30))->toBe(833)
+        // A real half (62.50) is no rounding drift and stays.
+        ->and(PrepaidMonthly::monthlyFee($halves))->toBe(6250)
+        ->and(PrepaidMonthly::monthlyFee($monthly))->toBe(25000)
+        ->and(PrepaidMonthly::lessonValue($monthly, 30))->toBe(3125);
+
+    ppMonthly($this, $this->student, ['price_basis' => 'PER_MONTH', 'price_minor' => 25000, 'lesson_minutes' => 40]);
+    ppSwitchOn($this);
+    ppAt('2026-11-27 08:00:00');
+    ppRun();
+    expect((int) ppBill($this, '2026-12-01')->total_minor)->toBe(25000);
+
+    $off = ppLesson($this, $this->student, '2026-12-05');
+    $held = ppLesson($this, $this->student, '2026-12-12');
+    ppAt('2026-12-13 10:00:00');
+    ppMark($this, $off, 'CANCELLED_BY_STUDENT', charge: false);
+    ppMark($this, $held, 'ATTENDED');
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoice_line_items')->whereIn('session_id', [$off, $held])->count())->toBe(0);
+
+    ppAt('2026-12-27 08:00:00');
+    ppRun();
+    expect((int) ppBill($this, '2027-01-01')->total_minor)->toBe(21875);
+});
+
 it('never sends a bill that owes the family money: what does not fit waits for the next month', function () {
     ppMonthly($this, $this->student);
     ppSwitchOn($this);
