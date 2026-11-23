@@ -141,11 +141,12 @@ final class PrepaidMonthly
     /**
      * Up to how far (minor units) a month worked out from an hourly or per-lesson price may sit from a
      * whole amount and still be that whole amount. The desk types an hourly rate it got by dividing
-     * the agreed month ("100 for 12 half-hours" = 16.67 an hour), so the month comes back as 100.08;
-     * the rounding of a rate and of each lesson can drift it by at most ~0.16 a month. A real price
-     * with halves or quarters (62.50) is further than this from a whole number and is left alone.
+     * the agreed month ("100 for 12 half-hours" = 16.67 an hour; "450 for 8 × 40 min" = 450 / 5.33
+     * hours = 84.43), so the month comes back as 100.08 or 450.32 — up to a third of a unit off on
+     * انا مسلم's own data (2026-11-23). A real price with a half (62.50) is further than this from a
+     * whole number and is left alone.
      */
-    private const WHOLE_SNAP_MINOR = 20;
+    private const WHOLE_SNAP_MINOR = 40;
 
     /**
      * The month's price as agreed with the family. A monthly price (PER_MONTH) is that price, exactly.

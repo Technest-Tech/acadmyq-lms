@@ -359,12 +359,16 @@ it('takes a lesson off at the price of one lesson of the month, whatever length 
 it('bills the month that was agreed: a monthly price exactly, one worked out from a rate back on its whole amount', function () {
     $hourly = (object) ['price_basis' => 'PER_HOUR', 'price_minor' => 1667, 'sessions_per_month' => 12, 'lesson_minutes' => 30];
     $halves = (object) ['price_basis' => 'PER_HOUR', 'price_minor' => 1250, 'sessions_per_month' => 5, 'lesson_minutes' => null];
+    // "450 for 8 × 40 min" typed as 450 / 5.33 hours = 84.43: 450.32 worked out.
+    $fiveThirtyThree = (object) ['price_basis' => 'PER_HOUR', 'price_minor' => 8443, 'sessions_per_month' => 8, 'lesson_minutes' => 40];
     $monthly = (object) ['price_basis' => 'PER_MONTH', 'price_minor' => 25000, 'sessions_per_month' => 8, 'lesson_minutes' => 40];
     // "100 for 12 half-hours" typed as 16.67 an hour: 100.08 worked out, 100 agreed.
     expect(PrepaidMonthly::monthlyFee($hourly))->toBe(10000)
         ->and(PrepaidMonthly::lessonValue($hourly, 30))->toBe(833)
         // A real half (62.50) is no rounding drift and stays.
         ->and(PrepaidMonthly::monthlyFee($halves))->toBe(6250)
+        ->and(PrepaidMonthly::monthlyFee($fiveThirtyThree))->toBe(45000)
+        ->and(PrepaidMonthly::lessonValue($fiveThirtyThree, 40))->toBe(5625)
         ->and(PrepaidMonthly::monthlyFee($monthly))->toBe(25000)
         ->and(PrepaidMonthly::lessonValue($monthly, 30))->toBe(3125);
 
