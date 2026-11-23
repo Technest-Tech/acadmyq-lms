@@ -274,7 +274,7 @@ export function soldShape(row: Pick<LessonPackageRow, "minutes_total" | "lesson_
  * none): "12 lessons × 40 min", else its hours. The number in the run of renewals leads; a typed
  * name, if any, is on hover.
  */
-function PackageShape({ row }: { row: LessonPackageRow }) {
+export function PackageShape({ row }: { row: LessonPackageRow }) {
   const t = useTranslations("packages.openTable");
   const locale = useLocale();
   const shape = soldShape(row);

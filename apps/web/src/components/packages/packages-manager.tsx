@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
-import { DueStats, DueTable, PaidStats, PaidTable } from "@/components/packages/due-table";
+import { DueStats, PaidStats, PaidTable } from "@/components/packages/due-table";
 import { FamilyDueGroup, groupDueByFamily } from "@/components/packages/family-due-group";
 import {
   isRanOut,
@@ -352,8 +352,9 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        {/* Both pages are compact tables from laptop width up (Ahmed 2026-11-22): one line per
-            package. Due keeps a family's lines together. Phones and tablets get cards instead. */}
+        {/* Due is family cards at every width (Ahmed 2026-11-23: back to cards, cleaner), in a plain
+            grid that reads row by row so the oldest debt stays first. Its Paid tab and Open are
+            compact tables from laptop width up, cards below it. */}
         {duePaid && visible.length > 0 ? (
           <>
             <PaidTable rows={visible} timezone={timezone} onOpenDetail={openDetail} />
@@ -369,28 +370,19 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             </div>
           </>
         ) : duePaid ? null : view === "due" && visible.length > 0 ? (
-          <>
-            <DueTable
-              families={groupDueByFamily(visible)}
-              timezone={timezone}
-              canSendInvoice={canSendInvoice}
-              actionProps={actionProps}
-              onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
-            />
-            <div className="columns-1 gap-3 md:columns-2 lg:hidden">
-              {groupDueByFamily(visible).map((family) => (
-                <FamilyDueGroup
-                  key={family.key}
-                  family={family}
-                  timezone={timezone}
-                  canSendInvoice={canSendInvoice}
-                  actionProps={actionProps}
-                  onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
-                  onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
-                />
-              ))}
-            </div>
-          </>
+          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 2xl:grid-cols-3" data-testid="due-cards">
+            {groupDueByFamily(visible).map((family) => (
+              <FamilyDueGroup
+                key={family.key}
+                family={family}
+                timezone={timezone}
+                canSendInvoice={canSendInvoice}
+                actionProps={actionProps}
+                onMessageOpened={() => showAlert("success", t("alerts.paymentReady"))}
+                onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
+              />
+            ))}
+          </div>
         ) : view === "open" && visible.length > 0 ? (
           <>
             <OpenTable rows={visible} timezone={timezone} actionProps={actionProps} />

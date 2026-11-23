@@ -340,7 +340,7 @@ describe("PackagesManager", () => {
     open.mockRestore();
   });
 
-  it("shows Due as a compact table: one line per package, the parent named on the family's first line", async () => {
+  it("shows Due as family cards at every width: the parent, the family total, one block per package", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({
@@ -388,34 +388,38 @@ describe("PackagesManager", () => {
 
     renderManager(["invoice.send_link", "invoice.mark_paid"], "due");
 
-    const table = await screen.findByTestId("due-table");
-    expect(within(table).getAllByTestId("due-table-family-name").map((n) => n.textContent)).toEqual(["Hassan", "Ali"]);
-    const hassan = within(table).getByTestId("due-table-family-g-hassan");
-    const rows = within(hassan).getAllByTestId("due-table-row");
+    // Cards at every width, no table: one card per family, oldest debt first.
+    const families = await screen.findAllByTestId("due-family-name");
+    expect(families.map((n) => n.textContent)).toEqual(["Hassan", "Ali"]);
+    expect(screen.queryByTestId("due-table")).toBeNull();
+    const grid = screen.getByTestId("due-cards");
+    const hassan = within(grid).getByTestId("due-family-g-hassan");
+    const rows = within(hassan).getAllByTestId("due-package-row");
     expect(rows).toHaveLength(2);
-    // The parent leads the family's first line only, with what the family owes in all; a one-package
-    // family shows no separate total (its line already says it).
-    expect(within(hassan).getAllByTestId("due-table-family-name")).toHaveLength(1);
-    expect(within(rows[0]!).getByTestId("due-table-family-name")).toHaveTextContent("Hassan");
-    expect(within(hassan).getByTestId("due-table-family-total").textContent).toContain(formatMoney({ amount: 100000, currency: "EGP" }, "ar"));
-    expect(within(within(table).getByTestId("due-table-family-g-ali")).queryByTestId("due-table-family-total")).toBeNull();
-    // Maryam was reminded twice: said beside how long she has waited.
-    expect(within(rows[1]!).getByTestId("due-table-reminded")).toHaveTextContent(formatNumber(2, "ar"));
-    expect(within(hassan).getAllByTestId("due-table-purpose").map((p) => p.textContent)).toEqual([
+    expect(within(hassan).getByTestId("due-family-total").textContent).toContain(formatMoney({ amount: 100000, currency: "EGP" }, "ar"));
+    // Maryam was reminded twice: said under her package; Yusuf was not.
+    expect(within(rows[1]!).getByTestId("due-package-reminded")).toBeInTheDocument();
+    expect(within(rows[0]!).queryByTestId("due-package-reminded")).toBeNull();
+    expect(within(hassan).getAllByTestId("due-package-purpose").map((p) => p.textContent)).toEqual([
       arMessages.packages.purpose.NEW,
       arMessages.packages.purpose.AUTO_RENEWAL,
     ]);
-    expect(within(rows[0]!).getByTestId("due-table-amount").textContent).toContain(formatMoney({ amount: 60000, currency: "EGP" }, "ar"));
-    // Each row leads with Mark as paid.
+    expect(within(rows[0]!).getByTestId("due-package-amount").textContent).toContain(formatMoney({ amount: 60000, currency: "EGP" }, "ar"));
+    expect(within(rows[0]!).getByTestId("due-package-waiting")).toBeInTheDocument();
+    // Each package leads with Mark as paid.
     expect(within(rows[0]!).getByTestId("mark-package-paid")).toBeInTheDocument();
+    // One bill: no family footer — the package's own remind and copy do it.
+    const ali = within(grid).getByTestId("due-family-g-ali");
+    expect(within(ali).queryByTestId("due-family-send")).toBeNull();
+    expect(within(ali).getByTestId("remind-package")).toBeInTheDocument();
 
-    // The cards: three packages in two families, one already reminded, the oldest is Yusuf's.
+    // The stat cards: three packages in two families, one already reminded, the oldest is Yusuf's.
     expect(screen.getByTestId("due-count")).toHaveTextContent(formatNumber(3, "ar"));
     expect(screen.getByTestId("due-stats-not-reminded")).toHaveTextContent(formatNumber(2, "ar"));
     expect(screen.getByTestId("due-stats-oldest")).toHaveTextContent("Yusuf");
 
-    // The family's one payment link, from the table.
-    await userEvent.click(within(hassan).getByTestId("due-table-family-send"));
+    // The family's one payment link, from the card's footer.
+    await userEvent.click(within(hassan).getByTestId("due-family-send"));
     await waitFor(() => expect(createFamilyPayLink).toHaveBeenCalledWith("g-hassan"));
     await waitFor(() => expect(open.mock.calls.some((c) => String(c[0]).startsWith("https://wa.me/201001112222"))).toBe(true));
     open.mockRestore();
@@ -673,7 +677,7 @@ describe("PackagesManager", () => {
     renderManager(["invoice.send_link"], "due");
 
     const row = await screen.findByTestId("due-package-row");
-    expect(screen.queryByTestId("due-table-reminded")).toBeNull();
+    expect(screen.queryByTestId("due-package-reminded")).toBeNull();
 
     const tab = { opener: {}, location: { href: "" }, close: vi.fn() };
     const open = vi
@@ -689,7 +693,7 @@ describe("PackagesManager", () => {
     );
     expect(open).toHaveBeenCalledTimes(1);
     open.mockRestore();
-    expect((await screen.findByTestId("due-table-reminded")).textContent).toContain(formatNumber(3, "ar"));
+    expect(await screen.findByTestId("due-package-reminded")).toHaveTextContent(/3|٣/);
   });
 
   it("opens invoice-style payment evidence fields from an unpaid package", async () => {
