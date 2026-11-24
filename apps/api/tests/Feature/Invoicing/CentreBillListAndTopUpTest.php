@@ -356,8 +356,9 @@ it('keeps the lessons taught when a running block\'s length is edited, and refus
     expect((int) $package->minutes_total)->toBe(160);
     expect((int) $package->minutes_consumed)->toBe(80);
 
+    // Two lessons taught: one lesson is below them. (Two would be exactly them, which finishes the block.)
     Sanctum::actingAs($this->owner);
-    $this->patchJson("/api/packages/{$block['package_id']}", ['hours' => 1, 'lesson_minutes' => 30])->assertStatus(422);
+    $this->patchJson("/api/packages/{$block['package_id']}", ['hours' => 0.5, 'lesson_minutes' => 30])->assertStatus(422);
 });
 
 it('recounts a running block in the repair command, only with --apply, and leaves finished ones', function () {

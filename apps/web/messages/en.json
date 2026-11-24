@@ -4203,7 +4203,9 @@
       "title": "Edit this package",
       "description": "Correct terms that were entered wrong. What has already been taught stays as it is.",
       "consumed": "{used} already used across {lessons, plural, =0 {no lessons} one {one lesson} other {# lessons}}.",
-      "tooSmall": "This package has already used {used}. Close it instead of shrinking it to what was taught.",
+      "tooSmall": "This package has already used {used}, so that is the smallest it can be — and at that size it finishes now.",
+      "finishesNow": "{used} already taken, so at this size the package finishes now.",
+      "finishesNowRenews": "{used} already taken, so at this size the package finishes now and renews itself on the new terms.",
       "billNote": "This package has already been billed. While that invoice is still open and unpaid it is corrected along with the package; once anything has been paid, the price can only be changed on the invoice itself.",
       "appliesTo": {
         "question": "Apply this change to…",
@@ -4268,6 +4270,8 @@
       "overdraftBilledLessons": "The extra time was billed.",
       "editedCredit": "Saved. {amount} went back to the family as credit.",
       "editedDue": "Saved. The family now owes {amount}.",
+      "editedFinished": "Saved — the package has finished.",
+      "editedRenewed": "Saved — the package finished and the next one is open.",
       "secondSubjectHint": "Set on the teacher's timetable which lessons belong to this subject."
     },
     "panel": {

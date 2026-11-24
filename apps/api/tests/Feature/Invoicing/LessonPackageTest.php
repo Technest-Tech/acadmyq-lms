@@ -1203,14 +1203,70 @@ it('refuses to shrink a package below the hours already taught', function () {
 
     $this->postJson("/api/sessions/{$session}/attendance", ['status' => 'ATTENDED'])->assertOk();
 
-    // 2h are gone; asking for a 2h package would leave it ACTIVE with no balance — a state the
-    // engine itself never produces. Closing is the operation that fits.
-    $this->patchJson("/api/packages/{$package['package_id']}", ['hours' => 2])
+    // 2h are gone; a 1h package would have taught more than it sold.
+    $this->patchJson("/api/packages/{$package['package_id']}", ['hours' => 1])
         ->assertStatus(422)
         ->assertJsonValidationErrors(['hours']);
 
     $this->asAcademy($this->academy);
-    expect((int) ($this->packageRow)($package['package_id'])->minutes_total)->toBe(240);
+    expect((int) ($this->packageRow)($package['package_id'])->minutes_total)->toBe(240)
+        ->and(($this->packageRow)($package['package_id'])->status)->toBe('ACTIVE');
+});
+
+it('finishes a block corrected down to exactly what was taught, and renews it on the corrected terms', function () {
+    // Alrayan, ولاء عمر (2026-11-24): 9 lessons typed for an 8-lesson block, 8 taught, the bill
+    // paid. Here: 3h typed for a 2h block, 2h taught, paid. Same price — only the size was wrong.
+    $package = ($this->openPackage)(3, 60000, autoRenew: true);
+    foreach (['2026-06-02 10:00:00+00', '2026-06-03 10:00:00+00'] as $at) {
+        ($this->attend)(($this->lesson)(60, $at));
+    }
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $package['invoice_id'])->update(['status' => 'PAID', 'amount_paid_minor' => 60000]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $response = $this->patchJson("/api/packages/{$package['package_id']}", ['hours' => 2])
+        ->assertOk()
+        ->assertJson(['finished' => true]);
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect((int) $row->minutes_total)->toBe(120)
+        ->and($row->status)->toBe('COMPLETED')
+        ->and($row->closed_reason)->toBe('EXHAUSTED');
+
+    // The paid bill keeps its money; only its words follow the corrected block.
+    $invoice = DB::table('invoices')->where('id', $package['invoice_id'])->first();
+    $line = DB::table('invoice_line_items')->where('invoice_id', $package['invoice_id'])->first();
+    expect($invoice->status)->toBe('PAID')
+        ->and((int) $invoice->total_minor)->toBe(60000)
+        ->and((int) $line->amount_minor)->toBe(60000)
+        ->and($line->description)->toBe(app(LessonPackages::class)->packageLineDescription('3 hours', 120, 0));
+
+    // The renewal opened as the last lesson would have opened it: 2h at the same price.
+    $renewedId = $response->json('renewed_package_id');
+    expect($renewedId)->not->toBeNull();
+    $renewed = ($this->packageRow)((string) $renewedId);
+    expect($renewed->status)->toBe('ACTIVE')
+        ->and((int) $renewed->sequence_no)->toBe(2)
+        ->and((int) $renewed->minutes_total)->toBe(120)
+        ->and((int) $renewed->price_minor)->toBe(60000);
+});
+
+it('corrects the size of a block whose bill is paid when the price does not move', function () {
+    $package = ($this->openPackage)(10, 200000);
+    $this->asAcademy($this->academy);
+    DB::table('invoices')->where('id', $package['invoice_id'])->update(['status' => 'PAID', 'amount_paid_minor' => 200000]);
+    $this->clearTenantContext();
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/packages/{$package['package_id']}", ['hours' => 8, 'price_minor' => 200000])->assertOk();
+
+    $this->asAcademy($this->academy);
+    $row = ($this->packageRow)($package['package_id']);
+    expect((int) $row->minutes_total)->toBe(480)
+        ->and($row->status)->toBe('ACTIVE')
+        ->and((int) DB::table('invoices')->where('id', $package['invoice_id'])->value('total_minor'))->toBe(200000);
 });
 
 it('refuses to re-price a package whose bill has been paid', function () {

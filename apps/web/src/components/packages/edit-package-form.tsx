@@ -83,7 +83,8 @@ export function EditPackageForm({
   // its lesson length is one of its terms. A block still in hours is converted by the Super Admin.
   const inLessons = usePackagesInLessons() && (perLesson || row.lesson_minutes !== null);
   const [shape] = useState(() => lessonShapeOf(row));
-  const [label, setLabel] = useState(row.label);
+  // Null until the label field is typed in: until then it may follow the size (below).
+  const [labelInput, setLabelInput] = useState<string | null>(null);
   const [unitMinutes, setUnitMinutes] = useState(shape.minutes);
   const [lessons, setLessons] = useState(String(shape.lessons));
   const [price, setPrice] = useState((row.price_minor / 100).toFixed(2));
@@ -99,6 +100,27 @@ export function EditPackageForm({
   const [error, setError] = useState<string | null>(null);
 
   const lessonCount = lessonCountOf(lessons);
+
+  // A label the open form wrote from the size and the month ("6 ساعة — أكتوبر 2026") follows a
+  // corrected size, keeping its month — the renewal copies the label, so a stale size would travel.
+  // A label somebody typed is theirs and stays.
+  const autoMonth = useMemo(() => {
+    const at = row.label.indexOf(" — ");
+    if (at < 0) return null;
+    const month = row.label.slice(at + 3);
+    const written = [
+      t("form.labelAuto", { hours: row.minutes_total / 60, month }),
+      t("form.labelAutoLessons", { lessons: shape.lessons, minutes: shape.minutes, month }),
+    ];
+    return written.includes(row.label) ? month : null;
+  }, [row.label, row.minutes_total, shape, t]);
+  const sizeMoved = lessonCount !== null && (lessonCount !== shape.lessons || unitMinutes !== shape.minutes);
+  const label =
+    labelInput ??
+    (autoMonth !== null && sizeMoved && lessonCount !== null
+      ? t("form.labelAutoLessons", { lessons: lessonCount, minutes: unitMinutes, month: autoMonth })
+      : row.label);
+
   const hoursNum = lessonCount !== null ? (lessonCount * unitMinutes) / 60 : Number.NaN;
   const totalMinutes = Number.isFinite(hoursNum) && hoursNum > 0 ? Math.round(hoursNum * 60) : 0;
   // Lessons, length and lesson price untouched: the price is what it was, to the piastre — a rounded
@@ -116,9 +138,9 @@ export function EditPackageForm({
     return Math.round((priceMinor * 60) / Math.round(hoursNum * 60));
   }, [hoursNum, priceMinor]);
 
-  // A package may not shrink to (or below) what has already been taught: that would leave it
-  // open with no balance, which is not a state the engine ever produces. Closing is the
-  // operation for "it ends here" — the API says the same thing, this just says it sooner.
+  // A package may not shrink below what has already been taught. Exactly that is allowed: the block
+  // was sold that size, so it finishes on save, as its last lesson would have finished it (and
+  // renews if it is set to) — the API decides the same, this just says it sooner.
   const minutesFloor = Math.max(
     0,
     // A centre's block counts lessons: what was taught is that many lessons at the length typed.
@@ -135,8 +157,9 @@ export function EditPackageForm({
   const askScope = termsChanged && autoRenew;
   const nextOnly = askScope && appliesTo === "NEXT";
   // The floor is about THIS block — new terms for the next one start from zero.
-  const tooSmall =
-    !nextOnly && Number.isFinite(hoursNum) && Math.round(hoursNum * 60) <= minutesFloor;
+  const newMinutes = Number.isFinite(hoursNum) ? Math.round(hoursNum * 60) : null;
+  const tooSmall = !nextOnly && newMinutes !== null && newMinutes < minutesFloor;
+  const finishesNow = !nextOnly && newMinutes !== null && newMinutes === minutesFloor && newMinutes !== row.minutes_total;
 
   const valid =
     label.trim() !== "" &&
@@ -166,6 +189,10 @@ export function EditPackageForm({
       onSaved(
         nextOnly
           ? t("alerts.nextTermsSaved")
+          : res.finished
+            ? res.renewed_package_id
+              ? t("alerts.editedRenewed")
+              : t("alerts.editedFinished")
           : (res.credited_minor ?? 0) > 0
             ? t("alerts.editedCredit", { amount: money(res.credited_minor ?? 0) })
             : paidOnBill && (res.due_minor ?? 0) > 0
@@ -275,6 +302,15 @@ export function EditPackageForm({
         </p>
       )}
 
+      {/* Exactly what was taught: allowed, and it ends the block — said before saving. */}
+      {finishesNow && (
+        <p className="rounded-xl bg-sky-500/10 px-3 py-2.5 text-xs font-medium text-sky-700 dark:text-sky-300" data-testid="package-finishes-now">
+          {t(autoRenew ? "edit.finishesNowRenews" : "edit.finishesNow", {
+            used: blockAmount(row.minutes_consumed, row.lesson_minutes, t, locale),
+          })}
+        </p>
+      )}
+
       {/* The deal read back the way the open form reads it: the hours, one lesson's price, the hour's. */}
       {!perLesson && hourlyRate !== null && lessonCount !== null && (
         <p
@@ -298,7 +334,7 @@ export function EditPackageForm({
         <input
           id="pkg-edit-label"
           value={label}
-          onChange={(e) => setLabel(e.target.value)}
+          onChange={(e) => setLabelInput(e.target.value)}
           placeholder={t("form.labelPlaceholder")}
           className={inputBase}
         />

@@ -89,6 +89,69 @@ describe("EditPackageForm on a centre's paid subscription", () => {
   });
 });
 
+/**
+ * Alrayan, ولاء عمر (2026-11-24): supervisors typed 9 × 40 for an 8-lesson block, 8 already taught,
+ * the bill paid. Correcting it to 8 was refused ("close it instead"). Exactly what was taught is now
+ * allowed and finishes the block, and the auto-written "6 ساعة — …" label follows the new size.
+ */
+describe("EditPackageForm down to what was taught", () => {
+  const quran = () => makeSession("ACADEMY_OWNER", { permissions: ["package.manage"], capabilities: ["packages_in_lessons"] });
+  const nine = () =>
+    row({
+      label: "6 ساعة — أكتوبر 2026",
+      minutes_total: 360,
+      minutes_sold: 360,
+      minutes_consumed: 320,
+      minutes_remaining: 40,
+      lesson_minutes: 40,
+      lesson_count: 8,
+      absorbed_overdraft_minutes: 0,
+      price_minor: 3900,
+      currency: "USD",
+      auto_renew: true,
+      invoice_paid_minor: 3900,
+    });
+
+  beforeEach(() => {
+    updateLessonPackage.mockReset();
+    updateLessonPackage.mockResolvedValue({ ok: true, changed: ["minutes_total"], invoice_id: "i1", finished: true, renewed_package_id: "p2" });
+  });
+
+  it("lets 9 become 8 with 8 taught, says the block finishes now, and rewrites the auto label", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(withAuth(quran(), <EditPackageForm row={nine()} onSaved={onSaved} onCancel={() => {}} />));
+
+    const lessons = screen.getByLabelText(ar.form.lessons);
+    await user.clear(lessons);
+    await user.type(lessons, "8");
+
+    expect(screen.queryByTestId("package-too-small")).toBeNull();
+    expect(screen.getByTestId("package-finishes-now")).toBeInTheDocument();
+    expect(screen.getByLabelText(ar.form.label)).toHaveValue("8 × 40 د — أكتوبر 2026");
+
+    // It renews itself, so the form asks where the new terms go: this block.
+    await user.click(screen.getByTestId("edit-applies-current"));
+    await user.click(screen.getByTestId("save-package-edit"));
+
+    await waitFor(() => expect(updateLessonPackage).toHaveBeenCalled());
+    expect(updateLessonPackage.mock.calls[0]?.[1]).toMatchObject({ hours: 320 / 60, label: "8 × 40 د — أكتوبر 2026", price_minor: 3900, applies_to: "CURRENT" });
+    expect(onSaved).toHaveBeenCalledWith(ar.alerts.editedRenewed);
+  });
+
+  it("still refuses fewer than were taught", async () => {
+    const user = userEvent.setup();
+    render(withAuth(quran(), <EditPackageForm row={nine()} onSaved={() => {}} onCancel={() => {}} />));
+
+    const lessons = screen.getByLabelText(ar.form.lessons);
+    await user.clear(lessons);
+    await user.type(lessons, "7");
+
+    expect(screen.getByTestId("package-too-small")).toBeInTheDocument();
+    expect(screen.getByTestId("save-package-edit")).toBeDisabled();
+  });
+});
+
 describe("lessonBalance", () => {
   it("counts whole lessons when a lesson ran off-length", () => {
     // 4 × 90 sold, one 60-minute and one 90-minute lesson taken.

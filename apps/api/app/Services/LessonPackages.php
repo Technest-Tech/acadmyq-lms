@@ -1982,18 +1982,21 @@ final class LessonPackages
                 + (int) $package->absorbed_overdraft_minutes;
         }
 
-        // Shrinking a package to exactly (or below) what has been taught leaves it ACTIVE with no
-        // balance — a state the engine itself never produces, since a lesson that empties a
-        // package closes it. Closing bills the used hours pro-rata, which is what is actually
-        // wanted here, so point at that rather than manufacturing the dead state.
-        if ($minutes + $carried <= $consumed) {
+        // Below what has been taught is refused: the lessons past the new size would belong to a
+        // block that does not exist yet, and an edit is not the place to re-home lessons.
+        if ($minutes + $carried < $consumed) {
             throw ValidationException::withMessages([
                 'hours' => [
-                    'This package has already used '.$this->humanHours($consumed).'. Close it instead of shrinking it to what was taught.'
-                    .' / استُهلك من هذه الباقة '.$this->humanHours($consumed).' بالفعل. أغلقها بدلاً من تقليصها إلى ما تم تدريسه.',
+                    'This package has already used '.$this->humanHours($consumed).', so that is the smallest it can be — and at that size it finishes now.'
+                    .' / استُهلك من هذه الباقة '.$this->humanHours($consumed).' بالفعل، فأصغر حجم لها هو ذلك — وعنده تنتهي الباقة الآن.',
                 ],
             ]);
         }
+        // Exactly what has been taught (Alrayan, ولاء عمر 2026-11-24: supervisors typed 9 lessons
+        // for an 8-lesson block, 8 taught): the block was sold that size, so it finishes now, the
+        // same way its last lesson would have finished it — renewal and all. An ACTIVE block with
+        // no balance is never left behind.
+        $finishes = $minutes + $carried === $consumed;
 
         $before = [];
         $after = [];
@@ -2032,7 +2035,8 @@ final class LessonPackages
         );
         $bill = [];
 
-        DB::transaction(function () use ($packageId, $package, $after, $before, $invoiceId, $billStale, $label, $minutes, $carried, $price, $lessonMinutes, $recount, $actorUserId, $actorRole, &$bill): void {
+        $finished = null;
+        DB::transaction(function () use ($packageId, $package, $after, $before, $invoiceId, $billStale, $label, $minutes, $carried, $price, $lessonMinutes, $recount, $finishes, $actorUserId, $actorRole, &$bill, &$finished): void {
             if ($billStale) {
                 $bill = $this->rewritePackageInvoiceLine(
                     (string) $invoiceId,
@@ -2066,12 +2070,19 @@ final class LessonPackages
                 (string) $package->academy_id,
                 $actorUserId,
                 $actorRole,
-                after: $after,
+                after: $after + ($finishes ? ['finished' => true] : []),
                 before: $before,
             );
+
+            // Used up at its corrected size: finished as if by its last lesson, in the same
+            // transaction, so a renewal that cannot open leaves the edit undone too.
+            if ($finishes) {
+                $finished = $this->complete($packageId, 'EXHAUSTED', $actorUserId, $actorRole);
+            }
         });
 
-        return ['changed' => array_keys($after), 'invoice_id' => $invoiceId] + $bill;
+        return ['changed' => array_keys($after), 'invoice_id' => $invoiceId] + $bill
+            + ($finished !== null ? ['finished' => true, 'renewed_package_id' => $finished['renewed_package_id']] : []);
     }
 
     /**
@@ -2396,7 +2407,14 @@ final class LessonPackages
 
         $centre = PackageSettlement::availableFor((string) $package->academy_id);
 
-        if ((string) $invoice->status !== 'OPEN' || ((int) $invoice->amount_paid_minor > 0 && ! $centre)) {
+        $settled = (string) $invoice->status !== 'OPEN' || ((int) $invoice->amount_paid_minor > 0 && ! $centre);
+        if ($settled && $price === (int) $package->price_minor) {
+            // The money is settled and is not moving (a size or a name typed wrong, the same price):
+            // only the line's words follow the block, so the bill reads what was sold.
+            return $this->renamePackageInvoiceLine($invoiceId, $package, $label, $minutes, $carried, $lessonMinutes, $actorUserId, $actorRole);
+        }
+
+        if ($settled) {
             throw ValidationException::withMessages([
                 'price_minor' => [
                     'This package has already been billed and settled. Correct the invoice itself.'
@@ -2476,6 +2494,48 @@ final class LessonPackages
         );
 
         return $moved;
+    }
+
+    /**
+     * A settled bill whose package was corrected without its price moving: the line's description
+     * follows the block (so later lookups by description still find it), not one figure changes.
+     * A line rewritten by hand is left as it is — there is nothing owed to correct on it.
+     *
+     * @return array{}
+     */
+    private function renamePackageInvoiceLine(
+        string $invoiceId,
+        object $package,
+        string $label,
+        int $minutes,
+        int $carried,
+        ?int $lessonMinutes,
+        ?string $actorUserId,
+        ?string $actorRole,
+    ): array {
+        $line = DB::table('invoice_line_items')
+            ->where('invoice_id', $invoiceId)
+            ->whereNull('session_id')
+            ->whereIn('description', $this->packageLineDescriptions(
+                (string) $package->label,
+                (int) $package->minutes_total,
+                $carried,
+                self::lessonLength($package),
+            ))
+            ->first();
+
+        $description = $this->packageLineDescription($label, $minutes, $carried, $lessonMinutes);
+        if ($line === null || (string) $line->description === $description) {
+            return [];
+        }
+
+        DB::table('invoice_line_items')->where('id', $line->id)->update(['description' => $description]);
+
+        Audit::log('invoice.updated', 'invoice', $invoiceId, (string) $package->academy_id, $actorUserId, $actorRole,
+            after: ['description' => $description, 'mode' => 'PACKAGE_EDITED_WORDING'],
+            before: ['description' => (string) $line->description]);
+
+        return [];
     }
 
     private function allocatedToLine(string $lineId): int

@@ -279,7 +279,7 @@ it('gives back as credit what was paid beyond a cheaper subscription', function 
     expect($balance[0]['credit_minor'])->toBe(20000);
 });
 
-it('still refuses a paid package for an academy that is not a centre', function () {
+it('still refuses to re-price a paid package for an academy that is not a centre, and renames it with the money untouched', function () {
     $student = ($this->packageStudent)('Omar');
     $this->asAcademy($this->academy);
     $opened = app(LessonPackages::class)->open([
@@ -290,7 +290,15 @@ it('still refuses a paid package for an academy that is not a centre', function 
     DB::table('invoices')->where('id', $opened['invoice_id'])->update(['amount_paid_minor' => 80000]);
 
     Sanctum::actingAs($this->owner);
-    $this->patchJson("/api/packages/{$opened['package_id']}", ['label' => 'Renamed'])->assertUnprocessable();
+    $this->patchJson("/api/packages/{$opened['package_id']}", ['price_minor' => 60000])->assertUnprocessable();
+
+    // The same price (Alrayan 2026-11-24, a size typed wrong on a paid block): only the words move.
+    $this->patchJson("/api/packages/{$opened['package_id']}", ['label' => 'Renamed'])->assertOk();
+    $this->asAcademy($this->academy);
+    $line = DB::table('invoice_line_items')->where('invoice_id', $opened['invoice_id'])->first();
+    expect($line->description)->toContain('Renamed')
+        ->and((int) $line->amount_minor)->toBe(80000)
+        ->and((int) DB::table('invoices')->where('id', $opened['invoice_id'])->value('amount_paid_minor'))->toBe(80000);
 });
 
 it('takes the last hours out of a centre\'s old blocks, labels and bills alike', function () {

@@ -9421,6 +9421,9 @@ export function updateLessonPackage(
   /** A centre's bill: what the edit freed as the family's credit, and what is left to pay. */
   credited_minor?: number;
   due_minor?: number;
+  /** Corrected down to exactly what was taught: the block finished now (and maybe renewed). */
+  finished?: boolean;
+  renewed_package_id?: string | null;
 }> {
   return apiFetch(`/api/packages/${id}`, {
     method: "PATCH",
