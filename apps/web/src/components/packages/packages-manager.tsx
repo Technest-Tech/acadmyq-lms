@@ -7,14 +7,14 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { DueStats, PaidStats, PaidTable } from "@/components/packages/due-table";
-import { FamilyDueGroup, groupDueByFamily } from "@/components/packages/family-due-group";
+import { groupDueByFamily } from "@/components/packages/family-card";
+import { FamilyDueGroup } from "@/components/packages/family-due-group";
 import {
   isRanOut,
   isRunningLow,
   matchesOpenFilter,
-  OpenPackageCard,
+  OpenFamilyCard,
   OpenStats,
-  OpenTable,
   type OpenFilter,
 } from "@/components/packages/open-table";
 import { usePackageActions } from "@/components/packages/use-package-actions";
@@ -352,9 +352,10 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        {/* Due is family cards at every width (Ahmed 2026-11-23: back to cards, cleaner), in a plain
-            grid that reads row by row so the oldest debt stays first. Its Paid tab and Open are
-            compact tables from laptop width up, cards below it. */}
+        {/* Due and Open are the same family cards at every width (Ahmed 2026-11-23/24), full width
+            one under the other — a grid left holes beside short cards — in each page's own order
+            (Due: oldest debt; Open: what needs a hand). Due's Paid tab stays a compact table from
+            laptop width up, cards below it. */}
         {duePaid && visible.length > 0 ? (
           <>
             <PaidTable rows={visible} timezone={timezone} onOpenDetail={openDetail} />
@@ -370,7 +371,7 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             </div>
           </>
         ) : duePaid ? null : view === "due" && visible.length > 0 ? (
-          <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2 2xl:grid-cols-3" data-testid="due-cards">
+          <div className="space-y-3" data-testid="due-cards">
             {groupDueByFamily(visible).map((family) => (
               <FamilyDueGroup
                 key={family.key}
@@ -384,14 +385,11 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             ))}
           </div>
         ) : view === "open" && visible.length > 0 ? (
-          <>
-            <OpenTable rows={visible} timezone={timezone} actionProps={actionProps} />
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:hidden">
-              {visible.map((row) => (
-                <OpenPackageCard key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
-              ))}
-            </div>
-          </>
+          <div className="space-y-3" data-testid="open-cards">
+            {groupDueByFamily(visible).map((family) => (
+              <OpenFamilyCard key={family.key} family={family} timezone={timezone} actionProps={actionProps} />
+            ))}
+          </div>
         ) : null}
       </div>
 

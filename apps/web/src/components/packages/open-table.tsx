@@ -1,7 +1,8 @@
 "use client";
 
-import { AlertTriangle, BadgeCheck, CircleDollarSign, Hourglass, Layers, Plus } from "lucide-react";
+import { AlertTriangle, BadgeCheck, CalendarClock, CircleDollarSign, Hourglass, Layers, Plus } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
+import { FAMILY_ROW, FamilyCard, owed, type DueFamily } from "@/components/packages/family-card";
 import { blockAmount } from "@/components/packages/lesson-price-fields";
 import { actionClass, PackageActions, type PackageActionProps } from "@/components/packages/package-card";
 import { StatCard } from "@/components/ui/stat-card";
@@ -12,9 +13,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * Open packages, simplified for supervisors (Ahmed 2026-11-22: "every card has a million details —
- * keep only what matters, a table if need be"). A row answers four questions: who, how much is
- * left, when is the next lesson, and is it paid. Everything else (price, per-hour rate, start date,
- * renewal terms, the package's purpose) is one click away in the package itself.
+ * keep only what matters"). A line answers four questions: who, how much is left, when is the next
+ * lesson, and is it paid. Everything else (price, per-hour rate, start date, renewal terms, the
+ * package's purpose) is one click away in the package itself. Since 2026-11-24 the lines sit in the
+ * same family cards as Due ({@link FamilyCard}); this file keeps its old name.
  */
 
 /** The Open page's filters — each is a stat card. */
@@ -105,147 +107,107 @@ export function OpenStats({
   );
 }
 
-const HEAD = "px-3 py-2 text-start text-[11px] font-semibold whitespace-nowrap";
-const CELL = "px-3 py-2 whitespace-nowrap";
+/**
+ * One package's line on Open, the same columns in every family card so they line up down the page:
+ *   • phone:  who | ⋯ · package | paid? · what is left · next lesson         (two columns)
+ *   • laptop: who | package | paid? | ⋯, then what is left | next lesson      (two lines)
+ *   • wide:   who | package | what is left | next lesson | paid? | ⋯        (one line)
+ */
+const OPEN_ROW_GRID =
+  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_10rem_7rem] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.1fr)_10rem_10rem_7rem]";
 
-/** The colour bar at a row's start: what needs a hand, if anything. */
-function accent(row: LessonPackageRow): string | null {
-  if (isRanOut(row)) return "bg-violet-500";
-  if (row.previous_unpaid !== null) return "bg-fuchsia-500";
-  if (isRunningLow(row)) return "bg-amber-500";
-  return null;
-}
-
-/** The table, from laptop width up. Phones and tablets get {@link OpenPackageCard}s instead. */
-export function OpenTable({
-  rows,
+/**
+ * A family on the Open page, in the same card as Due (Ahmed 2026-11-24: "make Open the same design
+ * as Due"): the parent and children up top, what the family owes on these blocks when it owes
+ * anything, then one line per open package. The line still answers only the supervisor's four
+ * questions — who, how much is left, the next lesson, paid or not — with Renew on a block that ran
+ * out, and everything else in "⋯".
+ */
+export function OpenFamilyCard({
+  family,
   timezone,
   actionProps,
 }: {
-  rows: LessonPackageRow[];
+  family: DueFamily;
   timezone: string;
   actionProps: (row: LessonPackageRow) => PackageActionProps;
 }) {
-  const t = useTranslations("packages.openTable");
-  return (
-    <section className="bg-card hidden overflow-hidden rounded-xl border shadow-sm lg:block" data-testid="open-table">
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="from-primary/[0.09] via-primary/[0.035] text-muted-foreground border-b bg-gradient-to-l to-transparent">
-              <th className={cn(HEAD, "ps-4")}>{t("student")}</th>
-              <th className={HEAD}>{t("package")}</th>
-              <th className={HEAD}>{t("left")}</th>
-              <th className={HEAD}>{t("nextLesson")}</th>
-              <th className={HEAD}>{t("payment")}</th>
-              <th className={cn(HEAD, "pe-4 text-end")}>
-                <span className="sr-only">{t("actions")}</span>
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <OpenTableRow key={row.id} row={row} striped={i % 2 === 1} timezone={timezone} actions={actionProps(row)} />
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
+  const t = useTranslations("packages");
+  const locale = useLocale();
+  const totals = owed(family.rows);
 
-function OpenTableRow({
-  row,
-  striped,
-  timezone,
-  actions,
-}: {
-  row: LessonPackageRow;
-  striped: boolean;
-  timezone: string;
-  actions: PackageActionProps;
-}) {
-  const bar = accent(row);
   return (
-    <tr
-      className={cn("hover:bg-primary/[0.04] border-t border-border/50 transition-colors first:border-t-0", striped && "bg-muted/30")}
-      data-testid="open-table-row"
+    <FamilyCard
+      family={family}
+      testId={`open-family-${family.key}`}
+      nameTestId="open-family-name"
+      aside={
+        totals.length > 0 ? (
+          <p className="flex shrink-0 items-baseline gap-1.5" data-testid="open-family-owes">
+            <span className="text-muted-foreground text-[11px] font-medium">{t("family.totalLabel")}</span>
+            <span className="text-[15px] font-bold text-rose-600 tabular-nums dark:text-rose-400">
+              {totals.map((o) => formatMoney({ amount: o.amount_minor, currency: o.currency }, locale)).join(" + ")}
+            </span>
+          </p>
+        ) : undefined
+      }
     >
-      <td className={cn(CELL, "relative ps-4")}>
-        {bar && <span className={cn("absolute inset-y-1.5 start-0 w-1 rounded-e-full", bar)} aria-hidden />}
-        <button
-          type="button"
-          onClick={actions.onOpenDetail}
-          className="hover:text-primary block max-w-52 truncate text-start font-medium transition-colors"
-          title={row.guardian_name && row.guardian_name !== row.student_name ? `${row.student_name} · ${row.guardian_name}` : row.student_name}
-        >
-          {row.student_name}
-        </button>
-      </td>
-      <td className={cn(CELL, "max-w-56 truncate text-xs")}>
-        <PackageShape row={row} />
-      </td>
-      <td className={CELL}>
-        <Balance row={row} />
-      </td>
-      <td className={cn(CELL, "text-xs tabular-nums")}>
-        <NextLesson row={row} timezone={timezone} />
-      </td>
-      <td className={CELL}>
-        <Payment row={row} />
-      </td>
-      <td className={cn(CELL, "pe-4")}>
-        <Actions row={row} actions={actions} className="justify-end" />
-      </td>
-    </tr>
+      {family.rows.map((row) => (
+        <OpenRow key={row.id} row={row} timezone={timezone} actions={actionProps(row)} />
+      ))}
+    </FamilyCard>
   );
 }
 
-/**
- * One package on a phone or tablet: the same four answers as a table row, in three short lines.
- * Keeps the `package-card` test id the old open cards carried.
- */
-export function OpenPackageCard({
-  row,
-  timezone,
-  actions,
-}: {
-  row: LessonPackageRow;
-  timezone: string;
-  actions: PackageActionProps;
-}) {
+/** One open package inside a family card. Keeps the `package-card` test id the old cards carried. */
+function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: string; actions: PackageActionProps }) {
   const t = useTranslations("packages.openTable");
-  const bar = accent(row);
   return (
-    <article
-      className="bg-card relative min-w-0 space-y-2 overflow-hidden rounded-xl border px-3.5 py-3 shadow-sm"
+    <li
+      className={cn(OPEN_ROW_GRID, FAMILY_ROW, isRanOut(row) && "bg-violet-500/[0.05]")}
       data-testid="package-card"
       data-previous-unpaid={row.previous_unpaid !== null || undefined}
     >
-      {bar && <span className={cn("absolute inset-y-2 start-0 w-1 rounded-e-full", bar)} aria-hidden />}
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <button
-            type="button"
-            onClick={actions.onOpenDetail}
-            className="hover:text-primary block max-w-full truncate text-start text-sm font-semibold transition-colors"
-          >
-            {row.student_name}
-          </button>
-          <p className="truncate text-xs">
-            <PackageShape row={row} />
-          </p>
-        </div>
+      {/* Who. */}
+      <button
+        type="button"
+        onClick={actions.onOpenDetail}
+        className="hover:text-primary col-start-1 row-start-1 min-w-0 truncate text-start text-sm font-semibold transition-colors"
+        title={row.student_name}
+      >
+        {row.student_name}
+      </button>
+
+      {/* Which package. */}
+      <span className="col-start-1 row-start-2 min-w-0 truncate text-xs lg:col-start-2 lg:row-start-1">
+        <PackageShape row={row} />
+      </span>
+
+      {/* What is left of it — or, for one that ran out, what has run on since. */}
+      <span className="col-span-2 col-start-1 row-start-3 flex min-w-0 items-center lg:row-start-2 2xl:col-span-1 2xl:col-start-3 2xl:row-start-1">
+        <Balance row={row} wide />
+      </span>
+
+      {/* The next lesson. */}
+      <span
+        className="text-muted-foreground col-span-2 col-start-1 row-start-4 inline-flex min-w-0 items-center gap-1.5 text-xs tabular-nums lg:col-start-3 lg:row-start-2 2xl:col-span-1 2xl:col-start-4 2xl:row-start-1"
+        title={t("nextLesson")}
+      >
+        <CalendarClock className="size-3.5 shrink-0" aria-hidden />
+        <span className="sr-only">{t("nextLesson")}: </span>
+        <span className="truncate">
+          <NextLesson row={row} timezone={timezone} />
+        </span>
+      </span>
+
+      {/* Paid or not. */}
+      <span className="col-start-2 row-start-2 flex justify-end lg:col-start-3 lg:row-start-1 lg:justify-start 2xl:col-start-5">
         <Payment row={row} />
-      </div>
-      <Balance row={row} wide />
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-muted-foreground min-w-0 truncate text-xs">
-          {t("nextLesson")}: <NextLesson row={row} timezone={timezone} />
-        </p>
-        <Actions row={row} actions={actions} />
-      </div>
-    </article>
+      </span>
+
+      {/* Renew on a block that ran out, then "⋯". */}
+      <Actions row={row} actions={actions} className="col-start-2 row-start-1 justify-end lg:col-start-4 2xl:col-start-6" />
+    </li>
   );
 }
 

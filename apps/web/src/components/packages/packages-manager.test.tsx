@@ -483,10 +483,10 @@ describe("PackagesManager", () => {
     expect(within(card).queryByTestId("package-auto-renew-note")).toBeNull();
     expect(within(card).queryByTestId("package-next-terms")).toBeNull();
 
-    // The same package is one line of the table on a laptop.
-    const table = screen.getByTestId("open-table");
-    expect(within(table).getAllByTestId("open-table-row")).toHaveLength(1);
-    expect(within(table).getByText("Sara")).toBeInTheDocument();
+    // The same family card as Due, one line per package, at every width — no table.
+    expect(screen.queryByTestId("open-table")).toBeNull();
+    expect(within(screen.getByTestId("open-cards")).getAllByTestId("package-card")).toHaveLength(1);
+    expect(within(card).getByText("Sara")).toBeInTheDocument();
   });
 
   it("narrows Due's paid tab to the days the bills were paid", async () => {
@@ -543,7 +543,7 @@ describe("PackagesManager", () => {
     ).toBeInTheDocument();
   });
 
-  it("lists siblings' open packages as their own lines, not under a family card", async () => {
+  it("gathers siblings' open packages under their parent's card, one line each, as on Due", async () => {
     listLessonPackages.mockResolvedValue({
       packages: [
         pkg({ id: "p-y", student_id: "s-y", student_name: "Yusuf", guardian_id: "g-h", guardian_name: "Hassan", purpose: "NEW" }),
@@ -553,7 +553,12 @@ describe("PackagesManager", () => {
     renderManager();
 
     expect(await screen.findAllByTestId("package-card")).toHaveLength(2);
-    expect(within(screen.getByTestId("open-table")).getAllByTestId("open-table-row")).toHaveLength(2);
+    const hassan = screen.getByTestId("open-family-g-h");
+    expect(within(hassan).getByTestId("open-family-name")).toHaveTextContent("Hassan");
+    expect(within(hassan).getAllByTestId("package-card")).toHaveLength(2);
+    expect(hassan).toHaveTextContent("Yusuf، Maryam");
+    // Paid up: the header names no money owed.
+    expect(within(hassan).queryByTestId("open-family-owes")).toBeNull();
     expect(screen.queryByTestId("due-family-g-h")).toBeNull();
     // What the money was for is Due's question, not this page's.
     expect(screen.queryByText(arMessages.packages.purpose.AUTO_RENEWAL)).toBeNull();
@@ -575,7 +580,7 @@ describe("PackagesManager", () => {
     });
     renderManager();
 
-    const shapes = within(await screen.findByTestId("open-table")).getAllByTestId("open-package-shape");
+    const shapes = within(await screen.findByTestId("open-cards")).getAllByTestId("open-package-shape");
     const text = shapes.map((s) => s.textContent);
     expect(text[0]).toBe(`#${formatNumber(3, "ar")} ${formatNumber(12, "ar")} حصة × ${formatNumber(40, "ar")} د`);
     expect(text[1]).toContain(`${formatNumber(8, "ar")} حصص × ${formatNumber(60, "ar")} د`);
@@ -802,7 +807,7 @@ describe("PackagesManager", () => {
 
   // The floor is what has already been taught: a package cannot be sold backwards, and the
   // form says so before the API has to.
-  it("refuses to shrink a package to the hours already used", async () => {
+  it("refuses to shrink a package below the hours already used, and says exactly that many finishes it", async () => {
     listLessonPackages.mockResolvedValue({ packages: [pkg()] });
     renderManager();
 
@@ -811,10 +816,16 @@ describe("PackagesManager", () => {
 
     const lessons = await screen.findByLabelText(arMessages.packages.form.lessons);
     await userEvent.clear(lessons);
-    await userEvent.type(lessons, "10");
+    await userEvent.type(lessons, "9");
 
     expect(await screen.findByTestId("package-too-small")).toBeInTheDocument();
     expect(screen.getByTestId("save-package-edit")).toBeDisabled();
+
+    // Exactly what was taught: allowed, and the block finishes on save.
+    await userEvent.clear(lessons);
+    await userEvent.type(lessons, "10");
+    expect(screen.queryByTestId("package-too-small")).toBeNull();
+    expect(screen.getByTestId("package-finishes-now")).toBeInTheDocument();
     expect(updateLessonPackage).not.toHaveBeenCalled();
   });
 

@@ -14,7 +14,8 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
-import { daysSince, owed } from "@/components/packages/family-due-group";
+import { owed } from "@/components/packages/family-card";
+import { daysSince } from "@/components/packages/family-due-group";
 import { KNOWN_METHODS, paidAmount } from "@/components/packages/paid-package-card";
 import { StatCard } from "@/components/ui/stat-card";
 import type { LessonPackageRow } from "@/lib/api";
