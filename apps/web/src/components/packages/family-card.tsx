@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { Children, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { LessonPackageRow } from "@/lib/api";
 import { avatarTone, initials } from "@/lib/avatar";
@@ -55,10 +55,11 @@ export function owed(rows: LessonPackageRow[]): { currency: string; amount_minor
 }
 
 /**
- * The family card both packages pages share (Ahmed 2026-11-23: Due as cards, then Open "the same").
- * Full width, one under the other, so a short card never leaves a hole beside it; the family's colour
- * down the side and a tinted one-line header (parent, children, a figure, the family's buttons), so
- * one card never runs into the next. The rows are the page's own.
+ * The family tile both packages pages share. Ahmed, 2026-11-23/24: the first cards were "too big, a
+ * bigger family leaves holes, I can't tell them apart"; full-width cards then "take the whole page —
+ * I have a lot of students". So: a small tile (about 300px), as many side by side as fit
+ * ({@link FamilyColumns}), the family's colour down its side, a slim header (avatar, parent, a
+ * figure), the page's own short rows, and the family's buttons in a slim footer only when it has any.
  */
 export function FamilyCard({
   family,
@@ -74,7 +75,7 @@ export function FamilyCard({
   nameTestId: string;
   /** The header's figure, at its end — e.g. what the family owes. */
   aside?: ReactNode;
-  /** Buttons for the whole family; under the header's text on a phone. */
+  /** Buttons for the whole family, in a slim footer. */
   tools?: ReactNode;
   /** A line under the header, e.g. a link that failed. */
   notice?: ReactNode;
@@ -83,43 +84,98 @@ export function FamilyCard({
 }) {
   const t = useTranslations("packages");
   const names = family.children.join("، ");
+  const who = [family.name, family.phone, t("family.children", { count: family.children.length, names })].filter(Boolean).join(" · ");
 
   return (
     <article className="bg-card relative min-w-0 overflow-hidden rounded-xl border shadow-sm" data-testid={testId}>
       {/* The family's colour down the side, the same as its avatar. */}
       <span className={cn("absolute inset-y-0 start-0 w-1", avatarTone(family.name))} aria-hidden />
 
-      <header className="bg-muted/50 flex flex-wrap items-center gap-x-3 gap-y-2 border-b py-2 ps-4 pe-3">
+      <header className="bg-muted/50 flex items-center gap-2 border-b py-1.5 ps-3.5 pe-2.5">
         <span
           className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold text-white",
+            "flex size-6 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold text-white",
             avatarTone(family.name),
           )}
           aria-hidden
         >
           {initials(family.name)}
         </span>
-        <div className="flex min-w-0 flex-1 items-baseline gap-2">
-          <h3
-            className="max-w-full shrink-0 truncate text-sm font-bold sm:max-w-[60%]"
-            data-testid={nameTestId}
-            title={family.phone ? `${family.name} · ${family.phone}` : family.name}
-          >
-            {family.name}
-          </h3>
-          <p className="text-muted-foreground hidden min-w-0 truncate text-xs sm:block" title={names}>
-            {t("family.children", { count: family.children.length, names })}
-          </p>
-        </div>
+        <h3 className="min-w-0 flex-1 truncate text-[13px] font-bold" data-testid={nameTestId} title={who}>
+          {family.name}
+        </h3>
         {aside}
-        {tools && <div className="flex w-full shrink-0 items-stretch gap-1.5 sm:w-auto">{tools}</div>}
       </header>
       {notice}
 
       <ul className="divide-border/60 divide-y">{children}</ul>
+
+      {tools && <footer className="bg-muted/25 flex items-stretch gap-1.5 border-t py-1.5 ps-3.5 pe-2.5">{tools}</footer>}
     </article>
   );
 }
 
 /** A row inside a {@link FamilyCard}: the same padding and hover on both pages. */
-export const FAMILY_ROW = "hover:bg-muted/25 py-2.5 ps-4 pe-3 transition-colors";
+export const FAMILY_ROW = "hover:bg-muted/25 space-y-1 py-2 ps-3.5 pe-2.5 transition-colors";
+
+const TILE_MIN_PX = 300;
+const TILE_GAP_PX = 12;
+const MAX_COLUMNS = 4;
+
+const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
+
+/**
+ * Family tiles side by side, as many columns as the page has room for, with no holes: each column
+ * stacks its tiles tightly. Tiles are dealt in page order, each to the column that is shortest so
+ * far (by `weights`, roughly a tile's height), so reading across a row still follows the page's
+ * order — Due's oldest debt first — and a big family does not leave a gap beside a small one.
+ */
+export function FamilyColumns({
+  weights,
+  testId,
+  children,
+}: {
+  /** One per child, in the same order: about how tall each tile is (e.g. its rows + header). */
+  weights: number[];
+  testId: string;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(1);
+
+  useIsoLayoutEffect(() => {
+    const el = ref.current;
+    if (el === null || typeof ResizeObserver === "undefined") return;
+    const measure = () =>
+      setColumns(Math.max(1, Math.min(MAX_COLUMNS, Math.floor((el.clientWidth + TILE_GAP_PX) / (TILE_MIN_PX + TILE_GAP_PX)))));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const items = Children.toArray(children);
+  const stacks: ReactNode[][] = Array.from({ length: columns }, () => []);
+  const heights = new Array<number>(columns).fill(0);
+  items.forEach((item, i) => {
+    let shortest = 0;
+    for (let c = 1; c < columns; c++) if (heights[c]! < heights[shortest]!) shortest = c;
+    stacks[shortest]!.push(item);
+    heights[shortest]! += weights[i] ?? 1;
+  });
+
+  return (
+    <div ref={ref} className="flex items-start gap-3" data-testid={testId}>
+      {stacks.map((stack, c) => (
+        <div key={c} className="flex min-w-0 flex-1 flex-col gap-3">
+          {stack}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** About how tall a family tile is, in rows: a header and a footer count as part of one. */
+export function familyWeight(family: DueFamily, extra = 0): number {
+  return 0.5 + family.rows.length + extra;
+}

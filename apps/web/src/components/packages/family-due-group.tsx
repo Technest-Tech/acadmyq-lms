@@ -200,16 +200,10 @@ export function WaitingChip({ createdAt }: { createdAt: string }) {
 }
 
 /**
- * A family's card on the Due page. Ahmed 2026-11-23: back to cards, then "too big, a bigger family
- * leaves empty space, and I can't tell the cards apart". So the cards are full width, one under the
- * other (no holes beside a short card), each with its family's colour down the side and a tinted
- * header, and a package is ONE compact line on a wide screen, two on a laptop, a short block on a
- * phone. Every card uses the same columns, so names, amounts and buttons line up down the page.
- *
- *   • Header, one line: the parent, their children, what the family owes in all, and — with two
- *     bills or more — ONE payment link for the whole family (`/f/{token}`), plus paying ahead.
- *     With one bill, the package's own remind and copy already do it.
- *   • One line per package: who · what for · how much is used · since when · how much · actions.
+ * A family's tile on the Due page ({@link FamilyCard}): the parent and what the family owes in all,
+ * then each package in three short lines (who · how much; what for · which package · since when;
+ * the buttons), and — with two bills or more — ONE payment link for the whole family (`/f/{token}`)
+ * plus paying ahead, in the footer. With one bill, the package's own remind and copy already do it.
  *
  * Each package keeps its own bill, so paying still marks exactly it paid.
  */
@@ -243,12 +237,12 @@ export function FamilyDueGroup({
       testId={`due-family-${family.key}`}
       nameTestId="due-family-name"
       aside={
-        <p className="flex shrink-0 items-baseline gap-1.5">
-          <span className="text-muted-foreground text-[11px] font-medium">{t("family.totalLabel")}</span>
+        <p className="flex shrink-0 items-baseline gap-1">
+          <span className="text-muted-foreground text-[10px] font-medium">{t("family.totalLabel")}</span>
           {totals.length === 0 ? (
-            <span className="text-sm font-bold text-amber-700 dark:text-amber-300">{t("family.notBilled")}</span>
+            <span className="text-xs font-bold text-amber-700 dark:text-amber-300">{t("family.notBilled")}</span>
           ) : (
-            <span className="text-[15px] font-bold text-rose-600 tabular-nums dark:text-rose-400" data-testid="due-family-total">
+            <span className="text-[13px] font-bold whitespace-nowrap text-rose-600 tabular-nums dark:text-rose-400" data-testid="due-family-total">
               {totals.map((o) => money(o.amount_minor, o.currency)).join(" + ")}
             </span>
           )}
@@ -263,7 +257,7 @@ export function FamilyDueGroup({
                   type="button"
                   onClick={() => void sendMessage()}
                   disabled={busy}
-                  className={cn(actionClass({ tone: "primary" }), "min-w-0 flex-1 sm:flex-none")}
+                  className={cn(actionClass({ tone: "primary" }), "min-w-0 flex-1")}
                   data-testid="due-family-send"
                 >
                   {busy ? <Loader2 className="size-3.5 shrink-0 animate-spin" aria-hidden /> : <Link2 className="size-3.5 shrink-0" aria-hidden />}
@@ -287,7 +281,7 @@ export function FamilyDueGroup({
                 onClick={() => onPrepay(prepayable)}
                 className={cn(
                   actionClass(),
-                  "min-w-0 flex-1 border-emerald-500/25 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/18 sm:flex-none dark:text-emerald-300",
+                  "min-w-0 flex-1 border-emerald-500/25 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/18 dark:text-emerald-300",
                 )}
                 data-testid="family-prepay"
               >
@@ -315,15 +309,6 @@ export function FamilyDueGroup({
     </FamilyCard>
   );
 }
-
-/**
- * One package's line, the same columns in every card so they line up down the page:
- *   • phone:  who | amount · what for | since when · usage · actions          (two columns)
- *   • laptop: who | what for | since when | amount, then usage | actions        (two lines)
- *   • wide:   who | what for | usage | since when | amount | actions            (one line)
- */
-const ROW_GRID =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_9.5rem_7.5rem] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_minmax(0,1fr)_9.5rem_7.5rem_15rem]";
 
 /** What the Due page puts outside the menu, or drops: early close and lesson sync are not for this page. */
 export const DUE_HIDDEN = ["remind", "copyLink", "close", "sync"] as const;
@@ -370,15 +355,31 @@ function DueRow({
   const usage = `${t("family.lessonsTaken", { count: row.lesson_count, n: formatNumber(row.lesson_count, locale) })}${
     row.status !== "ACTIVE" ? ` · ${t(`status.${row.status}`)}` : ""
   }`;
+  const remindersTitle = reminded
+    ? t("card.reminders", {
+        count: row.reminders_sent,
+        n: formatNumber(row.reminders_sent, locale),
+        date: formatDateTime(row.last_reminded_at as string, timezone, locale),
+      })
+    : undefined;
+  const reminderCount = reminded && (
+    <span
+      className="inline-flex min-w-4 items-center justify-center rounded-full bg-sky-600 px-1 text-[9px] leading-4 font-bold text-white tabular-nums"
+      title={remindersTitle}
+      data-testid="due-package-reminded"
+    >
+      {formatNumber(row.reminders_sent, locale)}
+    </span>
+  );
 
   return (
-    <li className={cn(ROW_GRID, FAMILY_ROW)} data-testid="due-package-row">
-      {/* Who. */}
-      <div className="col-start-1 row-start-1 flex min-w-0 items-center gap-1.5">
+    <li className={FAMILY_ROW} data-testid="due-package-row">
+      {/* Who, and how much. */}
+      <div className="flex min-w-0 items-center gap-1.5">
         <button
           type="button"
           onClick={actions.onOpenDetail}
-          className="hover:text-primary min-w-0 truncate text-start text-sm font-semibold transition-colors"
+          className="hover:text-primary min-w-0 truncate text-start text-[13px] font-semibold transition-colors"
           title={row.student_name}
         >
           {row.student_name}
@@ -389,12 +390,25 @@ function DueRow({
             <AlertTriangle className="size-3.5" aria-hidden />
           </span>
         )}
+        <span
+          className={cn(
+            "ms-auto shrink-0 text-[13px] font-bold whitespace-nowrap tabular-nums",
+            owes ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400",
+          )}
+          data-testid="due-package-amount"
+        >
+          {owes
+            ? formatMoney({ amount: row.outstanding_minor, currency: row.currency }, locale)
+            : unbilled
+              ? t("family.notBilled")
+              : t("card.overdrawn", { over: blockMinutes(row.minutes_overdrawn, row.lesson_minutes, t, locale) })}
+        </span>
       </div>
 
-      {/* What the money is for, and which package. */}
-      <div className="col-start-1 row-start-2 flex min-w-0 items-center gap-1.5 text-xs lg:col-start-2 lg:row-start-1">
+      {/* What for, which package, and since when. */}
+      <div className="flex min-w-0 items-center gap-1.5 text-[11px]">
         <span
-          className={cn("shrink-0 rounded-md px-1.5 py-px text-[11px] font-semibold", PURPOSE_TONE[purpose])}
+          className={cn("shrink-0 rounded px-1.5 py-px text-[10px] font-semibold", PURPOSE_TONE[purpose])}
           data-testid="due-package-purpose"
         >
           {purposeText(row, purpose, t)}
@@ -402,76 +416,43 @@ function DueRow({
         <span className="min-w-0 truncate">
           <PackageShape row={row} />
         </span>
-      </div>
-
-      {/* How much of it is already used: a short bar, then the same in words. */}
-      <div
-        className="text-muted-foreground col-span-2 col-start-1 row-start-3 flex min-w-0 items-center gap-2 text-[11px] lg:row-start-2 2xl:col-span-1 2xl:col-start-3 2xl:row-start-1"
-        title={usage}
-      >
-        <span className="bg-muted h-1.5 w-14 shrink-0 overflow-hidden rounded-full" aria-hidden>
-          <span
-            className={cn("block h-full rounded-full", row.status === "ACTIVE" ? "bg-amber-500" : "bg-rose-500")}
-            style={{ width: `${Math.max(0, Math.min(100, row.percent_used))}%` }}
-          />
-        </span>
-        <span className="min-w-0 truncate" data-testid="due-package-usage">
-          {usage}
+        <span className="ms-auto shrink-0">
+          <WaitingChip createdAt={row.created_at} />
         </span>
       </div>
 
-      {/* Since when — and how many reminders went. */}
-      <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center justify-end gap-1 lg:col-start-3 lg:row-start-1 lg:justify-start 2xl:col-start-4">
-        <WaitingChip createdAt={row.created_at} />
-        {reminded && (
-          <span
-            className="inline-flex items-center gap-0.5 text-[11px] font-semibold whitespace-nowrap text-sky-700 dark:text-sky-300"
-            title={t("card.reminders", {
-              count: row.reminders_sent,
-              n: formatNumber(row.reminders_sent, locale),
-              date: formatDateTime(row.last_reminded_at as string, timezone, locale),
-            })}
-            data-testid="due-package-reminded"
-          >
-            <BellRing className="size-3" aria-hidden />
-            {t("family.reminded", { count: row.reminders_sent, n: formatNumber(row.reminders_sent, locale) })}
-          </span>
-        )}
+      {/* How much of it is already used: a thin bar, the words on hover and to a screen reader. */}
+      <div className="bg-muted h-1 overflow-hidden rounded-full" title={usage} aria-hidden>
+        <div
+          className={cn("h-full rounded-full", row.status === "ACTIVE" ? "bg-amber-500" : "bg-rose-500")}
+          style={{ width: `${Math.max(0, Math.min(100, row.percent_used))}%` }}
+        />
       </div>
-
-      {/* How much. */}
-      <span
-        className={cn(
-          "col-start-2 row-start-1 text-end text-sm font-bold whitespace-nowrap tabular-nums lg:col-start-4 2xl:col-start-5",
-          owes ? "text-rose-600 dark:text-rose-400" : "text-amber-600 dark:text-amber-400",
-        )}
-        data-testid="due-package-amount"
-      >
-        {owes
-          ? formatMoney({ amount: row.outstanding_minor, currency: row.currency }, locale)
-          : unbilled
-            ? t("family.notBilled")
-            : t("card.overdrawn", { over: blockMinutes(row.minutes_overdrawn, row.lesson_minutes, t, locale) })}
+      <span className="sr-only" data-testid="due-package-usage">
+        {usage}
       </span>
 
-      {/* Actions: remind, the payment message and the package log are an icon each (named on hover
-          and to a screen reader); the leading action (Mark as paid) takes the rest, then "⋯". */}
-      <div className="col-span-2 col-start-1 row-start-4 flex items-stretch gap-1.5 lg:col-start-3 lg:row-start-2 2xl:col-span-1 2xl:col-start-6 2xl:row-start-1">
-        {canSendInvoice && remindable && (
+      {/* The buttons: remind (with how many went), the payment message and the package log are an
+          icon each; the leading action (Mark as paid) takes the rest, then "⋯". */}
+      <div className="flex items-stretch gap-1 pt-0.5">
+        {canSendInvoice && remindable ? (
           <button
             type="button"
             onClick={actions.onRemind}
             disabled={actions.reminding}
             className={cn(
               actionClass(),
-              "w-8 shrink-0 border-sky-500/25 bg-sky-500/10 px-0 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300",
+              "relative w-8 shrink-0 border-sky-500/25 bg-sky-500/10 px-0 text-sky-700 hover:bg-sky-500/20 dark:text-sky-300",
             )}
             aria-label={t("actions.remind")}
-            title={t("actions.remind")}
+            title={remindersTitle ?? t("actions.remind")}
             data-testid="remind-package"
           >
             {actions.reminding ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <BellRing className="size-3.5" aria-hidden />}
+            {reminderCount && <span className="absolute -end-1 -top-1">{reminderCount}</span>}
           </button>
+        ) : (
+          reminderCount && <span className="flex items-center">{reminderCount}</span>
         )}
         {copyable && (
           <button

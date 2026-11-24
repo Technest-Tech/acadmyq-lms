@@ -108,20 +108,10 @@ export function OpenStats({
 }
 
 /**
- * One package's line on Open, the same columns in every family card so they line up down the page:
- *   • phone:  who | ⋯ · package | paid? · what is left · next lesson         (two columns)
- *   • laptop: who | package | paid? | ⋯, then what is left | next lesson      (two lines)
- *   • wide:   who | package | what is left | next lesson | paid? | ⋯        (one line)
- */
-const OPEN_ROW_GRID =
-  "grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1.5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_10rem_7rem] 2xl:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)_minmax(0,1.1fr)_10rem_10rem_7rem]";
-
-/**
- * A family on the Open page, in the same card as Due (Ahmed 2026-11-24: "make Open the same design
- * as Due"): the parent and children up top, what the family owes on these blocks when it owes
- * anything, then one line per open package. The line still answers only the supervisor's four
- * questions — who, how much is left, the next lesson, paid or not — with Renew on a block that ran
- * out, and everything else in "⋯".
+ * A family on the Open page, in the same tile as Due (Ahmed 2026-11-24: "make Open the same design
+ * as Due"): the parent, what the family owes on these blocks when it owes anything, then each open
+ * package in three short lines. They still answer only the supervisor's four questions — who, how
+ * much is left, the next lesson, paid or not — with Renew on a block that ran out, the rest in "⋯".
  */
 export function OpenFamilyCard({
   family,
@@ -143,9 +133,9 @@ export function OpenFamilyCard({
       nameTestId="open-family-name"
       aside={
         totals.length > 0 ? (
-          <p className="flex shrink-0 items-baseline gap-1.5" data-testid="open-family-owes">
-            <span className="text-muted-foreground text-[11px] font-medium">{t("family.totalLabel")}</span>
-            <span className="text-[15px] font-bold text-rose-600 tabular-nums dark:text-rose-400">
+          <p className="flex shrink-0 items-baseline gap-1" data-testid="open-family-owes">
+            <span className="text-muted-foreground text-[10px] font-medium">{t("family.totalLabel")}</span>
+            <span className="text-[13px] font-bold whitespace-nowrap text-rose-600 tabular-nums dark:text-rose-400">
               {totals.map((o) => formatMoney({ amount: o.amount_minor, currency: o.currency }, locale)).join(" + ")}
             </span>
           </p>
@@ -159,54 +149,51 @@ export function OpenFamilyCard({
   );
 }
 
-/** One open package inside a family card. Keeps the `package-card` test id the old cards carried. */
+/** One open package inside a family tile. Keeps the `package-card` test id the old cards carried. */
 function OpenRow({ row, timezone, actions }: { row: LessonPackageRow; timezone: string; actions: PackageActionProps }) {
   const t = useTranslations("packages.openTable");
   return (
     <li
-      className={cn(OPEN_ROW_GRID, FAMILY_ROW, isRanOut(row) && "bg-violet-500/[0.05]")}
+      className={cn(FAMILY_ROW, isRanOut(row) && "bg-violet-500/[0.05]")}
       data-testid="package-card"
       data-previous-unpaid={row.previous_unpaid !== null || undefined}
     >
-      {/* Who. */}
-      <button
-        type="button"
-        onClick={actions.onOpenDetail}
-        className="hover:text-primary col-start-1 row-start-1 min-w-0 truncate text-start text-sm font-semibold transition-colors"
-        title={row.student_name}
-      >
-        {row.student_name}
-      </button>
-
-      {/* Which package. */}
-      <span className="col-start-1 row-start-2 min-w-0 truncate text-xs lg:col-start-2 lg:row-start-1">
-        <PackageShape row={row} />
-      </span>
-
-      {/* What is left of it — or, for one that ran out, what has run on since. */}
-      <span className="col-span-2 col-start-1 row-start-3 flex min-w-0 items-center lg:row-start-2 2xl:col-span-1 2xl:col-start-3 2xl:row-start-1">
-        <Balance row={row} wide />
-      </span>
-
-      {/* The next lesson. */}
-      <span
-        className="text-muted-foreground col-span-2 col-start-1 row-start-4 inline-flex min-w-0 items-center gap-1.5 text-xs tabular-nums lg:col-start-3 lg:row-start-2 2xl:col-span-1 2xl:col-start-4 2xl:row-start-1"
-        title={t("nextLesson")}
-      >
-        <CalendarClock className="size-3.5 shrink-0" aria-hidden />
-        <span className="sr-only">{t("nextLesson")}: </span>
-        <span className="truncate">
-          <NextLesson row={row} timezone={timezone} />
+      {/* Who, and paid or not. */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <button
+          type="button"
+          onClick={actions.onOpenDetail}
+          className="hover:text-primary min-w-0 truncate text-start text-[13px] font-semibold transition-colors"
+          title={row.student_name}
+        >
+          {row.student_name}
+        </button>
+        <span className="ms-auto flex shrink-0 justify-end">
+          <Payment row={row} />
         </span>
-      </span>
+      </div>
 
-      {/* Paid or not. */}
-      <span className="col-start-2 row-start-2 flex justify-end lg:col-start-3 lg:row-start-1 lg:justify-start 2xl:col-start-5">
-        <Payment row={row} />
-      </span>
+      {/* Which package, and what is left of it — or, for one that ran out, what has run on since. */}
+      <div className="flex min-w-0 items-center gap-2 text-[11px]">
+        <span className="min-w-0 shrink truncate">
+          <PackageShape row={row} />
+        </span>
+        <span className="ms-auto flex min-w-0 shrink-0 items-center">
+          <Balance row={row} />
+        </span>
+      </div>
 
-      {/* Renew on a block that ran out, then "⋯". */}
-      <Actions row={row} actions={actions} className="col-start-2 row-start-1 justify-end lg:col-start-4 2xl:col-start-6" />
+      {/* The next lesson; Renew on a block that ran out, then "⋯". */}
+      <div className="flex min-w-0 items-center gap-1.5">
+        <span className="text-muted-foreground inline-flex min-w-0 items-center gap-1 text-[11px] tabular-nums" title={t("nextLesson")}>
+          <CalendarClock className="size-3.5 shrink-0" aria-hidden />
+          <span className="sr-only">{t("nextLesson")}: </span>
+          <span className="truncate">
+            <NextLesson row={row} timezone={timezone} />
+          </span>
+        </span>
+        <Actions row={row} actions={actions} className="ms-auto" />
+      </div>
     </li>
   );
 }
@@ -275,7 +262,7 @@ function Balance({ row, wide = false }: { row: LessonPackageRow; wide?: boolean 
   const low = isRunningLow(row);
   return (
     <span className={cn("flex items-center gap-2", wide && "w-full")}>
-      <span className={cn("bg-muted h-1.5 shrink-0 overflow-hidden rounded-full", wide ? "flex-1" : "w-16")} aria-hidden>
+      <span className={cn("bg-muted h-1.5 shrink-0 overflow-hidden rounded-full", wide ? "flex-1" : "w-10")} aria-hidden>
         <span
           className={cn("block h-full rounded-full", low ? "bg-amber-500" : "bg-primary")}
           style={{ width: `${Math.max(0, Math.min(100, 100 - row.percent_used))}%` }}

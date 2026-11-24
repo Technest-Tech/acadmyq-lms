@@ -318,7 +318,8 @@ describe("PackagesManager", () => {
 
     const hassan = screen.getByTestId("due-family-g-hassan");
     expect(within(hassan).getAllByTestId("due-package-row")).toHaveLength(2);
-    expect(hassan).toHaveTextContent("Yusuf، Maryam");
+    // The children are the tile's own lines; the header names them on hover.
+    expect(within(hassan).getByTestId("due-family-name").getAttribute("title")).toContain("Yusuf، Maryam");
     expect(within(hassan).getByTestId("due-family-total").textContent).toContain(
       formatMoney({ amount: 100000, currency: "EGP" }, "ar"),
     );
@@ -556,7 +557,7 @@ describe("PackagesManager", () => {
     const hassan = screen.getByTestId("open-family-g-h");
     expect(within(hassan).getByTestId("open-family-name")).toHaveTextContent("Hassan");
     expect(within(hassan).getAllByTestId("package-card")).toHaveLength(2);
-    expect(hassan).toHaveTextContent("Yusuf، Maryam");
+    expect(within(hassan).getByTestId("open-family-name").getAttribute("title")).toContain("Yusuf، Maryam");
     // Paid up: the header names no money owed.
     expect(within(hassan).queryByTestId("open-family-owes")).toBeNull();
     expect(screen.queryByTestId("due-family-g-h")).toBeNull();

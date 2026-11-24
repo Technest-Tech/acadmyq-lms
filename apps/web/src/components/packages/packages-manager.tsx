@@ -7,7 +7,7 @@ import { useLocale, useTranslations } from "next-intl";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAuth } from "@/components/auth-provider";
 import { DueStats, PaidStats, PaidTable } from "@/components/packages/due-table";
-import { groupDueByFamily } from "@/components/packages/family-card";
+import { FamilyColumns, familyWeight, groupDueByFamily } from "@/components/packages/family-card";
 import { FamilyDueGroup } from "@/components/packages/family-due-group";
 import {
   isRanOut,
@@ -211,6 +211,10 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
       .map(({ row }) => row);
   }, [pageRows, query, view, duePaid, openFilter, from, to, timezone]);
 
+  /** The page's packages under their families, in the page's order. */
+  const dueFamilies = useMemo(() => (view === "due" && !duePaid ? groupDueByFamily(visible) : []), [view, duePaid, visible]);
+  const openFamilies = useMemo(() => (view === "open" ? groupDueByFamily(visible) : []), [view, visible]);
+
   /** What the Paid tab's packages brought in, per currency — never summed across them. */
   const collected = useMemo(() => {
     if (!duePaid) return [];
@@ -352,10 +356,9 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
           </p>
         )}
 
-        {/* Due and Open are the same family cards at every width (Ahmed 2026-11-23/24), full width
-            one under the other — a grid left holes beside short cards — in each page's own order
-            (Due: oldest debt; Open: what needs a hand). Due's Paid tab stays a compact table from
-            laptop width up, cards below it. */}
+        {/* Due and Open are the same small family tiles (Ahmed 2026-11-24), as many columns as fit
+            and no holes — dealt in each page's own order (Due: oldest debt; Open: what needs a
+            hand). Due's Paid tab stays a compact table from laptop width up, cards below it. */}
         {duePaid && visible.length > 0 ? (
           <>
             <PaidTable rows={visible} timezone={timezone} onOpenDetail={openDetail} />
@@ -371,8 +374,8 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
             </div>
           </>
         ) : duePaid ? null : view === "due" && visible.length > 0 ? (
-          <div className="space-y-3" data-testid="due-cards">
-            {groupDueByFamily(visible).map((family) => (
+          <FamilyColumns testId="due-cards" weights={dueFamilies.map((f) => familyWeight(f, f.rows.length > 1 ? 0.4 : 0))}>
+            {dueFamilies.map((family) => (
               <FamilyDueGroup
                 key={family.key}
                 family={family}
@@ -383,13 +386,13 @@ export function PackagesManager({ view = "open" }: { view?: PackagesView }) {
                 onPrepay={can("package.manage") && can("invoice.mark_paid") ? openPrepay : undefined}
               />
             ))}
-          </div>
+          </FamilyColumns>
         ) : view === "open" && visible.length > 0 ? (
-          <div className="space-y-3" data-testid="open-cards">
-            {groupDueByFamily(visible).map((family) => (
+          <FamilyColumns testId="open-cards" weights={openFamilies.map((f) => familyWeight(f))}>
+            {openFamilies.map((family) => (
               <OpenFamilyCard key={family.key} family={family} timezone={timezone} actionProps={actionProps} />
             ))}
-          </div>
+          </FamilyColumns>
         ) : null}
       </div>
 
