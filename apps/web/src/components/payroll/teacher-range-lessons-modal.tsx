@@ -21,6 +21,7 @@ import {
   type PayrollLessonNotOnSalary,
   type PayrollRangeLesson,
 } from "@/lib/api";
+import { usePayrollByGroup } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 import { formatHours } from "@/lib/time";
 import { cn } from "@/lib/utils";
@@ -60,6 +61,9 @@ export function TeacherRangeLessonsModal({
   const locale = useLocale();
   const { can } = useAuth();
   const canCorrect = can("payout.adjust");
+  // Read group by group — and private lessons student by student — not as one list by date
+  // (`payroll_by_group`, Lingo 2026-11-26).
+  const byGroup = usePayrollByGroup();
 
   const [lessons, setLessons] = useState<PayrollRangeLesson[] | null>(null);
   const [notOnSalary, setNotOnSalary] = useState<PayrollLessonNotOnSalary[]>([]);
@@ -122,6 +126,39 @@ export function TeacherRangeLessonsModal({
     [lessons],
   );
 
+  // The blocks, when the salary reads group by group: groups first, then private students, each by
+  // name; the lessons inside stay by date. Keyed on the group (two groups can share a name).
+  const blocks = useMemo(() => {
+    if (!byGroup || lessons === null) return null;
+    const map = new Map<
+      string,
+      { key: string; name: string; group: boolean; lessons: PayrollRangeLesson[]; minutes: number; amount: number }
+    >();
+    for (const l of lessons) {
+      const group = Boolean(l.group_id) || (l.session_id === null && Boolean(l.group_name));
+      const key = l.group_id
+        ? `g:${l.group_id}`
+        : l.student_id
+          ? `s:${l.student_id}`
+          : `n:${l.student_name ?? l.group_name ?? "—"}`;
+      const b = map.get(key) ?? {
+        key,
+        name: l.student_name ?? l.group_name ?? "—",
+        group,
+        lessons: [],
+        minutes: 0,
+        amount: 0,
+      };
+      b.lessons.push(l);
+      b.minutes += l.duration_minutes ?? 0;
+      b.amount += l.amount_minor;
+      map.set(key, b);
+    }
+    return [...map.values()].sort(
+      (a, b) => Number(b.group) - Number(a.group) || a.name.localeCompare(b.name, locale),
+    );
+  }, [byGroup, lessons, locale]);
+
   const money = (amount: number) =>
     formatMoney({ amount, currency: target?.currency ?? "EGP" }, locale);
 
@@ -159,6 +196,68 @@ export function TeacherRangeLessonsModal({
 
   const formatDate = (date: string | null) =>
     date ? dateFmt.format(new Date(`${date}T00:00:00Z`)) : "—";
+
+  const lessonRow = (l: PayrollRangeLesson, grouped: boolean) => (
+    <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-sm">
+      <div className="min-w-0 flex-1">
+        {grouped ? (
+          <p className={cn("font-medium tabular-nums", l.removed && "text-muted-foreground line-through")}>
+            {formatDate(l.session_date)}
+            {l.duration_minutes !== null && (
+              <span className="text-muted-foreground text-xs font-normal"> · {formatHours(l.duration_minutes, locale)}</span>
+            )}
+          </p>
+        ) : (
+          <>
+            <p className={cn("truncate font-medium", l.removed && "text-muted-foreground line-through")}>
+              {l.student_name ?? l.group_name ?? "—"}
+            </p>
+            <p className="text-muted-foreground text-xs tabular-nums">
+              {formatDate(l.session_date)}
+              {l.duration_minutes !== null && <> · {formatHours(l.duration_minutes, locale)}</>}
+            </p>
+          </>
+        )}
+        {l.removed && (
+          <p className="text-xs text-amber-700 dark:text-amber-400" data-testid={`lesson-removed-${l.id}`}>
+            {t("lessonRemovedTag")}
+          </p>
+        )}
+      </div>
+      {l.carries && (
+        <Lock
+          className="text-muted-foreground size-3.5 shrink-0"
+          aria-label={t("status.FINALIZED")}
+        />
+      )}
+      <span className="shrink-0 font-semibold tabular-nums">{money(l.amount_minor)}</span>
+      {canCorrect && l.session_id !== null && !l.removed && (
+        <span className="flex shrink-0 items-center gap-1">
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            aria-label={t("lessonEditTitle")}
+            onClick={() => setEditing(l)}
+            data-testid={`lesson-edit-${l.id}`}
+          >
+            <Pencil className="size-3.5" aria-hidden />
+          </Button>
+          <Button
+            type="button"
+            size="icon-xs"
+            variant="ghost"
+            aria-label={t("lessonRemoveTitle")}
+            className="text-muted-foreground hover:text-destructive"
+            onClick={() => setRemoving(l)}
+            data-testid={`lesson-remove-${l.id}`}
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+          </Button>
+        </span>
+      )}
+    </li>
+  );
 
   const anySealed = lessons?.some((l) => l.carries && !l.removed) ?? false;
   const anyGroup = lessons?.some((l) => l.session_id === null) ?? false;
@@ -213,59 +312,30 @@ export function TeacherRangeLessonsModal({
             <p className="text-muted-foreground py-6 text-center text-sm">{t("rangeLessonsEmpty")}</p>
           )}
 
-          {lessons !== null && lessons.length > 0 && (
+          {lessons !== null && lessons.length > 0 && blocks === null && (
             <ul className="divide-border divide-y rounded-xl border" data-testid="range-lessons">
-              {lessons.map((l) => (
-                <li key={l.id} className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2.5 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <p className={cn("truncate font-medium", l.removed && "text-muted-foreground line-through")}>
-                      {l.student_name ?? l.group_name ?? "—"}
-                    </p>
-                    <p className="text-muted-foreground text-xs tabular-nums">
-                      {formatDate(l.session_date)}
-                      {l.duration_minutes !== null && <> · {formatHours(l.duration_minutes, locale)}</>}
-                    </p>
-                    {l.removed && (
-                      <p className="text-xs text-amber-700 dark:text-amber-400" data-testid={`lesson-removed-${l.id}`}>
-                        {t("lessonRemovedTag")}
-                      </p>
-                    )}
-                  </div>
-                  {l.carries && (
-                    <Lock
-                      className="text-muted-foreground size-3.5 shrink-0"
-                      aria-label={t("status.FINALIZED")}
-                    />
-                  )}
-                  <span className="shrink-0 font-semibold tabular-nums">{money(l.amount_minor)}</span>
-                  {canCorrect && l.session_id !== null && !l.removed && (
-                    <span className="flex shrink-0 items-center gap-1">
-                      <Button
-                        type="button"
-                        size="icon-xs"
-                        variant="ghost"
-                        aria-label={t("lessonEditTitle")}
-                        onClick={() => setEditing(l)}
-                        data-testid={`lesson-edit-${l.id}`}
-                      >
-                        <Pencil className="size-3.5" aria-hidden />
-                      </Button>
-                      <Button
-                        type="button"
-                        size="icon-xs"
-                        variant="ghost"
-                        aria-label={t("lessonRemoveTitle")}
-                        className="text-muted-foreground hover:text-destructive"
-                        onClick={() => setRemoving(l)}
-                        data-testid={`lesson-remove-${l.id}`}
-                      >
-                        <Trash2 className="size-3.5" aria-hidden />
-                      </Button>
-                    </span>
-                  )}
-                </li>
-              ))}
+              {lessons.map((l) => lessonRow(l, false))}
             </ul>
+          )}
+
+          {blocks !== null && blocks.length > 0 && (
+            <div className="space-y-3" data-testid="range-lesson-blocks">
+              {blocks.map((b) => (
+                <section key={b.key} className="overflow-hidden rounded-xl border" data-testid={`range-block-${b.key}`}>
+                  <header className="bg-muted/30 flex flex-wrap items-center gap-x-3 gap-y-1 border-b px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold">{b.name}</p>
+                      <p className="text-muted-foreground text-xs tabular-nums">
+                        {b.group ? t("rangeBlockGroup") : t("rangeBlockPrivate")} ·{" "}
+                        {t("sessionCount", { count: b.lessons.length })} · {formatHours(b.minutes, locale)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-sm font-bold tabular-nums">{money(b.amount)}</span>
+                  </header>
+                  <ul className="divide-border divide-y">{b.lessons.map((l) => lessonRow(l, true))}</ul>
+                </section>
+              ))}
+            </div>
           )}
 
           {canCorrect && anyGroup && (

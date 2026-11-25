@@ -47,6 +47,8 @@ final class FeatureCatalog
         'packages_in_lessons' => 'Packages in lessons — a block counts lessons, not minutes: each lesson takes one whatever its length (the length only pays the teacher)',
         'student_cancel_charged' => 'A student\'s cancellation counts as a lesson taken — charged (off the package, or on the bill) unless the office says not to; teachers\' pay unchanged',
         'course_students' => 'Course-only students — a student may join on a group alone (no private lessons), and a finished course turns its course-only students into former students in one go',
+        'payroll_by_group' => 'Salary by group — a teacher\'s salary lessons read group by group (and student by student), not as one list by date',
+        'lesson40_price' => 'A fixed 40-minute price — an hourly teacher may carry their own price for a 40-minute lesson, paid instead of two thirds of the hour',
         'modern_look' => 'Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy\'s own colours',
         'courses_art' => 'Courses & curricula theme — the modern look in ocean blue and coral, no ornaments, and a books-and-course banner picture (switches the modern look on with it)',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
@@ -192,6 +194,8 @@ final class FeatureCatalog
             'packages_in_lessons',
             'student_cancel_charged',
             'course_students',
+            'payroll_by_group',
+            'lesson40_price',
             'modern_look',
             'courses_art',
         ],
@@ -234,6 +238,10 @@ final class FeatureCatalog
         // Students who come for one group or course only (Ana Muslim, 2026-11-21): the "group only"
         // choice on the new-student form and "make them former students" when a course ends.
         'course_students',
+        // A salary's lessons read group by group, and a fixed price for a 40-minute lesson (Lingo,
+        // 2026-11-26). One client's ways: Ahmed keeps them to that client only.
+        'payroll_by_group',
+        'lesson40_price',
     ];
 
     /**

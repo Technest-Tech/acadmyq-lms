@@ -171,3 +171,57 @@ it("is read-only without payout.adjust", async () => {
   expect(screen.queryByTestId("lesson-add")).not.toBeInTheDocument();
   expect(screen.queryByTestId("not-on-salary")).not.toBeInTheDocument();
 });
+
+// Lingo, 2026-11-26: "عاوزين تفاصيله مجموعه مجموعه مش يبقي كله علي حسب التاريخ".
+it("reads group by group where the academy has payroll_by_group, groups first, each with its total", async () => {
+  const groupLesson = (id: string, groupId: string, name: string, date: string, minutes: number, amount: number) => ({
+    ...lesson(id, "", date, amount),
+    session_id: null,
+    student_id: null,
+    student_name: null,
+    group_id: groupId,
+    group_name: name,
+    duration_minutes: minutes,
+  });
+  getPayrollRangeLessons.mockResolvedValue({
+    lessons: [
+      lesson("1", "Omar", "2026-10-01", 9000),
+      groupLesson("2", "g1", "Prep 2 Math", "2026-10-02", 60, 9000),
+      groupLesson("3", "g2", "Grade 3 English", "2026-10-03", 40, 7000),
+      groupLesson("4", "g1", "Prep 2 Math", "2026-10-09", 60, 9000),
+    ],
+    not_on_salary: [],
+  });
+  const session = makeSession("ACADEMY_OWNER");
+
+  render(
+    withAuth(
+      { ...session, capabilities: [...(session.capabilities ?? []), "payroll_by_group"] },
+      <TeacherRangeLessonsModal target={TARGET} from="2026-10-01" to="2026-10-31" onClose={vi.fn()} />,
+    ),
+  );
+
+  const blocks = await screen.findByTestId("range-lesson-blocks");
+  expect(screen.queryByTestId("range-lessons")).not.toBeInTheDocument();
+  const sections = blocks.querySelectorAll("section");
+  // Groups first (by name), then the private student.
+  expect([...sections].map((s) => s.getAttribute("data-testid"))).toEqual([
+    "range-block-g:g2",
+    "range-block-g:g1",
+    "range-block-s:st1",
+  ]);
+  const math = screen.getByTestId("range-block-g:g1");
+  expect(math).toHaveTextContent("Prep 2 Math");
+  expect(math).toHaveTextContent(ar.payroll.rangeBlockGroup);
+  expect(math).toHaveTextContent(formatMoney({ amount: 18000, currency: "EGP" }, "ar").replace(/\s+/g, " "));
+  expect(within(math).getAllByRole("listitem")).toHaveLength(2);
+  expect(screen.getByTestId("range-block-s:st1")).toHaveTextContent(ar.payroll.rangeBlockPrivate);
+});
+
+it("stays one list by date without the switch", async () => {
+  getPayrollRangeLessons.mockResolvedValue({ lessons: [lesson("1", "Omar", "2026-10-01", 9000)], not_on_salary: [] });
+  render(withAuth(makeSession("ACADEMY_OWNER"), <TeacherRangeLessonsModal target={TARGET} from="2026-10-01" to="2026-10-31" onClose={vi.fn()} />));
+
+  expect(await screen.findByTestId("range-lessons")).toBeInTheDocument();
+  expect(screen.queryByTestId("range-lesson-blocks")).not.toBeInTheDocument();
+});

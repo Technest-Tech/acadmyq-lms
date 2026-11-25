@@ -15,6 +15,7 @@ import { AlertBanner } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { ProfileCard } from "@/components/ui/profile-card";
 import { ApiError, getTeacher, updateTeacher } from "@/lib/api";
+import { useLesson40Price } from "@/lib/capabilities";
 
 /**
  * How this teacher is paid, edited where their statements are read. It lives on the Salary tab
@@ -34,6 +35,7 @@ export function TeacherPayCard({
   const t = useTranslations("teachers");
   const { can } = useAuth();
   const canEdit = can("teacher.set_pay");
+  const lesson40 = useLesson40Price();
 
   const [draft, setDraft] = useState<PayDraft | null>(null);
   const [saved, setSaved] = useState<PayDraft | null>(null);
@@ -63,7 +65,7 @@ export function TeacherPayCard({
     setNotice(null);
     setSaving(true);
     try {
-      await updateTeacher(teacherId, payDraftToInput(draft));
+      await updateTeacher(teacherId, payDraftToInput(draft, { lesson40 }));
       // Lessons already marked keep the rate they were paid at — say so, and where to change that
       // (the recalculation list right under this button).
       setNotice(t("pay.saved"));

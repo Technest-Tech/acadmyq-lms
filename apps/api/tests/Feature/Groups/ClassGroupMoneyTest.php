@@ -1320,3 +1320,55 @@ it('keeps money from an unknown payer apart until it is assigned, then it pays t
     // Once only.
     $this->postJson("/api/receipts/{$id}/assign", ['guardian_id' => $this->parent])->assertStatus(422);
 });
+
+// ── A teacher's 40-minute price (`lesson40_price`, Lingo 2026-11-26) ─────────────────────────────
+
+it('a teacher\'s 40-minute price pays a 40-minute group lesson paid by the hour, and re-pricing brings in the ones marked before', function () {
+    $groupId = moneyGroup($this, [
+        'teacher_pay_mode' => 'PER_HOUR', 'teacher_pay_minor' => 6000, 'student_ids' => [$this->kids['Adam']],
+        'slots' => [
+            ['weekday' => 1, 'start_time_local' => '17:00', 'duration_minutes' => 40],
+            ['weekday' => 3, 'start_time_local' => '17:00', 'duration_minutes' => 40],
+        ],
+    ]);
+    // 60 an hour → 40 for a 40-minute lesson, while the teacher has no price of their own.
+    heldLesson($this, $groupId, '2026-06-08');
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(4000);
+
+    // Only the switch's academies can give one.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/teachers/{$this->teacher}", ['lesson40_minor' => 5000])
+        ->assertStatus(422)->assertJsonValidationErrors('lesson40_minor');
+
+    asTenant($this->academy, fn () => app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['lesson40_price']));
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/teachers/{$this->teacher}", ['lesson40_minor' => 5000])->assertOk();
+
+    // Marked before the price: unchanged until the month is re-priced, then the price.
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(4000);
+    $payoutId = groupPayLines($this, $groupId)->first()->payout_id;
+    $this->postJson("/api/payouts/{$payoutId}/reprice")->assertOk();
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(5000);
+
+    // Marked from now on: the price straight away; the statement carries both.
+    heldLesson($this, $groupId, '2026-06-10');
+    $lines = groupPayLines($this, $groupId);
+    expect($lines->pluck('amount_minor')->map(fn ($a) => (int) $a)->all())->toBe([5000, 5000])
+        ->and((int) $lines->first()->total_minor)->toBe(10000);
+
+    // The salary's lessons name their group, so they can be read group by group (`payroll_by_group`).
+    $rows = $this->getJson("/api/payouts/range/lessons?teacher_id={$this->teacher}&from=2026-06-01&to=2026-06-30")->assertOk()->json('lessons');
+    expect(collect($rows)->pluck('group_id')->unique()->values()->all())->toBe([$groupId]);
+});
+
+it('a group paid per lesson keeps its price whatever the teacher\'s 40-minute price', function () {
+    asTenant($this->academy, fn () => app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['lesson40_price']));
+    asTenant($this->academy, fn () => DB::table('teachers')->where('id', $this->teacher)->update(['lesson40_minor' => 5000]));
+    $groupId = moneyGroup($this, [
+        'teacher_pay_mode' => 'PER_LESSON', 'teacher_pay_minor' => 9000, 'student_ids' => [$this->kids['Adam']],
+        'slots' => [['weekday' => 1, 'start_time_local' => '17:00', 'duration_minutes' => 40]],
+    ]);
+
+    heldLesson($this, $groupId, '2026-06-08');
+    expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(9000);
+});

@@ -2186,6 +2186,8 @@ export interface TeacherRow {
   pay_type: TeacherPayType | null;
   /** The monthly salary when `pay_type` is FIXED; 0 otherwise. */
   fixed_salary_minor: number | null;
+  /** A fixed price for a 40-minute lesson (`lesson40_price` academies); null = two thirds of the hour. */
+  lesson40_minor?: number | null;
   currency: string | null;
   timezone: string | null;
   availability: AvailabilityWindow[];
@@ -2245,6 +2247,8 @@ export interface TeacherInput {
   session_rate_minor?: number;
   pay_type?: TeacherPayType;
   fixed_salary_minor?: number;
+  /** A fixed price for a 40-minute lesson; null clears it. Sent only where `lesson40_price` is on. */
+  lesson40_minor?: number | null;
   /** The WHOLE set of per-student rates — a student left out goes back to the default rate. */
   student_rates?: { student_id: string; rate_minor: number }[];
   currency?: string | null;
@@ -5342,6 +5346,8 @@ export interface PayrollRangeLesson {
   student_name: string | null;
   /** A group-class line (docs/groups): the group's name, instead of a student's. */
   group_name?: string | null;
+  /** …and the group itself — the block it reads under, group by group (`payroll_by_group`). */
+  group_id?: string | null;
   description?: string | null;
   duration_minutes: number | null;
   scheduled_at_utc: string | null;

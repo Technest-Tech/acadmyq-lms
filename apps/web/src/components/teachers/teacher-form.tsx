@@ -30,7 +30,7 @@ import {
 import { COUNTRIES } from "@/lib/countries";
 import { useAcademyDefaults } from "@/lib/academy-defaults";
 import { cn } from "@/lib/utils";
-import { useOnlineLessons } from "@/lib/capabilities";
+import { useLesson40Price, useOnlineLessons } from "@/lib/capabilities";
 import { useLevelsOn, useLevelWord } from "@/lib/levels";
 
 const inputBase =
@@ -95,6 +95,7 @@ export function TeacherForm({
   const [localNumber, setLocalNumber] = useState("");
   const [specialization, setSpecialization] = useState("");
   const [pay, setPay] = useState<PayDraft>(EMPTY_PAY_DRAFT);
+  const lesson40 = useLesson40Price();
   const [meetingUrl, setMeetingUrl] = useState("");
   const [createLogin, setCreateLogin] = useState(false);
   const [email, setEmail] = useState("");
@@ -132,7 +133,7 @@ export function TeacherForm({
         full_name: fullName,
         phone: buildPhone(),
         specialization: specialization || null,
-        ...(canPay ? payDraftToInput(pay) : { pay_type: "HOURLY", session_rate_minor: 0 }),
+        ...(canPay ? payDraftToInput(pay, { lesson40 }) : { pay_type: "HOURLY", session_rate_minor: 0 }),
         meeting_url: meetingUrl.trim() || null,
         availability,
         ...(levelsOn && levelIds.length > 0 ? { level_ids: levelIds } : {}),

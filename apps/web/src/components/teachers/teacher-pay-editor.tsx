@@ -13,6 +13,7 @@ import {
   type TeacherStudent,
   type TeacherStudentRate,
 } from "@/lib/api";
+import { useLesson40Price } from "@/lib/capabilities";
 import { CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,8 @@ export interface PayDraft {
   /** Hourly rate — for PER_STUDENT, the default for students without their own. */
   rate: string;
   fixedSalary: string;
+  /** A fixed price for a 40-minute lesson (`lesson40_price`); empty = two thirds of the hour. */
+  lesson40: string;
   currency: string;
   studentRates: StudentRateDraft[];
 }
@@ -55,6 +58,7 @@ export const EMPTY_PAY_DRAFT: PayDraft = {
   payType: "HOURLY",
   rate: "",
   fixedSalary: "",
+  lesson40: "",
   currency: "EGP",
   studentRates: [],
 };
@@ -104,6 +108,7 @@ export function payDraftFromTeacher(
     payType: teacher.pay_type ?? "HOURLY",
     rate: toMajor(teacher.session_rate_minor ?? 0),
     fixedSalary: teacher.fixed_salary_minor ? toMajor(teacher.fixed_salary_minor) : "",
+    lesson40: teacher.lesson40_minor != null ? toMajor(teacher.lesson40_minor) : "",
     currency: teacher.currency ?? "",
     studentRates: rows,
   };
@@ -111,18 +116,27 @@ export function payDraftFromTeacher(
 
 /**
  * The API fields for a draft. Rates for other pay types are still sent, so switching a teacher
- * from per-student to hourly and back does not throw away the per-student rates.
+ * from per-student to hourly and back does not throw away the per-student rates. The 40-minute
+ * price goes only where the academy has it (`lesson40_price`), and only for an hourly teacher —
+ * anyone else's is cleared.
  */
 export function payDraftToInput(
   draft: PayDraft,
+  { lesson40 = false }: { lesson40?: boolean } = {},
 ): Pick<
   TeacherInput,
-  "pay_type" | "session_rate_minor" | "fixed_salary_minor" | "currency" | "student_rates"
+  "pay_type" | "session_rate_minor" | "fixed_salary_minor" | "currency" | "student_rates" | "lesson40_minor"
 > {
   return {
     pay_type: draft.payType,
     session_rate_minor: toMinor(draft.rate),
     fixed_salary_minor: draft.payType === "FIXED" ? toMinor(draft.fixedSalary) : 0,
+    ...(lesson40
+      ? {
+          lesson40_minor:
+            draft.payType === "HOURLY" && draft.lesson40.trim() !== "" ? toMinor(draft.lesson40) : null,
+        }
+      : {}),
     currency: draft.currency || undefined,
     student_rates: draft.studentRates
       .filter((r) => r.rate.trim() !== "")
@@ -232,6 +246,7 @@ export function TeacherPayEditor({
 }) {
   const t = useTranslations("teachers");
   const locale = useLocale();
+  const lesson40On = useLesson40Price();
   const set = (patch: Partial<PayDraft>) => onChange({ ...value, ...patch });
 
   const defaultRateLabel = value.rate
@@ -335,6 +350,31 @@ export function TeacherPayEditor({
           />
         </Field>
       </div>
+
+      {/* ── A fixed 40-minute price (`lesson40_price`) ─────────────────────
+          Empty is not zero: it is two thirds of the hour, shown as the placeholder. */}
+      {lesson40On && value.payType === "HOURLY" && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Field
+            label={t("pay.lesson40")}
+            hint={t("pay.lesson40Hint", {
+              amount: formatMoney(
+                { amount: Math.round((toMinor(value.rate) * 40) / 60), currency: value.currency || "EGP" },
+                locale,
+              ),
+            })}
+          >
+            <MoneyInput
+              label={t("pay.lesson40")}
+              value={value.lesson40}
+              onChange={(lesson40) => set({ lesson40 })}
+              disabled={disabled}
+              placeholder={value.rate ? toMajor(Math.round((toMinor(value.rate) * 40) / 60)) : undefined}
+              testId="pay-lesson40"
+            />
+          </Field>
+        </div>
+      )}
 
       {/* ── Per-student rates ────────────────────────────────────────── */}
       {value.payType === "PER_STUDENT" && (

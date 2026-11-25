@@ -3,6 +3,7 @@
 declare(strict_types=1);
 
 use App\Jobs\OpenFixedSalaryPayoutsJob;
+use App\Services\ModuleBilling;
 use App\Services\Payroll;
 use Database\Seeders\DemoAcademySeeder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -422,4 +423,57 @@ it('opens statements daily for active salaried teachers only, once', function ()
     expect((int) ($this->payoutOf)($fixed)->base_minor)->toBe(400000)
         ->and(($this->payoutOf)($hourly))->toBeNull()
         ->and(($this->payoutOf)($gone))->toBeNull();
+});
+
+// ── A fixed 40-minute price (`lesson40_price`, Lingo 2026-11-26) ──────────────────────────────────
+
+it('pays an hourly teacher\'s own 40-minute price for a 40-minute lesson, and every other length by the hour', function () {
+    $teacher = $this->createTeacher($this->academy, ['session_rate_minor' => 9000, 'pay_type' => 'HOURLY']);
+    $switchOn = function (): void {
+        DB::statement("select set_config('app.current_academy_id', ?, true)", [$this->academy]);
+        DB::statement("select set_config('app.current_role', 'SUPER_ADMIN', true)");
+        app(ModuleBilling::class)->setDisabledFeatures($this->academy, 'MANAGEMENT', [], ['lesson40_price']);
+        DB::statement("select set_config('app.current_academy_id', '', true)");
+        DB::statement("select set_config('app.current_role', '', true)");
+    };
+
+    // No price, or no switch: two thirds of the hour, as always.
+    $before = ($this->lesson)($teacher, $this->yusuf, '2026-06-08 10:00:00+00', 40);
+    expect(($this->lineFor)($before))->toBe(6000);
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/teachers/{$teacher}", ['lesson40_minor' => 7000])
+        ->assertStatus(422)->assertJsonValidationErrors('lesson40_minor');
+
+    $switchOn();
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/teachers/{$teacher}", ['lesson40_minor' => 7000])->assertOk();
+    $this->getJson("/api/teachers/{$teacher}")->assertOk()->assertJsonPath('teacher.lesson40_minor', 7000);
+
+    $forty = ($this->lesson)($teacher, $this->yusuf, '2026-06-10 10:00:00+00', 40);
+    $hour = ($this->lesson)($teacher, $this->maryam, '2026-06-11 10:00:00+00', 60);
+    $half = ($this->lesson)($teacher, $this->maryam, '2026-06-12 10:00:00+00', 30);
+    expect(($this->lineFor)($forty))->toBe(7000)
+        ->and(($this->lineFor)($hour))->toBe(9000)
+        ->and(($this->lineFor)($half))->toBe(4500)
+        ->and(($this->lineFor)($before))->toBe(6000);     // marked before the price: the month's re-pricing moves it
+
+    $payout = ($this->payoutOf)($teacher);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/payouts/{$payout->id}/reprice")->assertOk();
+    expect(($this->lineFor)($before))->toBe(7000)
+        ->and((int) ($this->payoutOf)($teacher)->total_minor)->toBe(7000 + 7000 + 9000 + 4500);
+
+    // Cleared: back to the share of the hour.
+    $this->patchJson("/api/teachers/{$teacher}", ['lesson40_minor' => null])->assertOk();
+    $this->postJson("/api/payouts/{$payout->id}/reprice")->assertOk();
+    expect(($this->lineFor)($forty))->toBe(6000);
+});
+
+it('keeps a 40-minute price for hourly teachers only', function () {
+    $teacher = $this->createTeacher($this->academy, ['session_rate_minor' => 9000, 'pay_type' => 'PER_STUDENT']);
+    $this->asAcademy($this->academy);
+    DB::table('teachers')->where('id', $teacher)->update(['lesson40_minor' => 7000]);
+
+    $session = ($this->lesson)($teacher, $this->yusuf, '2026-06-10 10:00:00+00', 40);
+    expect(($this->lineFor)($session))->toBe(6000);
 });

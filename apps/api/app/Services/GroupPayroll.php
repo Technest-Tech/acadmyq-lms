@@ -89,7 +89,9 @@ final class GroupPayroll
 
         return match ($group->teacher_pay_mode) {
             'PER_LESSON' => $rate,
-            'PER_HOUR' => (int) round($rate * $durationMinutes / 60),
+            // The teacher's own 40-minute price reaches a group paid by the hour too (Lingo's groups
+            // are: their hourly rate is the teacher's).
+            'PER_HOUR' => Payroll::lesson40Price($teacher, $durationMinutes) ?? (int) round($rate * $durationMinutes / 60),
             'PER_STUDENT' => $rate * $came,
             'REVENUE_SHARE' => 0,
             default => $this->teacherOwnPay($group, $teacher, $durationMinutes, $came),

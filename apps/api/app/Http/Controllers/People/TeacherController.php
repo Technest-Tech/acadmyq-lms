@@ -10,6 +10,7 @@ use App\Services\Payroll;
 use App\Support\Audit;
 use App\Support\DataTable;
 use App\Support\DoneBy;
+use App\Support\Entitlement;
 use App\Support\Phone;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Http\JsonResponse;
@@ -44,7 +45,7 @@ final class TeacherController extends Controller
      * teachers); these are money, so they ride teacher.set_pay — redacted on the way out, refused
      * on the way in. (`student_rates` is the per-student override table, handled alongside.)
      */
-    private const PAY_COLUMNS = ['session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency'];
+    private const PAY_COLUMNS = ['session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency', 'lesson40_minor'];
 
     /** Whether the caller may see and set teacher pay. */
     private function seesPay(): bool
@@ -75,11 +76,27 @@ final class TeacherController extends Controller
                 || (int) ($data['fixed_salary_minor'] ?? 0) !== 0
                 || ($data['student_rates'] ?? []) !== []
                 || ($data['pay_type'] ?? Payroll::PAY_HOURLY) !== Payroll::PAY_HOURLY
-                || ($data['currency'] ?? null) !== null)
+                || ($data['currency'] ?? null) !== null
+                || ($data['lesson40_minor'] ?? null) !== null)
             : array_intersect(array_keys($data), [...self::PAY_COLUMNS, 'student_rates']) !== [];
 
         if ($touches) {
             Gate::authorize('teacher.set_pay');
+        }
+    }
+
+    /**
+     * A 40-minute price is for the academies with `lesson40_price` only (Lingo, 2026-11-26): anywhere
+     * else a lesson keeps its share of the hour, so a price is refused rather than stored unseen.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function guardLesson40(array $data, string $academyId): void
+    {
+        if (($data['lesson40_minor'] ?? null) !== null && ! Entitlement::hasCapability($academyId, Payroll::LESSON40_CAPABILITY)) {
+            throw ValidationException::withMessages([
+                'lesson40_minor' => ['A 40-minute price is not available for this academy. / سعر حصة الـ40 دقيقة غير متاح لهذه الأكاديمية.'],
+            ]);
         }
     }
 
@@ -91,7 +108,7 @@ final class TeacherController extends Controller
 
         $query = DB::table('teachers')->select([
             'id', 'user_id', 'full_name', 'phone', 'specialization',
-            'session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency', 'timezone', 'availability',
+            'session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency', 'lesson40_minor', 'timezone', 'availability',
             'payout_method', 'payout_handle', 'meeting_url',
             'is_active', 'deleted_at', 'created_at',
         ]);
@@ -152,6 +169,7 @@ final class TeacherController extends Controller
 
         $data = $this->validatePayload($request, creating: true);
         $this->authorizePayWrite($data, creating: true);
+        $this->guardLesson40($data, $academyId);
         $payout = $this->resolvePayout($data, null) ?? ['payout_method' => null, 'payout_handle' => null];
         $meetingUrl = $this->cleanMeetingUrl($data['meeting_url'] ?? null);
 
@@ -181,6 +199,7 @@ final class TeacherController extends Controller
             'session_rate_minor' => $data['session_rate_minor'] ?? 0,
             'pay_type' => $payType,
             'fixed_salary_minor' => $data['fixed_salary_minor'] ?? 0,
+            'lesson40_minor' => $data['lesson40_minor'] ?? null,
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'timezone' => $data['timezone'] ?? null,
             'availability' => json_encode($data['availability'] ?? []),
@@ -200,6 +219,7 @@ final class TeacherController extends Controller
             'pay_type' => $payType,
             'session_rate_minor' => $data['session_rate_minor'] ?? 0,
             'fixed_salary_minor' => $data['fixed_salary_minor'] ?? 0,
+            'lesson40_minor' => $data['lesson40_minor'] ?? null,
             'student_rates' => $studentRates,
             'currency' => strtoupper($data['currency'] ?? $this->academyDefaultCurrency($academyId)),
             'has_login' => $userId !== null,
@@ -409,6 +429,7 @@ final class TeacherController extends Controller
 
         $data = $this->validatePayload($request, creating: false);
         $this->authorizePayWrite($data, creating: false);
+        $this->guardLesson40($data, $this->currentAcademyId());
         // Checked before anything is written (a refused level must not leave half an edit behind).
         $newLevels = array_key_exists('level_ids', $data) ? $this->normalizeLevelIds($data['level_ids'] ?? []) : null;
         if (array_key_exists('phone', $data)) {
@@ -423,7 +444,7 @@ final class TeacherController extends Controller
 
         $before = [];
         $after = [];
-        foreach (['full_name', 'phone', 'specialization', 'session_rate_minor', 'pay_type', 'fixed_salary_minor', 'currency', 'timezone', 'meeting_url'] as $col) {
+        foreach (['full_name', 'phone', 'specialization', 'session_rate_minor', 'pay_type', 'fixed_salary_minor', 'lesson40_minor', 'currency', 'timezone', 'meeting_url'] as $col) {
             if (array_key_exists($col, $data) && (string) $data[$col] !== (string) $existing->{$col}) {
                 $before[$col] = $existing->{$col};
                 $after[$col] = $data[$col];
@@ -847,6 +868,8 @@ final class TeacherController extends Controller
             'session_rate_minor' => [$creating ? 'required_unless:pay_type,'.Payroll::PAY_FIXED : 'sometimes', 'integer', 'min:0'],
             'pay_type' => ['sometimes', Rule::in(Payroll::PAY_TYPES)],
             'fixed_salary_minor' => [$creating ? 'required_if:pay_type,'.Payroll::PAY_FIXED : 'sometimes', 'integer', 'min:0'],
+            // A fixed price for a 40-minute lesson (`lesson40_price` academies only); null = two thirds of the hour.
+            'lesson40_minor' => ['sometimes', 'nullable', 'integer', 'min:0'],
             'student_rates' => ['sometimes', 'array', 'max:1000'],
             'student_rates.*.student_id' => ['required', 'uuid', 'distinct'],
             'student_rates.*.rate_minor' => ['required', 'integer', 'min:0'],

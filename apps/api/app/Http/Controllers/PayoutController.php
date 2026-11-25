@@ -619,6 +619,8 @@ final class PayoutController extends Controller
                 DB::raw('coalesce(se.scheduled_at_utc, cgl.scheduled_at_utc) as scheduled_at_utc'),
                 DB::raw('st.full_name as student_name'),
                 DB::raw('cg.name as group_name'),
+                // The block a lesson reads under where a salary is read group by group (`payroll_by_group`).
+                DB::raw('cg.id as group_id'),
                 'li.description',
                 DB::raw('(p.finalized_at is not null) as finalized'),
                 DB::raw('(p.finalized_at is not null and exists (select 1 from expenses e where e.payout_id = p.id and e.voided_at is null)) as carries'),

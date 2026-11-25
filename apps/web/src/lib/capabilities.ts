@@ -32,6 +32,24 @@ export function useCourseStudents(): boolean {
   return session?.capabilities?.includes("course_students") ?? false;
 }
 
+/**
+ * A salary's lessons read group by group — and student by student — instead of one list by date
+ * (`payroll_by_group`, Lingo 2026-11-26). Strict: only a session that lists it.
+ */
+export function usePayrollByGroup(): boolean {
+  const { session } = useAuth();
+  return session?.capabilities?.includes("payroll_by_group") ?? false;
+}
+
+/**
+ * An hourly teacher may carry a fixed price for a 40-minute lesson (`lesson40_price`, Lingo
+ * 2026-11-26). Strict: only a session that lists it — nowhere else does the field exist.
+ */
+export function useLesson40Price(): boolean {
+  const { session } = useAuth();
+  return session?.capabilities?.includes("lesson40_price") ?? false;
+}
+
 export function useCapability(capability: string): boolean {
   const { session } = useAuth();
   return (

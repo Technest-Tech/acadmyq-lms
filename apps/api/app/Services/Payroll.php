@@ -10,6 +10,7 @@ use App\Payroll\PayoutHook;
 use App\Support\Audit;
 use App\Support\AuthContext;
 use App\Support\CentreBooks;
+use App\Support\Entitlement;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -750,6 +751,24 @@ final class Payroll implements PayoutHook
 
     public const PAY_TYPES = [self::PAY_HOURLY, self::PAY_PER_STUDENT, self::PAY_FIXED];
 
+    /** The academy switch that lets a teacher carry a fixed 40-minute price ({@see lesson40Price()}). */
+    public const LESSON40_CAPABILITY = 'lesson40_price';
+
+    /**
+     * The fixed price an HOURLY teacher earns for a lesson of exactly 40 minutes, when one is set
+     * (`teachers.lesson40_minor`, Lingo 2026-11-26) — instead of two thirds of the hour. Null: no
+     * such price, the lesson is pro-rated like any other. Only the switch's academies can set one.
+     */
+    public static function lesson40Price(object $teacher, int $durationMinutes): ?int
+    {
+        if ($durationMinutes !== 40 || ($teacher->pay_type ?? self::PAY_HOURLY) !== self::PAY_HOURLY) {
+            return null;
+        }
+        $price = $teacher->lesson40_minor ?? null;
+
+        return $price !== null ? (int) $price : null;
+    }
+
     /**
      * What one lesson with this student pays the teacher, before any free-trial zeroing — THE
      * pricing rule, shared by attendance, re-pricing and the unmarked-lesson sweep so the three
@@ -757,7 +776,8 @@ final class Payroll implements PayoutHook
      *
      * Every rate is HOURLY and pro-rated by the lesson's length (a 30-min lesson at 50/hr pays
      * 25). PER_STUDENT takes the student's own rate when one is set and the teacher's rate
-     * otherwise. FIXED pays nothing per lesson: the month's salary is the pay.
+     * otherwise. FIXED pays nothing per lesson: the month's salary is the pay. An hourly teacher
+     * with a 40-minute price earns that price for a 40-minute lesson ({@see lesson40Price()}).
      */
     public function lessonPayMinor(object $teacher, ?string $studentId, int $durationMinutes): int
     {
@@ -765,6 +785,11 @@ final class Payroll implements PayoutHook
 
         if ($payType === self::PAY_FIXED) {
             return 0;
+        }
+
+        $forty = self::lesson40Price($teacher, $durationMinutes);
+        if ($forty !== null) {
+            return $forty;
         }
 
         $hourlyRateMinor = (int) $teacher->session_rate_minor;
@@ -1091,6 +1116,45 @@ final class Payroll implements PayoutHook
                     'teacher_pay_share_bp' => $line->teacher_pay_share_bp,
                 ])
                 : 0;
+            $delta = $fresh - (int) $line->amount_minor;
+            if ($delta !== 0) {
+                $changed[] = ['id' => (string) $line->id, 'fresh' => $fresh, 'delta' => $delta];
+            }
+        }
+
+        return [...$changed, ...$this->repricedLesson40GroupLines($payoutId, $teacher)];
+    }
+
+    /**
+     * A group's 40-minute lessons on this statement, priced again — where the academy has the
+     * 40-minute price (`lesson40_price`), so setting or clearing a teacher's price reaches the group
+     * lessons of the month like the private ones. Only groups paid by the hour or on the teacher's
+     * own terms: the others never price by length. Every other academy's re-pricing is unchanged.
+     *
+     * @return list<array{id: string, fresh: int, delta: int}>
+     */
+    private function repricedLesson40GroupLines(string $payoutId, object $teacher): array
+    {
+        if (! Entitlement::hasCapability((string) $teacher->academy_id, self::LESSON40_CAPABILITY)) {
+            return [];
+        }
+
+        $lines = DB::table('payout_line_items as li')
+            ->join('class_group_lessons as l', 'l.id', '=', 'li.class_group_lesson_id')
+            ->join('class_groups as g', 'g.id', '=', 'l.group_id')
+            ->where('li.payout_id', $payoutId)
+            ->where('l.status', 'HELD')
+            ->where('l.duration_minutes', 40)
+            ->where(fn ($q) => $q->whereNull('g.teacher_pay_mode')->orWhere('g.teacher_pay_mode', 'PER_HOUR'))
+            ->get(['li.id', 'li.amount_minor', 'l.id as lesson_id', 'g.id as group_id']);
+
+        $groupPayroll = app(GroupPayroll::class);
+        $changed = [];
+        foreach ($lines as $line) {
+            $group = DB::table('class_groups')->where('id', $line->group_id)->first();
+            $came = DB::table('class_group_attendance')->where('lesson_id', $line->lesson_id)
+                ->whereIn('status', ClassGroups::ATTENDED_STATUSES)->count();
+            $fresh = $groupPayroll->lessonAmount($group, $teacher, 40, $came);
             $delta = $fresh - (int) $line->amount_minor;
             if ($delta !== 0) {
                 $changed[] = ['id' => (string) $line->id, 'fresh' => $fresh, 'delta' => $delta];

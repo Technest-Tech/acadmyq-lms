@@ -41,9 +41,11 @@ const TEACHER: api.TeacherRow = {
 function renderCard(
   role: "ACADEMY_OWNER" | "ACCOUNTANT" | "STAFF" | "CUSTOMER_SERVICE" = "ACADEMY_OWNER",
   extraPermissions: string[] = [],
+  extraCapabilities: string[] = [],
 ) {
   const session = makeSession(role);
   session.permissions = [...session.permissions, ...extraPermissions];
+  session.capabilities = [...(session.capabilities ?? []), ...extraCapabilities];
   render(
     <NextIntlClientProvider locale="en" messages={enMessages}>
       <AuthContext.Provider value={authValue(session)}>
@@ -228,5 +230,47 @@ describe("TeacherPayCard", () => {
     renderCard("ACCOUNTANT");
     await screen.findByTestId("teacher-pay-editor");
     expect(screen.getByTestId("save-teacher-pay")).toBeInTheDocument();
+  });
+  // Lingo, 2026-11-26: a fixed price for a 40-minute lesson — only where the academy has the switch.
+  describe("the 40-minute price (lesson40_price)", () => {
+    const hourly = { ...TEACHER, pay_type: "HOURLY" as const, session_rate_minor: 9000, lesson40_minor: null };
+
+    it("lets an hourly teacher carry one, two thirds of the hour as the placeholder, sent in minor units", async () => {
+      vi.mocked(api.getTeacher).mockResolvedValue({ teacher: hourly, students: [], student_rates: [], login: { has_login: false, email: null, is_active: null } });
+      renderCard("ACADEMY_OWNER", [], ["lesson40_price"]);
+      const field = await screen.findByTestId("pay-lesson40");
+      expect(field).toHaveAttribute("placeholder", "60");
+      const user = userEvent.setup();
+      await user.type(field, "70");
+      await user.click(screen.getByTestId("save-teacher-pay"));
+
+      await waitFor(() => expect(api.updateTeacher).toHaveBeenCalled());
+      expect(vi.mocked(api.updateTeacher).mock.calls[0]![1]).toMatchObject({ pay_type: "HOURLY", lesson40_minor: 7000 });
+    });
+
+    it("clears it for a teacher moved off hourly pay", async () => {
+      vi.mocked(api.getTeacher).mockResolvedValue({ teacher: { ...hourly, lesson40_minor: 7000 }, students: [], student_rates: [], login: { has_login: false, email: null, is_active: null } });
+      renderCard("ACADEMY_OWNER", [], ["lesson40_price"]);
+      expect(await screen.findByTestId("pay-lesson40")).toHaveValue(70);
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("pay-type-PER_STUDENT"));
+      expect(screen.queryByTestId("pay-lesson40")).not.toBeInTheDocument();
+      await user.click(screen.getByTestId("save-teacher-pay"));
+
+      await waitFor(() => expect(api.updateTeacher).toHaveBeenCalled());
+      expect(vi.mocked(api.updateTeacher).mock.calls[0]![1]).toMatchObject({ pay_type: "PER_STUDENT", lesson40_minor: null });
+    });
+
+    it("is not there without the switch, and nothing about it is sent", async () => {
+      vi.mocked(api.getTeacher).mockResolvedValue({ teacher: hourly, students: [], student_rates: [], login: { has_login: false, email: null, is_active: null } });
+      renderCard();
+      await screen.findByTestId("teacher-pay-editor");
+      expect(screen.queryByTestId("pay-lesson40")).not.toBeInTheDocument();
+      const user = userEvent.setup();
+      await user.click(screen.getByTestId("save-teacher-pay"));
+
+      await waitFor(() => expect(api.updateTeacher).toHaveBeenCalled());
+      expect(vi.mocked(api.updateTeacher).mock.calls[0]![1]).not.toHaveProperty("lesson40_minor");
+    });
   });
 });
