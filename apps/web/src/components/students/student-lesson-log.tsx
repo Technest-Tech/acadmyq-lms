@@ -16,7 +16,7 @@ import {
   timeInTz,
   todayInTz,
 } from "@/components/scheduling/calendar/utils";
-import { LessonCountingAction } from "@/components/packages/lesson-counting-modal";
+import { LessonLogActions } from "@/components/packages/lesson-edit-modal";
 import { AlertBanner } from "@/components/ui/alert";
 import {
   ApiError,
@@ -167,7 +167,7 @@ function PackageLog({ packages }: { packages: LessonPackageRow[] }) {
       ) : (
         <ol className="bg-card divide-y overflow-hidden rounded-2xl border shadow-sm" data-testid="lesson-log-list">
           {log.lessons.map((lesson, i) => (
-            <LessonRow key={lesson.id} lesson={lesson} n={i + 1} tz={tz} action={<LessonCountingAction lesson={lesson} onChanged={changed} />} />
+            <LessonRow key={lesson.id} lesson={lesson} n={i + 1} tz={tz} action={<LessonLogActions lesson={lesson} onChanged={changed} />} />
           ))}
           {log.unscheduled > 0 && (
             <li
@@ -204,7 +204,7 @@ function PackageLog({ packages }: { packages: LessonPackageRow[] }) {
               <p className="text-muted-foreground text-[11px]">{t("notCountedHint")}</p>
               <ul className="bg-card divide-y overflow-hidden rounded-2xl border opacity-80 shadow-sm" data-testid="lesson-log-not-counted">
                 {log.not_counted.map((lesson) => (
-                  <LessonRow key={lesson.id} lesson={lesson} tz={tz} action={<LessonCountingAction lesson={lesson} onChanged={changed} />} />
+                  <LessonRow key={lesson.id} lesson={lesson} tz={tz} action={<LessonLogActions lesson={lesson} onChanged={changed} />} />
                 ))}
               </ul>
             </>

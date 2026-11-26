@@ -3,10 +3,11 @@
 import { academyTimeZone } from "@/lib/academy-clock";
 import { CalendarClock, ChevronDown, Loader2 } from "lucide-react";
 import { useLocale, useTranslations } from "next-intl";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { blockAmount } from "@/components/packages/lesson-price-fields";
-import { LessonCountingAction } from "@/components/packages/lesson-counting-modal";
+import { LessonLogActions } from "@/components/packages/lesson-edit-modal";
 import { LessonRow } from "@/components/students/student-lesson-log";
+import { AlertBanner } from "@/components/ui/alert";
 import { Modal } from "@/components/ui/modal";
 import {
   ApiError,
@@ -23,40 +24,65 @@ import { cn } from "@/lib/utils";
  * numbered, with day, time and status — the same rows as the profile's lesson log
  * (GET /packages/{id}/lessons). Opened from the Due page so whoever is chasing a payment can answer
  * "which lessons was #3 for?" without leaving the page.
+ *
+ * Every lesson can be corrected or deleted here, on old blocks too (Ahmed 2026-11-26). That moves
+ * the blocks after it, so the whole list is read again, and the page behind is told on closing —
+ * not while the log is open, where a row leaving the page would take the log with it.
  */
 export function PackageHistoryModal({
   studentId,
   studentName,
   open,
   onClose,
+  onChanged,
 }: {
   studentId: string;
   studentName: string;
   open: boolean;
   onClose: () => void;
+  /** A lesson was corrected or deleted: the blocks behind the page moved. Called on closing. */
+  onChanged?: () => void;
 }) {
   const t = useTranslations("packages.history");
   const tActions = useTranslations("packages.actions");
+  const changed = useRef(false);
+
+  const close = () => {
+    onClose();
+    if (changed.current) {
+      changed.current = false;
+      onChanged?.();
+    }
+  };
 
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={close}
       title={t("title", { name: studentName })}
       description={t("subtitle")}
       size="lg"
       closeLabel={tActions("cancel")}
     >
-      {open && <PackageHistoryList studentId={studentId} />}
+      {open && <PackageHistoryList studentId={studentId} onChanged={() => (changed.current = true)} />}
     </Modal>
   );
 }
 
-function PackageHistoryList({ studentId }: { studentId: string }) {
+function PackageHistoryList({ studentId, onChanged }: { studentId: string; onChanged: () => void }) {
   const t = useTranslations("packages.history");
   const [packages, setPackages] = useState<LessonPackageRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  // Bumped by a lesson corrected or deleted: every block and every open log is read again.
+  const [version, setVersion] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const lessonChanged = (message: string) => {
+    setNotice(message);
+    setVersion((v) => v + 1);
+    onChanged();
+  };
 
   useEffect(() => {
     let live = true;
@@ -73,7 +99,7 @@ function PackageHistoryList({ studentId }: { studentId: string }) {
     return () => {
       live = false;
     };
-  }, [studentId]);
+  }, [studentId, version]);
 
   if (error) return <p className="text-destructive text-sm">{error}</p>;
   if (packages === null) return <Loading />;
@@ -82,20 +108,37 @@ function PackageHistoryList({ studentId }: { studentId: string }) {
   }
 
   return (
-    <ul className="space-y-2" data-testid="package-history">
-      {packages.map((p) => (
-        <HistoryItem
-          key={p.id}
-          row={p}
-          open={openId === p.id}
-          onToggle={() => setOpenId((id) => (id === p.id ? null : p.id))}
-        />
-      ))}
-    </ul>
+    <div className="space-y-2">
+      {notice && <AlertBanner variant="success" message={notice} onDismiss={() => setNotice(null)} />}
+      <ul className="space-y-2" data-testid="package-history">
+        {packages.map((p) => (
+          <HistoryItem
+            key={p.id}
+            row={p}
+            open={openId === p.id}
+            version={version}
+            onToggle={() => setOpenId((id) => (id === p.id ? null : p.id))}
+            onLessonChanged={lessonChanged}
+          />
+        ))}
+      </ul>
+    </div>
   );
 }
 
-function HistoryItem({ row, open, onToggle }: { row: LessonPackageRow; open: boolean; onToggle: () => void }) {
+function HistoryItem({
+  row,
+  open,
+  version,
+  onToggle,
+  onLessonChanged,
+}: {
+  row: LessonPackageRow;
+  open: boolean;
+  version: number;
+  onToggle: () => void;
+  onLessonChanged: (message: string) => void;
+}) {
   const t = useTranslations("packages");
   const locale = useLocale();
   const tz = academyTimeZone();
@@ -107,6 +150,13 @@ function HistoryItem({ row, open, onToggle }: { row: LessonPackageRow; open: boo
   const day = (date: string) =>
     new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
   const ended = row.closed_at !== null ? day(row.closed_at.slice(0, 10)) : null;
+
+  // A lesson corrected anywhere moves the blocks after it: what this one holds is read again.
+  const [seen, setSeen] = useState(version);
+  if (seen !== version) {
+    setSeen(version);
+    setLog(null);
+  }
 
   // Read once, the first time it is opened; folding and unfolding again keeps what came back.
   useEffect(() => {
@@ -199,7 +249,7 @@ function HistoryItem({ row, open, onToggle }: { row: LessonPackageRow; open: boo
                   lesson={lesson}
                   n={i + 1}
                   tz={tz}
-                  action={<LessonCountingAction lesson={lesson} onChanged={() => setLog(null)} />}
+                  action={<LessonLogActions lesson={lesson} onChanged={onLessonChanged} />}
                 />
               ))}
               {log.unscheduled > 0 && (
@@ -227,7 +277,7 @@ function HistoryItem({ row, open, onToggle }: { row: LessonPackageRow; open: boo
                     key={lesson.id}
                     lesson={lesson}
                     tz={tz}
-                    action={<LessonCountingAction lesson={lesson} onChanged={() => setLog(null)} />}
+                    action={<LessonLogActions lesson={lesson} onChanged={onLessonChanged} />}
                   />
                 ))}
               </ul>

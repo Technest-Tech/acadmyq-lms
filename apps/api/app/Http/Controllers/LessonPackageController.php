@@ -1440,13 +1440,55 @@ final class LessonPackageController extends Controller
         $data = $request->validate([
             'counts' => ['required', 'boolean'],
             'teacher_percent' => ['nullable', 'integer', Rule::in(PackageLessonCounting::TEACHER_PERCENTS)],
+            'status' => ['nullable', 'string', Rule::in(PackageLessonCounting::OUTCOMES)],
         ]);
-        $session = DB::table('sessions')->where('id', $sessionId)->first();
+        $session = $this->visibleLesson($sessionId);
+
+        return response()->json($counting->preview($session, (bool) $data['counts'], isset($data['teacher_percent']) ? (int) $data['teacher_percent'] : null, $data['status'] ?? null));
+    }
+
+    /**
+     * GET /api/packages/lessons/{sessionId}/delete — what deleting a lesson from a package's log
+     * would do: the blocks that move (every one after it, down to the running one), the teacher's
+     * line. Nothing is written.
+     */
+    public function lessonDeletePreview(string $sessionId, PackageLessonCounting $counting): JsonResponse
+    {
+        Gate::authorize('package.manage');
+        Gate::authorize('session.delete');
+
+        return response()->json($counting->deletePreview($this->visibleLesson($sessionId)));
+    }
+
+    /**
+     * DELETE /api/packages/lessons/{sessionId} — delete a lesson from a package's log (Ahmed
+     * 2026-11-26), even on an old block: off the package as if it never counted, every block after it
+     * moving with it, off the teacher's salary (a sealed month corrected in place), and hidden.
+     */
+    public function destroyLesson(string $sessionId, PackageLessonCounting $counting): JsonResponse
+    {
+        Gate::authorize('package.manage');
+        Gate::authorize('session.delete');
+
+        $preview = $counting->deletePreview($this->visibleLesson($sessionId));
+        if ($preview['teacher']['percent_after'] !== $preview['teacher']['percent_before'] && ($preview['teacher']['statement']['sealed'] ?? false)) {
+            Gate::authorize('payout.adjust');
+        }
+
+        $ctx = app(AuthContext::class);
+
+        return response()->json(['ok' => true] + $counting->delete($sessionId, (string) $ctx->userId, (string) $ctx->role));
+    }
+
+    /** A lesson of this academy that has not been deleted, or 404. */
+    private function visibleLesson(string $sessionId): object
+    {
+        $session = DB::table('sessions')->where('id', $sessionId)->whereNull('hidden_at')->first();
         if ($session === null) {
             abort(404, 'Lesson not found.');
         }
 
-        return response()->json($counting->preview($session, (bool) $data['counts'], isset($data['teacher_percent']) ? (int) $data['teacher_percent'] : null));
+        return $session;
     }
 
     /**
@@ -1463,21 +1505,24 @@ final class LessonPackageController extends Controller
         $data = $request->validate([
             'counts' => ['required', 'boolean'],
             'teacher_percent' => ['nullable', 'integer', Rule::in(PackageLessonCounting::TEACHER_PERCENTS)],
+            // The outcome corrected from the package log (Ahmed 2026-11-26); absent = only the counting.
+            'status' => ['nullable', 'string', Rule::in(PackageLessonCounting::OUTCOMES)],
         ]);
-        $session = DB::table('sessions')->where('id', $sessionId)->first();
-        if ($session === null) {
-            abort(404, 'Lesson not found.');
-        }
+        $session = $this->visibleLesson($sessionId);
         $teacherPercent = isset($data['teacher_percent']) ? (int) $data['teacher_percent'] : null;
+        $status = $data['status'] ?? null;
+        if ($status !== null && $status !== (string) $session->status) {
+            Gate::authorize('session.mark_attendance');
+        }
 
-        $preview = $counting->preview($session, (bool) $data['counts'], $teacherPercent);
+        $preview = $counting->preview($session, (bool) $data['counts'], $teacherPercent, $status);
         if ($preview['teacher']['percent_after'] !== $preview['teacher']['percent_before'] && ($preview['teacher']['statement']['sealed'] ?? false)) {
             Gate::authorize('payout.adjust');
         }
 
         $ctx = app(AuthContext::class);
 
-        return response()->json(['ok' => true] + $counting->apply($sessionId, (bool) $data['counts'], $teacherPercent, (string) $ctx->userId, (string) $ctx->role));
+        return response()->json(['ok' => true] + $counting->apply($sessionId, (bool) $data['counts'], $teacherPercent, (string) $ctx->userId, (string) $ctx->role, $status));
     }
 
     /**

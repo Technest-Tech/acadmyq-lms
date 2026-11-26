@@ -1535,6 +1535,8 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
             Route::post('/packages/prepay', [LessonPackageController::class, 'prepay']);
             Route::get('/packages/lessons/{sessionId}/counting', [LessonPackageController::class, 'countingPreview'])->whereUuid('sessionId');
             Route::post('/packages/lessons/{sessionId}/counting', [LessonPackageController::class, 'setCounting'])->whereUuid('sessionId');
+            Route::get('/packages/lessons/{sessionId}/delete', [LessonPackageController::class, 'lessonDeletePreview'])->whereUuid('sessionId');
+            Route::delete('/packages/lessons/{sessionId}', [LessonPackageController::class, 'destroyLesson'])->whereUuid('sessionId');
             Route::delete('/packages/prepayments/{id}', [LessonPackageController::class, 'cancelPrepayment'])->whereUuid('id');
             Route::post('/packages', [LessonPackageController::class, 'store']);
             Route::get('/packages/{id}', [LessonPackageController::class, 'show']);

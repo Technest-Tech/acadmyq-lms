@@ -484,6 +484,7 @@ function DueRow({
         studentName={row.student_name}
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
+        onChanged={actions.onLessonsChanged}
       />
     </li>
   );

@@ -864,17 +864,19 @@ final class LessonPackages
      * minutes that are on a bill or that the next block cannot hold. A chain is left alone: with a
      * finished block in between, this one stays finished and the freed minutes go unused.
      *
-     * `$wholeLessons` — a whole lesson leaves the block (a cancellation set to not count,
-     * PackageLessonCounting), so lessons come back from the next block even where blocks count
-     * lessons. A length correction does not pass it: there a length moves only the teacher's pay.
+     * `$wholeLessons` — a whole lesson leaves the block (a cancellation set to not count, a lesson
+     * corrected or deleted from the package log: PackageLessonCounting), so lessons come back from the
+     * next block even where blocks count lessons, and through a chain of finished blocks
+     * ({@see chainedPlan()}). A length correction does not pass it: there a length moves only the
+     * teacher's pay.
      *
-     * @return array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object, moves:list<array{credit_id:string, session_id:?string, minutes:int, overdrawn:int}>, moved_from:?object, consumed_after:int, overdrawn_after:int}
+     * @return array{blocker:?string, reopens:bool, renewal:?object, own_bill:?object, stays_closed:?string, absorbs_into:?object, moves:list<array{credit_id:string, session_id:?string, minutes:int, overdrawn:int}>, moved_from:?object, consumed_after:int, overdrawn_after:int, chain:?array}
      */
     public function finishedBlockPlan(object $package, int $consumedAfter, int $overdrawnAfter, bool $wholeLessons = false): array
     {
         $plan = [
             'blocker' => null, 'reopens' => false, 'renewal' => null, 'own_bill' => null, 'stays_closed' => null, 'absorbs_into' => null,
-            'moves' => [], 'moved_from' => null, 'consumed_after' => $consumedAfter, 'overdrawn_after' => $overdrawnAfter,
+            'moves' => [], 'moved_from' => null, 'consumed_after' => $consumedAfter, 'overdrawn_after' => $overdrawnAfter, 'chain' => null,
         ];
 
         if ($package->status !== 'COMPLETED' || $package->closed_reason !== 'EXHAUSTED') {
@@ -912,6 +914,13 @@ final class LessonPackages
         // Still full, so it stays finished: only its overdraft moved.
         if ($consumedAfter >= $capacity) {
             return $plan;
+        }
+
+        if ($wholeLessons && $next === null && $later->isNotEmpty()) {
+            $chained = $this->chainedPlan($package, $later->first(), $plan, $capacity, $consumedAfter);
+            if ($chained !== null) {
+                return $chained;
+            }
         }
 
         if ($later->isNotEmpty() && ($next === null || (! $wholeLessons && self::countsLessons($next)))) {
@@ -967,6 +976,131 @@ final class LessonPackages
         }
 
         return ['reopens' => true, 'renewal' => $renewal, 'own_bill' => $ownBill] + $plan;
+    }
+
+    /**
+     * A whole lesson left a block, and the block behind it finished too — a chain (#2 and #3 used
+     * up, #4 running). Ahmed 2026-11-26: a lesson taken off an old block moves every block after it.
+     * So the books go back as if the lesson had never counted: the block behind gives this one its
+     * first lessons back until it is full again, which leaves that one short, so it takes the first
+     * lessons of the block behind it in turn — down to the running block, which ends with that much
+     * more left, or a finished last block that re-opens ({@see finishedBlockPlan()} at each step).
+     *
+     * Only where the lessons fit whole: a lesson that would run over, or an overdraft already on this
+     * block, stops the chain here, and the block stays finished with its minutes free, as before.
+     *
+     * @param  array<string,mixed>  $plan
+     * @return array<string,mixed>|null null when the chain cannot follow from here
+     */
+    private function chainedPlan(object $package, object $following, array $plan, int $capacity, int $consumedAfter): ?array
+    {
+        if ($following->status !== 'COMPLETED' || $following->closed_reason !== 'EXHAUSTED') {
+            return null;
+        }
+        if ((int) $package->minutes_overdrawn !== 0 || $package->overdraft_absorbed_by !== null || (int) $following->absorbed_overdraft_minutes !== 0) {
+            return null;
+        }
+
+        $moves = $this->lessonsToPullBack($following, $capacity - $consumedAfter);
+        $moved = array_sum(array_column($moves, 'minutes'));
+        if ($moves === [] || $consumedAfter + $moved !== $capacity) {
+            return null; // a lesson would run over, or the block behind has too few to give
+        }
+
+        // The block behind, short by what it gave: the same question one step further down.
+        $rest = $this->finishedBlockPlan($following, (int) $following->minutes_consumed - $moved, 0, wholeLessons: true);
+        if ($rest['blocker'] !== null) {
+            return null;
+        }
+
+        return ['moves' => $moves, 'moved_from' => $following, 'consumed_after' => $capacity, 'overdrawn_after' => 0, 'chain' => $rest] + $plan;
+    }
+
+    /**
+     * Every block a {@see finishedBlockPlan()} touches, as the owner reads it before confirming: what
+     * each had used and will have used, its state before and after, and the lessons it takes back or
+     * gives back. `$usedBefore` is the first block's use before the lesson came off it.
+     *
+     * @param  array<string,mixed>  $plan
+     * @return list<array<string,mixed>>
+     */
+    public function planBlocks(object $block, int $usedBefore, array $plan): array
+    {
+        $rows = [];
+        $this->collectPlanBlocks($block, $usedBefore, $plan, 0, $rows);
+
+        return $rows;
+    }
+
+    /**
+     * @param  array<string,mixed>  $plan
+     * @param  list<array<string,mixed>>  $rows
+     */
+    private function collectPlanBlocks(object $block, int $usedBefore, array $plan, int $gaveBack, array &$rows): void
+    {
+        $tookBack = count($plan['moves']);
+        $voided = $plan['own_bill'] !== null
+            ? ['amount_minor' => (int) $plan['own_bill']->total_minor, 'currency' => trim((string) $plan['own_bill']->currency)]
+            : null;
+        $rows[] = self::blockRow($block, $usedBefore, (int) $plan['consumed_after'], $plan['reopens'] ? 'ACTIVE' : (string) $block->status, $tookBack, $gaveBack, $voided)
+            + ['stays_closed' => $plan['stays_closed']];
+
+        $from = $plan['moved_from'];
+        if ($plan['chain'] !== null && $from !== null) {
+            $this->collectPlanBlocks($from, (int) $from->minutes_consumed, $plan['chain'], $tookBack, $rows);
+
+            return;
+        }
+
+        // The running block behind it: the lessons it gave back, the overdraft it holds for this one.
+        $behind = $from ?? $plan['renewal'];
+        if ($behind === null) {
+            return;
+        }
+        $moved = array_sum(array_column($plan['moves'], 'minutes'));
+        $absorbed = 0;
+        if ($block->overdraft_absorbed_by !== null && (string) $block->overdraft_absorbed_by === (string) $behind->id) {
+            $absorbed = (int) $plan['overdrawn_after'] - (int) $block->minutes_overdrawn;
+        } elseif ($plan['absorbs_into'] !== null && (string) $plan['absorbs_into']->id === (string) $behind->id) {
+            $absorbed = (int) $plan['overdrawn_after'];
+        }
+        $undone = $plan['renewal'] !== null && (string) $plan['renewal']->id === (string) $behind->id;
+        $bill = $undone && $behind->invoice_id !== null ? DB::table('invoices')->where('id', $behind->invoice_id)->first(['total_minor', 'currency', 'status']) : null;
+        $rows[] = self::blockRow(
+            $behind,
+            (int) $behind->minutes_consumed,
+            max(0, (int) $behind->minutes_consumed - $moved + $absorbed),
+            $undone ? 'CANCELLED' : (string) $behind->status,
+            0,
+            $tookBack,
+            $bill !== null && $bill->status !== 'VOID' ? ['amount_minor' => (int) $bill->total_minor, 'currency' => trim((string) $bill->currency)] : null,
+        ) + ['stays_closed' => null];
+    }
+
+    /**
+     * One block in a preview of what moves.
+     *
+     * @param  array{amount_minor:int, currency:string}|null  $billVoided
+     * @return array<string,mixed>
+     */
+    public static function blockRow(object $block, int $usedBefore, int $usedAfter, string $statusAfter, int $tookBack, int $gaveBack, ?array $billVoided = null): array
+    {
+        return [
+            'id' => (string) $block->id,
+            'sequence_no' => (int) $block->sequence_no,
+            'label' => (string) $block->label,
+            'capacity' => (int) $block->minutes_total + (int) $block->carried_over_minutes,
+            // Set only where the block counts lessons: the screen then says "7 of 8 lessons", else hours.
+            'lesson_minutes' => self::countsLessons($block) ? self::lessonLength($block) : null,
+            'counts_lessons' => self::countsLessons($block),
+            'used_before' => $usedBefore,
+            'used_after' => $usedAfter,
+            'status_before' => (string) $block->status,
+            'status_after' => $statusAfter,
+            'took_back' => $tookBack,
+            'gave_back' => $gaveBack,
+            'bill_voided' => $billVoided,
+        ];
     }
 
     /**
@@ -1062,6 +1196,17 @@ final class LessonPackages
         } else {
             // Staying closed with minutes free on a bill paid up front: same question as closing it early.
             app(PackageSettlement::class)->markIfOwed($id);
+        }
+
+        // A chain: the block that gave its first lessons back now takes the next block's, and so on.
+        if (($plan['chain'] ?? null) !== null) {
+            $following = $plan['moved_from'];
+            DB::table('lesson_packages')->where('id', $following->id)->update([
+                'minutes_consumed' => (int) $plan['chain']['consumed_after'],
+                'minutes_overdrawn' => (int) $plan['chain']['overdrawn_after'],
+                'updated_at' => now(),
+            ]);
+            $this->applyFinishedBlockPlan($following, $plan['chain'], $actorUserId, $actorRole);
         }
     }
 

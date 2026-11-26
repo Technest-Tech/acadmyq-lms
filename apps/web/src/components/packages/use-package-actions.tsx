@@ -211,6 +211,7 @@ export function usePackageActions({
     onReturnToMonthly: () => setModal({ kind: "toMonthly", row }),
     onPrepay: () => setModal({ kind: "prepay", rows: [row] }),
     onCancelPrepay: () => setModal({ kind: "cancelPrepay", row }),
+    onLessonsChanged: onChanged,
   });
 
   async function confirmCancelPrepay(row: LessonPackageRow) {

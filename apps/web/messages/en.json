@@ -4518,7 +4518,9 @@
       "blocker": {
         "NOT_CANCELLED": "This lesson is not cancelled.",
         "PACKAGE_CLOSED": "This lesson's package was closed by hand and settled; it cannot change.",
-        "PACKAGE_OVERDRAFT_SETTLED": "The extra minutes on this lesson's package were already billed; it cannot change."
+        "PACKAGE_OVERDRAFT_SETTLED": "The extra minutes on this lesson's package were already billed; it cannot change.",
+        "NOT_STARTED": "This lesson has not started yet, so there is no outcome to change.",
+        "NOT_AN_OUTCOME": "Pick attended, free, or cancelled by the teacher or the student."
       },
       "cancel": "Cancel",
       "save": "Save and recalculate",
@@ -4527,6 +4529,36 @@
       "chipNotCounts": "Doesn't count",
       "chipTeacher": "Teacher: {share}",
       "edit": "Change counting"
+    },
+    "lessonEdit": {
+      "edit": "Edit lesson",
+      "delete": "Delete lesson",
+      "editTitle": "Edit lesson",
+      "deleteTitle": "Delete lesson",
+      "outcome": "Outcome",
+      "cancel": "Cancel",
+      "back": "Back",
+      "save": "Save",
+      "continue": "Yes, continue",
+      "confirmEdit": "Are you sure you want to change this lesson?",
+      "confirmOutcome": "Are you sure you want to change this lesson from “{before}” to “{after}”?",
+      "confirmDelete": "Are you sure you want to delete this lesson? It comes off the log, the package and the teacher's salary.",
+      "finalTitle": "Last check",
+      "finalWarning": "Every package of this student is worked out again, the due and new ones too, and the teacher's salary.",
+      "finalWarningDelete": "The lesson is deleted and every package of this student is worked out again, the due and new ones too, and the teacher's salary.",
+      "finalEdit": "Yes, change it",
+      "finalDelete": "Yes, delete it",
+      "edited": "Done: the lesson was changed and the packages and salary worked out again.",
+      "deleted": "Done: the lesson was deleted and the packages and salary worked out again.",
+      "noPackageChange": "No package changes.",
+      "usedLessons": "{before} → {after} of {total, plural, one {# lesson} other {# lessons}}",
+      "usedHours": "{before} → {after} of {total}",
+      "tookBack": "takes {count, plural, one {a lesson} other {# lessons}} back from #{from}",
+      "gaveBack": "gives {count, plural, one {a lesson} other {# lessons}} back to #{to}",
+      "reopens": "opens again",
+      "cancelled": "cancelled",
+      "completes": "finishes and renews",
+      "billVoided": "its bill ({amount}) is voided"
     }
   },
   "attendance": {

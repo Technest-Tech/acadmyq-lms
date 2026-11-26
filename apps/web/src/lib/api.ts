@@ -9327,9 +9327,36 @@ export function getPackageLessons(id: string): Promise<PackageLessonLog> {
 /** Cancellation statuses a lesson's counting can be changed on (PackageLessonCounting::STATUSES). */
 export const COUNTABLE_CANCEL_STATUSES = ["CANCELLED_BY_STUDENT", "CANCELLED_BY_TEACHER", "ABSENT_EXCUSED", "ABSENT_UNEXCUSED"] as const;
 
-/** What setting a cancelled lesson to count (or not) does — or did. */
+/** One block a lesson correction moves, before and after (LessonPackages::blockRow). */
+export interface LessonEffectBlock {
+  id: string;
+  sequence_no: number;
+  label: string;
+  /** Minutes the block holds (bought + carried over). */
+  capacity: number;
+  /** Set where the block counts lessons: show "7 of 8 lessons", else hours. */
+  lesson_minutes: number | null;
+  used_before: number;
+  used_after: number;
+  status_before: string;
+  status_after: string;
+  /** Lessons it takes back from the block after it. */
+  took_back: number;
+  /** Lessons it gives back to the block before it. */
+  gave_back: number;
+  bill_voided: { amount_minor: number; currency: string } | null;
+  stays_closed?: string | null;
+}
+
+/** Outcomes a lesson can be corrected to from the package log (PackageLessonCounting::OUTCOMES). */
+export const LESSON_LOG_OUTCOMES = ["ATTENDED", "FREE", "CANCELLED_BY_TEACHER", "CANCELLED_BY_STUDENT"] as const;
+export type LessonLogOutcome = (typeof LESSON_LOG_OUTCOMES)[number];
+
+/** What correcting (or deleting) a lesson in a package's log does — or did. */
 export interface LessonCountingEffect {
   blocker?: string | null;
+  status_before?: string;
+  status_after?: string;
   student: {
     counts_before: boolean;
     counts_after: boolean;
@@ -9340,6 +9367,8 @@ export interface LessonCountingEffect {
     renewal_undone: boolean;
     lessons_moved_back: { sequence_no: number; lessons: number } | null;
     stays_closed: string | null;
+    /** Every block it moves — the chain behind an old block down to the running one. */
+    blocks?: LessonEffectBlock[];
   };
   teacher: {
     percent_before: number;
@@ -9351,15 +9380,27 @@ export interface LessonCountingEffect {
   };
 }
 
-export function previewLessonCounting(sessionId: string, counts: boolean, teacherPercent: number): Promise<LessonCountingEffect> {
-  return apiFetch(`/api/packages/lessons/${sessionId}/counting?counts=${counts ? 1 : 0}&teacher_percent=${teacherPercent}`);
+/** `status` corrects the lesson's outcome too; left out, only a cancellation's counting moves. */
+export function previewLessonCounting(sessionId: string, counts: boolean, teacherPercent: number, status?: LessonLogOutcome): Promise<LessonCountingEffect> {
+  const outcome = status ? `&status=${status}` : "";
+  return apiFetch(`/api/packages/lessons/${sessionId}/counting?counts=${counts ? 1 : 0}&teacher_percent=${teacherPercent}${outcome}`);
 }
 
-export function setLessonCounting(sessionId: string, counts: boolean, teacherPercent: number): Promise<LessonCountingEffect & { ok: true }> {
+export function setLessonCounting(sessionId: string, counts: boolean, teacherPercent: number, status?: LessonLogOutcome): Promise<LessonCountingEffect & { ok: true }> {
   return apiFetch(`/api/packages/lessons/${sessionId}/counting`, {
     method: "POST",
-    body: JSON.stringify({ counts, teacher_percent: teacherPercent }),
+    body: JSON.stringify({ counts, teacher_percent: teacherPercent, ...(status ? { status } : {}) }),
   });
+}
+
+/** What deleting a lesson from a package's log would do (nothing is written). */
+export function previewPackageLessonDelete(sessionId: string): Promise<LessonCountingEffect> {
+  return apiFetch(`/api/packages/lessons/${sessionId}/delete`);
+}
+
+/** Delete a lesson from a package's log: every block after it moves with it, the salary follows. */
+export function deletePackageLesson(sessionId: string): Promise<LessonCountingEffect & { ok: true }> {
+  return apiFetch(`/api/packages/lessons/${sessionId}`, { method: "DELETE" });
 }
 
 /**

@@ -2380,6 +2380,186 @@ it('corrects a sealed salary month in place when the teacher\'s share of a cance
         ->and(DB::table('lesson_package_credits')->where('session_id', $cancelled)->exists())->toBeTrue();
 });
 
+// ─── Edit and delete a lesson from the package log, even on an old block (Ahmed 2026-11-26) ──
+
+/** Blocks of `$hours`, renewing, each bill paid: `$lessons` hour lessons attended one a day from June 2. */
+function packageChain($test, int $hours, int $lessons): array
+{
+    $first = ($test->openPackage)($hours, 20000 * $hours, autoRenew: true);
+    $ids = [];
+    for ($i = 0; $i < $lessons; $i++) {
+        $ids[] = ($test->lesson)(60, sprintf('2026-06-%02d 10:00:00+00', $i + 2));
+        ($test->attend)(end($ids));
+    }
+    Sanctum::actingAs($test->owner);
+    (fn () => $this->asAcademy($this->academy))->call($test);
+    foreach (DB::table('lesson_packages')->where('student_id', $test->student)->where('status', 'COMPLETED')->pluck('invoice_id') as $bill) {
+        $test->postJson("/api/invoices/{$bill}/mark-paid", ['payment_method' => 'CASH'])->assertOk();
+    }
+
+    return ['first' => $first['package_id'], 'lessons' => $ids];
+}
+
+/** sequence_no => [status, minutes used, lesson ids in date order] for the student's blocks. */
+function blocksNow($test): array
+{
+    (fn () => $this->asAcademy($this->academy))->call($test);
+    $out = [];
+    foreach (DB::table('lesson_packages')->where('student_id', $test->student)->orderBy('sequence_no')->get() as $p) {
+        $out[(int) $p->sequence_no] = [
+            (string) $p->status,
+            (int) $p->minutes_consumed,
+            DB::table('lesson_package_credits as c')->join('sessions as s', 's.id', '=', 'c.session_id')
+                ->where('c.package_id', $p->id)->orderBy('s.scheduled_at_utc')->pluck('s.id')->all(),
+        ];
+    }
+
+    return $out;
+}
+
+it('deletes a lesson from an old block: every block after it gives one lesson back, down to the running one', function () {
+    ['lessons' => [$l1, $l2, $l3, $l4, $l5]] = packageChain($this, 2, 5); // #1 l1 l2 · #2 l3 l4 · #3 l5
+    expect(blocksNow($this))->toBe([
+        1 => ['COMPLETED', 120, [$l1, $l2]],
+        2 => ['COMPLETED', 120, [$l3, $l4]],
+        3 => ['ACTIVE', 60, [$l5]],
+    ]);
+
+    Sanctum::actingAs($this->owner);
+    $preview = $this->getJson("/api/packages/lessons/{$l1}/delete")->assertOk()
+        ->assertJsonPath('student.mode', 'FINISHED_PLAN')
+        ->assertJsonPath('teacher.percent_after', 0)
+        ->json('student.blocks');
+    expect(array_map(fn ($b) => [$b['sequence_no'], $b['used_before'], $b['used_after'], $b['status_after'], $b['took_back'], $b['gave_back']], $preview))->toBe([
+        [1, 120, 120, 'COMPLETED', 1, 0],
+        [2, 120, 120, 'COMPLETED', 1, 1],
+        [3, 60, 0, 'ACTIVE', 0, 1],
+    ]);
+
+    $this->deleteJson("/api/packages/lessons/{$l1}")->assertOk();
+
+    expect(blocksNow($this))->toBe([
+        1 => ['COMPLETED', 120, [$l2, $l3]],
+        2 => ['COMPLETED', 120, [$l4, $l5]],
+        3 => ['ACTIVE', 0, []],
+    ]);
+    $this->asAcademy($this->academy);
+    $gone = DB::table('sessions')->where('id', $l1)->first();
+    expect($gone->hidden_at)->not->toBeNull()
+        ->and((bool) $gone->billed)->toBeFalse()
+        ->and((bool) $gone->paid_to_teacher)->toBeFalse()
+        ->and(DB::table('payout_line_items')->where('session_id', $l1)->exists())->toBeFalse()
+        // The others' teacher lines never move: pay follows the lesson.
+        ->and(DB::table('payout_line_items')->whereIn('session_id', [$l2, $l3, $l4, $l5])->count())->toBe(4);
+});
+
+it('re-opens the last finished block at the end of the chain and undoes the renewal nobody used', function () {
+    ['lessons' => [$l1, $l2, $l3]] = packageChain($this, 1, 3); // #1 l1 · #2 l2 · #3 l3 · #4 renewed, empty
+    $renewal = activeBlock($this);
+    expect((int) $renewal->sequence_no)->toBe(4);
+
+    Sanctum::actingAs($this->owner);
+    $blocks = $this->getJson("/api/packages/lessons/{$l1}/delete")->assertOk()->json('student.blocks');
+    expect(array_column($blocks, 'status_after'))->toBe(['COMPLETED', 'COMPLETED', 'ACTIVE', 'CANCELLED'])
+        ->and($blocks[3]['bill_voided']['amount_minor'])->toBe(20000);
+
+    $this->deleteJson("/api/packages/lessons/{$l1}")->assertOk();
+
+    expect(blocksNow($this))->toBe([
+        1 => ['COMPLETED', 60, [$l2]],
+        2 => ['COMPLETED', 60, [$l3]],
+        3 => ['ACTIVE', 0, []],
+        4 => ['CANCELLED', 0, []],
+    ]);
+    $this->asAcademy($this->academy);
+    expect(DB::table('invoices')->where('id', $renewal->invoice_id)->value('status'))->toBe('VOID');
+});
+
+it('corrects an old lesson to a cancellation that does not count: the blocks move the same way, the lesson stays on the log', function () {
+    ['lessons' => [$l1, $l2, $l3, $l4, $l5]] = packageChain($this, 2, 5);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/packages/lessons/{$l1}/counting?counts=0&teacher_percent=0&status=CANCELLED_BY_STUDENT")->assertOk()
+        ->assertJsonPath('status_before', 'ATTENDED')
+        ->assertJsonPath('status_after', 'CANCELLED_BY_STUDENT')
+        ->assertJsonPath('student.mode', 'FINISHED_PLAN');
+
+    $this->postJson("/api/packages/lessons/{$l1}/counting", ['counts' => false, 'teacher_percent' => 0, 'status' => 'CANCELLED_BY_STUDENT'])->assertOk();
+
+    expect(blocksNow($this))->toBe([
+        1 => ['COMPLETED', 120, [$l2, $l3]],
+        2 => ['COMPLETED', 120, [$l4, $l5]],
+        3 => ['ACTIVE', 0, []],
+    ]);
+    $this->asAcademy($this->academy);
+    $lesson = DB::table('sessions')->where('id', $l1)->first();
+    expect($lesson->status)->toBe('CANCELLED_BY_STUDENT')
+        ->and($lesson->hidden_at)->toBeNull()
+        ->and(DB::table('payout_line_items')->where('session_id', $l1)->exists())->toBeFalse();
+});
+
+it('corrects a cancellation to attended: it comes off the running block and the teacher is paid', function () {
+    $package = ($this->openPackage)(4, 80000);
+    $cancelled = ($this->lesson)(60);
+    cancelLesson($this, $cancelled, charge: false);
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/lessons/{$cancelled}/counting", ['counts' => true, 'status' => 'ATTENDED'])->assertOk()
+        ->assertJsonPath('student.mode', 'ADD')
+        ->assertJsonPath('student.blocks.0.used_after', 60)
+        ->assertJsonPath('teacher.percent_after', 100);
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('sessions')->where('id', $cancelled)->value('status'))->toBe('ATTENDED')
+        ->and((int) ($this->packageRow)($package['package_id'])->minutes_consumed)->toBe(60)
+        ->and(DB::table('payout_line_items')->where('session_id', $cancelled)->exists())->toBeTrue();
+});
+
+it('stops the chain where a lesson would not fit whole: the old block keeps its freed time and nothing after it moves', function () {
+    $first = ($this->openPackage)(2, 40000, autoRenew: true);
+    $l1 = ($this->lesson)(60, '2026-06-02 10:00:00+00');
+    $l2 = ($this->lesson)(60, '2026-06-03 10:00:00+00');
+    $l3 = ($this->lesson)(90, '2026-06-04 10:00:00+00');
+    $l4 = ($this->lesson)(30, '2026-06-05 10:00:00+00');
+    $l5 = ($this->lesson)(60, '2026-06-06 10:00:00+00');
+    foreach ([$l1, $l2, $l3, $l4, $l5] as $l) {
+        ($this->attend)($l);
+    }
+    expect(array_map(fn ($b) => $b[1], blocksNow($this)))->toBe([1 => 120, 2 => 120, 3 => 60]);
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/packages/lessons/{$l1}/delete")->assertOk()
+        ->assertJsonPath('student.stays_closed', 'NEXT_BLOCK_RUNNING');
+    $this->deleteJson("/api/packages/lessons/{$l1}")->assertOk();
+
+    expect(blocksNow($this))->toBe([
+        1 => ['COMPLETED', 60, [$l2]],
+        2 => ['COMPLETED', 120, [$l3, $l4]],
+        3 => ['ACTIVE', 60, [$l5]],
+    ]);
+});
+
+it('edits and deletes only for the office, and never marks a lesson that has not started', function () {
+    ($this->openPackage)(4, 80000);
+    $done = ($this->lesson)(60);
+    ($this->attend)($done);
+    $later = ($this->lesson)(60, '2026-06-20 10:00:00+00');
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/packages/lessons/{$later}/counting", ['counts' => true, 'status' => 'ATTENDED'])->assertUnprocessable();
+    $this->postJson("/api/packages/lessons/{$done}/counting", ['counts' => true, 'status' => 'ABSENT_UNEXCUSED'])->assertUnprocessable();
+
+    Sanctum::actingAs($this->teacherUser);
+    $this->postJson("/api/packages/lessons/{$done}/counting", ['counts' => false, 'status' => 'CANCELLED_BY_TEACHER'])->assertForbidden();
+    $this->getJson("/api/packages/lessons/{$done}/delete")->assertForbidden();
+    $this->deleteJson("/api/packages/lessons/{$done}")->assertForbidden();
+
+    // A deleted lesson is gone from here too.
+    Sanctum::actingAs($this->owner);
+    $this->deleteJson("/api/packages/lessons/{$done}")->assertOk();
+    $this->deleteJson("/api/packages/lessons/{$done}")->assertNotFound();
+});
+
 it('marks the bills typed at the desk as hand-made when the column arrives, and nothing else', function () {
     Sanctum::actingAs($this->owner);
     $typed = paidNameBill('Old Desk Bill', 30000, pay: false);

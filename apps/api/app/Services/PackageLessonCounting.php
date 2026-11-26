@@ -15,6 +15,12 @@ use Illuminate\Validation\ValidationException;
  * (Ahmed 2026-11-17: "a package has cancelled lessons; I want to set each one counted or not, and
  * the system works the packages out again, and the salaries too").
  *
+ * The same, for any lesson in a package's log (Ahmed 2026-11-26: "edit and delete the lessons inside
+ * every package, even the old ones — and every package moves, the due ones and the new ones too"):
+ * its outcome corrected (`$status`), or the lesson deleted ({@see delete()}). A lesson that stops
+ * counting on a block that finished takes the books back through every block after it, down to the
+ * running one ({@see LessonPackages::finishedBlockPlan()} with whole lessons).
+ *
  * The student's side:
  *   • not counted → counts: the lesson is recorded as charged through {@see AttendanceService}, so
  *     it comes off the student's OPEN block exactly as a charged cancellation always has — and if
@@ -42,6 +48,9 @@ final class PackageLessonCounting
     /** What the teacher may be paid of it: nothing, a quarter, a half, the whole lesson. */
     public const TEACHER_PERCENTS = [0, 25, 50, 100];
 
+    /** What a lesson's outcome can be corrected to from the package log — the attendance page's four. */
+    public const OUTCOMES = ['ATTENDED', 'FREE', 'CANCELLED_BY_TEACHER', 'CANCELLED_BY_STUDENT'];
+
     public function __construct(
         private readonly AttendanceService $attendance,
         private readonly Payroll $payroll,
@@ -53,55 +62,63 @@ final class PackageLessonCounting
      *
      * @return array<string,mixed>
      */
-    public function preview(object $session, bool $counts, ?int $teacherPercent): array
+    public function preview(object $session, bool $counts, ?int $teacherPercent, ?string $status = null): array
     {
-        $calc = $this->calculate($session, $counts, $teacherPercent);
+        $calc = $this->calculate($session, $counts, $teacherPercent, $status);
         unset($calc['plan'], $calc['statement_id']);
 
         return $calc;
     }
 
     /**
-     * Set it: the package (and the blocks around it) and the salary move together, or nothing does.
+     * What deleting this lesson would do, without doing it: the blocks it moves, the teacher's line.
+     *
+     * @return array<string,mixed>
+     */
+    public function deletePreview(object $session): array
+    {
+        $calc = $this->calculate($session, false, null, null, delete: true);
+        unset($calc['plan'], $calc['statement_id']);
+
+        return $calc;
+    }
+
+    /**
+     * Delete a lesson from a package's log: off the package (and the blocks after it, as if it never
+     * counted), off the teacher's salary, and hidden — a tombstone, as every lesson delete is, so the
+     * nightly roll never brings it back ({@see AttendanceService::hide()}). A statement already paid
+     * out of the treasury keeps the teacher's line, and says so.
      *
      * @return array<string,mixed> what was done, in the preview's shape
      */
-    public function apply(string $sessionId, bool $counts, ?int $teacherPercent, string $actorUserId, string $actorRole): array
+    public function delete(string $sessionId, string $actorUserId, string $actorRole): array
     {
-        return DB::transaction(function () use ($sessionId, $counts, $teacherPercent, $actorUserId, $actorRole): array {
-            $session = DB::table('sessions')->where('id', $sessionId)->lockForUpdate()->first();
+        return DB::transaction(function () use ($sessionId, $actorUserId, $actorRole): array {
+            $session = DB::table('sessions')->where('id', $sessionId)->whereNull('hidden_at')->lockForUpdate()->first();
             if ($session === null) {
                 abort(404, 'Lesson not found.');
             }
 
-            $calc = $this->calculate($session, $counts, $teacherPercent);
+            $calc = $this->calculate($session, false, null, null, delete: true);
             if ($calc['blocker'] !== null) {
                 throw ValidationException::withMessages(['session' => [$this->blockedMessage((string) $calc['blocker'])]]);
             }
 
-            $after = (int) $calc['teacher']['percent_after'];
-            $teacherOverride = $after > 0;
-            $shareBp = $after > 0 && $after < 100 ? $after * 100 : null;
+            return $this->payroll->correcting($calc['statement_id'], function () use ($session, $calc, $actorUserId, $actorRole): array {
+                $before = ['status' => (string) $session->status, 'billed' => (bool) $session->billed, 'paid_to_teacher' => (bool) $session->paid_to_teacher];
 
-            return $this->payroll->correcting($calc['statement_id'], function () use ($session, $counts, $calc, $teacherOverride, $shareBp, $actorUserId, $actorRole): array {
                 if ($calc['student']['mode'] === 'FINISHED_PLAN') {
                     $this->uncountOnFinishedBlock($session, $calc['plan'], $actorUserId, $actorRole);
                 }
+                if ((string) $session->status !== SessionStatus::Rescheduled->value) {
+                    // A statement paid from the treasury keeps the teacher's line: they stay paid.
+                    $this->attendance->record($session, SessionStatus::CancelledByTeacher, 'Deleted / حُذفت', $actorUserId, $actorRole, false, $calc['teacher']['percent_after'] > 0);
+                }
+                $this->attendance->hide((string) $session->id, $actorUserId);
 
-                $this->attendance->record(
-                    $session,
-                    SessionStatus::from((string) $session->status),
-                    $session->status_reason,
-                    $actorUserId,
-                    $actorRole,
-                    $counts,
-                    $teacherOverride,
-                    $shareBp,
-                );
-
-                Audit::log('session.counting_changed', 'session', (string) $session->id, (string) $session->academy_id, $actorUserId, $actorRole,
-                    after: ['counts' => $counts, 'teacher_pay_percent' => $calc['teacher']['percent_after'], 'mode' => $calc['student']['mode']],
-                    before: ['counts' => $calc['student']['counts_before'], 'teacher_pay_percent' => $calc['teacher']['percent_before']]);
+                Audit::log('session.deleted', 'session', (string) $session->id, (string) $session->academy_id, $actorUserId, $actorRole,
+                    after: ['from' => 'package_log', 'mode' => $calc['student']['mode']],
+                    before: $before);
 
                 $result = $calc;
                 unset($result['plan'], $result['statement_id']);
@@ -112,16 +129,94 @@ final class PackageLessonCounting
     }
 
     /**
-     * @return array{blocker:?string, student:array<string,mixed>, teacher:array<string,mixed>, plan:?array<string,mixed>, statement_id:?string}
+     * Set it: the package (and the blocks around it) and the salary move together, or nothing does.
+     *
+     * @return array<string,mixed> what was done, in the preview's shape
      */
-    private function calculate(object $session, bool $counts, ?int $teacherPercent): array
+    public function apply(string $sessionId, bool $counts, ?int $teacherPercent, string $actorUserId, string $actorRole, ?string $status = null): array
     {
-        $blocker = in_array((string) $session->status, self::STATUSES, true) ? null : 'NOT_CANCELLED';
+        return DB::transaction(function () use ($sessionId, $counts, $teacherPercent, $actorUserId, $actorRole, $status): array {
+            $session = DB::table('sessions')->where('id', $sessionId)->whereNull('hidden_at')->lockForUpdate()->first();
+            if ($session === null) {
+                abort(404, 'Lesson not found.');
+            }
+
+            $calc = $this->calculate($session, $counts, $teacherPercent, $status);
+            if ($calc['blocker'] !== null) {
+                throw ValidationException::withMessages(['session' => [$this->blockedMessage((string) $calc['blocker'])]]);
+            }
+
+            $target = SessionStatus::from((string) $calc['status_after']);
+            $cancelled = in_array($target->value, self::STATUSES, true);
+            $after = (int) $calc['teacher']['percent_after'];
+            // A cancellation carries its own money choice; a delivered lesson keeps the classifier's,
+            // except where a statement paid from the treasury holds the teacher as they were.
+            $billOverride = $cancelled ? (bool) $calc['student']['counts_after'] : null;
+            $teacherOverride = $cancelled || $calc['teacher']['locked'] ? $after > 0 : null;
+            $shareBp = $cancelled && $after > 0 && $after < 100 ? $after * 100 : null;
+            $reason = $target->value === (string) $session->status ? $session->status_reason : null;
+
+            return $this->payroll->correcting($calc['statement_id'], function () use ($session, $target, $reason, $calc, $billOverride, $teacherOverride, $shareBp, $actorUserId, $actorRole): array {
+                if ($calc['student']['mode'] === 'FINISHED_PLAN') {
+                    $this->uncountOnFinishedBlock($session, $calc['plan'], $actorUserId, $actorRole);
+                }
+
+                $this->attendance->record(
+                    $session,
+                    $target,
+                    $reason,
+                    $actorUserId,
+                    $actorRole,
+                    $billOverride,
+                    $teacherOverride,
+                    $shareBp,
+                );
+
+                Audit::log('session.counting_changed', 'session', (string) $session->id, (string) $session->academy_id, $actorUserId, $actorRole,
+                    after: ['status' => $calc['status_after'], 'counts' => $calc['student']['counts_after'], 'teacher_pay_percent' => $calc['teacher']['percent_after'], 'mode' => $calc['student']['mode']],
+                    before: ['status' => $calc['status_before'], 'counts' => $calc['student']['counts_before'], 'teacher_pay_percent' => $calc['teacher']['percent_before']]);
+
+                $result = $calc;
+                unset($result['plan'], $result['statement_id']);
+
+                return $result;
+            });
+        });
+    }
+
+    /**
+     * `$status` — the outcome it is corrected to (null: it stays what it is, and only a cancellation's
+     * counting moves). `$delete` — the lesson goes: nothing counts and nobody is paid.
+     *
+     * @return array{blocker:?string, status_before:string, status_after:string, student:array<string,mixed>, teacher:array<string,mixed>, plan:?array<string,mixed>, statement_id:?string}
+     */
+    private function calculate(object $session, bool $counts, ?int $teacherPercent, ?string $status = null, bool $delete = false): array
+    {
+        $current = (string) $session->status;
+        $target = $delete ? SessionStatus::CancelledByTeacher->value : ($status ?? $current);
+        $cancelled = in_array($target, self::STATUSES, true);
+
+        $blocker = match (true) {
+            $delete => null,
+            $status === null => in_array($current, self::STATUSES, true) ? null : 'NOT_CANCELLED',
+            ! in_array($status, self::OUTCOMES, true) => 'NOT_AN_OUTCOME',
+            Carbon::parse($session->scheduled_at_utc)->isFuture() => 'NOT_STARTED',
+            default => null,
+        };
+
+        // What the outcome makes of it: a delivered lesson counts and pays, one on the house neither;
+        // a cancellation is what the office says. A deleted lesson charges and pays nobody.
+        $countsAfter = match (true) {
+            $delete => false,
+            $target === SessionStatus::Attended->value => true,
+            $cancelled => $counts,
+            default => false,
+        };
         $countsBefore = (bool) $session->billed;
 
         $student = [
             'counts_before' => $countsBefore,
-            'counts_after' => $counts,
+            'counts_after' => $countsAfter,
             // ADD (comes off the open block) · RELEASE (back to its block) · FINISHED_PLAN · UNBILL (a monthly bill line) · null (no change)
             'mode' => null,
             'package' => null,
@@ -130,35 +225,44 @@ final class PackageLessonCounting
             'renewal_undone' => false,
             'lessons_moved_back' => null,
             'stays_closed' => null,
+            // Every block it moves, before and after — what the owner confirms.
+            'blocks' => [],
         ];
         $plan = null;
 
-        if ($blocker === null && $counts !== $countsBefore) {
+        if ($blocker === null && $countsAfter !== $countsBefore) {
             $credit = DB::table('lesson_package_credits')->where('session_id', $session->id)->first();
 
-            if ($counts) {
+            if ($countsAfter) {
                 $student['mode'] = 'ADD';
-                $target = $this->packages->forLesson($session);
-                if ($target !== null) {
-                    $capacity = (int) $target->minutes_total + (int) $target->carried_over_minutes;
-                    $left = $capacity - (int) $target->minutes_consumed;
-                    $take = LessonPackages::countsLessons($target) ? (int) $target->lesson_minutes : max(1, (int) $session->duration_minutes);
-                    $student['package'] = $this->blockSummary($target);
+                $open = $this->packages->forLesson($session);
+                if ($open !== null) {
+                    $capacity = (int) $open->minutes_total + (int) $open->carried_over_minutes;
+                    $left = $capacity - (int) $open->minutes_consumed;
+                    $take = LessonPackages::countsLessons($open) ? (int) $open->lesson_minutes : max(1, (int) $session->duration_minutes);
+                    $student['package'] = $this->blockSummary($open);
                     $student['will_complete'] = $left <= $take;
+                    $student['blocks'] = [LessonPackages::blockRow($open, (int) $open->minutes_consumed, (int) $open->minutes_consumed + $take, $left <= $take ? 'COMPLETED' : 'ACTIVE', 0, 0)];
                 }
             } elseif ($credit !== null) {
                 $block = DB::table('lesson_packages')->where('id', $credit->package_id)->first();
                 $student['package'] = $this->blockSummary($block);
+                $consumedAfter = max(0, (int) $block->minutes_consumed - (int) $credit->minutes);
 
-                if ((string) $block->status === 'ACTIVE' || ! $this->packages->releaseRefused((string) $session->id)) {
+                // A block that ran out goes through the plan whatever its bill says, so the blocks
+                // after it give their lessons back; a running one simply takes the lesson back.
+                $exhausted = (string) $block->status === 'COMPLETED' && $block->closed_reason === 'EXHAUSTED';
+                if ((string) $block->status === 'ACTIVE' || (! $exhausted && ! $this->packages->releaseRefused((string) $session->id))) {
                     $student['mode'] = 'RELEASE';
+                    $student['blocks'] = [LessonPackages::blockRow($block, (int) $block->minutes_consumed, $consumedAfter, (string) $block->status, 0, 0)];
                 } else {
                     $student['mode'] = 'FINISHED_PLAN';
                     $capacity = (int) $block->minutes_total + (int) $block->carried_over_minutes;
-                    $consumedAfter = max(0, (int) $block->minutes_consumed - (int) $credit->minutes);
                     $plan = $this->packages->finishedBlockPlan($block, $consumedAfter, max(0, $consumedAfter - $capacity), wholeLessons: true);
                     if ($plan['blocker'] !== null) {
                         $blocker = (string) $plan['blocker'];
+                    } else {
+                        $student['blocks'] = $this->packages->planBlocks($block, (int) $block->minutes_consumed, $plan);
                     }
                     $student['reopens'] = (bool) $plan['reopens'];
                     $student['renewal_undone'] = $plan['renewal'] !== null;
@@ -180,7 +284,12 @@ final class PackageLessonCounting
         $percentBefore = (bool) $session->paid_to_teacher
             ? ($session->teacher_pay_share_bp !== null ? intdiv((int) $session->teacher_pay_share_bp, 100) : 100)
             : 0;
-        $percentAfter = $teacherPercent ?? $percentBefore;
+        $percentAfter = match (true) {
+            $delete => 0,
+            $target === SessionStatus::Attended->value => 100,
+            $cancelled => $teacherPercent ?? ($target === $current ? $percentBefore : 0),
+            default => 0,
+        };
         $statementId = $line !== null ? (string) $line->payout_id : $this->ownStatement($session);
         $statement = $statementId !== null ? DB::table('payouts')->where('id', $statementId)->first(['period_year', 'period_month', 'finalized_at']) : null;
         // A statement already paid from the treasury keeps its figures: the teacher's side stays.
@@ -188,6 +297,8 @@ final class PackageLessonCounting
 
         return [
             'blocker' => $blocker,
+            'status_before' => $current,
+            'status_after' => $target,
             'student' => $student,
             'teacher' => [
                 'percent_before' => $percentBefore,
@@ -263,6 +374,8 @@ final class PackageLessonCounting
     {
         return match ($blocker) {
             'NOT_CANCELLED' => 'Only a cancelled or missed lesson can be set to count or not. / يمكن تعديل احتساب الحصص الملغاة أو الغياب فقط.',
+            'NOT_AN_OUTCOME' => 'Pick attended, free, or cancelled by the teacher or the student. / اختر حضر أو مجانية أو ألغاها المعلم أو الطالب.',
+            'NOT_STARTED' => 'This lesson has not started yet, so it has no outcome to correct. / هذه الحصة لم تبدأ بعد، فلا نتيجة لها لتعديلها.',
             'PACKAGE_CLOSED' => 'This lesson\'s package was closed by hand and settled, so it cannot change any more. / باقة هذه الحصة أُغلقت يدويًا وتمت تسويتها، فلا يمكن تعديلها.',
             'PACKAGE_OVERDRAFT_SETTLED' => 'The extra minutes of this lesson\'s package were already billed, so it cannot change. / الدقائق الزائدة في باقة هذه الحصة تمت فوترتها بالفعل، فلا يمكن تعديلها.',
             default => 'This change cannot be made. / لا يمكن إجراء هذا التعديل.',

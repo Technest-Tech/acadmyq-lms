@@ -105,6 +105,8 @@ export interface PackageActionProps {
   onPrepay?: () => void;
   /** Take back the prepaid packages not used yet. */
   onCancelPrepay?: () => void;
+  /** A lesson was corrected or deleted from the student's package log: the blocks moved. */
+  onLessonsChanged?: () => void;
   canManage: boolean;
   canSendInvoice: boolean;
   canMarkPaid: boolean;
