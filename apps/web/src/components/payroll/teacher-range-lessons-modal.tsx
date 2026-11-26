@@ -220,7 +220,7 @@ export function TeacherRangeLessonsModal({
         )}
         {l.removed && (
           <p className="text-xs text-amber-700 dark:text-amber-400" data-testid={`lesson-removed-${l.id}`}>
-            {t("lessonRemovedTag")}
+            {t(l.amount_minor === 0 ? "lessonRemovedZeroTag" : "lessonRemovedTag")}
           </p>
         )}
       </div>
@@ -385,6 +385,7 @@ export function TeacherRangeLessonsModal({
       {editing !== null && (
         <EditLessonDialog
           lesson={editing}
+          teacherId={target?.teacherId}
           onClose={() => setEditing(null)}
           onDone={() => corrected(t("lessonEdited"))}
         />

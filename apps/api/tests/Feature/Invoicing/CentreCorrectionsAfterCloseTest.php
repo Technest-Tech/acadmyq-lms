@@ -80,6 +80,18 @@ beforeEach(function () {
 
         return DB::table('payouts')->where('teacher_id', $this->teacher)->where('period_year', 2026)->where('period_month', 7)->first();
     };
+    /** The June statement paid out of the treasury: the one a correction does not rewrite. */
+    $this->paidFromTreasury = function (string $payoutId): void {
+        $this->asAcademy($this->academy);
+        $account = (string) Str::uuid();
+        DB::table('cash_accounts')->insert(['id' => $account, 'academy_id' => $this->academy, 'name' => 'Drawer', 'kind' => 'CASH', 'currency' => 'EGP', 'opening_on' => '2026-01-01']);
+        $category = (string) Str::uuid();
+        DB::table('expense_categories')->insert(['id' => $category, 'academy_id' => $this->academy, 'name' => 'Salaries']);
+        DB::table('expenses')->insert([
+            'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'number' => 'E-1', 'spent_on' => '2026-07-01', 'category_id' => $category,
+            'amount_minor' => 100, 'currency' => 'EGP', 'cash_account_id' => $account, 'payout_id' => $payoutId,
+        ]);
+    };
     $this->recalcOwed = function (): int {
         $this->asAcademy($this->academy);
 
@@ -117,13 +129,53 @@ it('leaves everything as it was when an undo is refused: the lesson stays on its
         ->and((int) DB::table('lesson_packages')->where('id', $opened['package_id'])->value('minutes_consumed'))->toBe(60);
 });
 
-it('undoes a sealed lesson in a centre: the paid statement stays, the pay comes off the open one', function () {
+it('undoes a sealed lesson in a centre on the sealed statement itself when nobody paid it from the treasury', function () {
+    // lingo 2026-11-26: a lesson deleted after October sealed stayed on October's salary — inside the
+    // 24th-to-20th window they pay — and came off November's instead: "محسوبه من ضمن الراتب".
     cacCentreOn($this->academy);
     $student = ($this->blockStudent)('Saleem');
     $opened = ($this->block)($student);
     $lesson = ($this->attend)($student);
     ($this->sealJune)();
     $june = ($this->juneStatement)();
+
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk()
+        ->assertJsonPath('status', 'SCHEDULED')
+        ->assertJsonPath('carried', null);
+
+    $this->asAcademy($this->academy);
+    $after = ($this->juneStatement)();
+    expect(DB::table('sessions')->where('id', $lesson)->value('status'))->toBe('SCHEDULED')
+        ->and((int) DB::table('lesson_packages')->where('id', $opened['package_id'])->value('minutes_consumed'))->toBe(0)
+        ->and(DB::table('payout_line_items')->where('session_id', $lesson)->count())->toBe(0)
+        ->and((int) $after->total_minor)->toBe((int) $june->total_minor - 5000)
+        // Still sealed, on its own date.
+        ->and((string) $after->finalized_at)->toBe((string) $june->finalized_at)
+        ->and(DB::table('payout_adjustments')->count())->toBe(0)
+        ->and(($this->julyStatement)())->toBeNull();
+
+    // The window the lesson was taught in no longer pays it.
+    Sanctum::actingAs($this->owner);
+    $rows = collect($this->getJson('/api/payouts/range?from=2026-06-01&to=2026-06-30')->assertOk()->json('teachers'))
+        ->where('teacher_id', $this->teacher);
+    expect((int) $rows->sum('lessons_minor'))->toBe(0)->and((int) $rows->sum('deductions_minor'))->toBe(0);
+
+    // Marked again, it is paid once, on the open statement.
+    $this->postJson("/api/sessions/{$lesson}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->asAcademy($this->academy);
+    expect((int) DB::table('payout_line_items')->where('session_id', $lesson)->sum('amount_minor'))->toBe(5000)
+        ->and(DB::table('payout_line_items')->where('payout_id', ($this->julyStatement)()->id)->where('session_id', $lesson)->exists())->toBeTrue();
+});
+
+it('undoes a sealed lesson in a centre paid from the treasury: that statement stays, the pay comes off the open one', function () {
+    cacCentreOn($this->academy);
+    $student = ($this->blockStudent)('Saleem');
+    $opened = ($this->block)($student);
+    $lesson = ($this->attend)($student);
+    ($this->sealJune)();
+    $june = ($this->juneStatement)();
+    ($this->paidFromTreasury)((string) $june->id);
 
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk()
@@ -152,6 +204,7 @@ it('pays a lesson marked again after a sealed undo once, and undoes that without
     ($this->block)($student);
     $lesson = ($this->attend)($student);
     ($this->sealJune)();
+    ($this->paidFromTreasury)((string) ($this->juneStatement)()->id);
 
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk();
@@ -171,6 +224,68 @@ it('pays a lesson marked again after a sealed undo once, and undoes that without
     expect(DB::table('payout_line_items')->where('payout_id', $july->id)->where('session_id', $lesson)->count())->toBe(0)
         ->and(DB::table('payout_adjustments')->where('payout_id', $july->id)->count())->toBe(1)
         ->and(($this->recalcOwed)())->toBe(0);
+});
+
+it('folds a removal carried before: the line comes off its own statement, the deduction off the later one', function () {
+    cacCentreOn($this->academy);
+    $kept = ($this->blockStudent)('Nour');
+    ($this->block)($kept);
+    $student = ($this->blockStudent)('Saleem');
+    ($this->block)($student);
+    ($this->attend)($kept, '2026-06-09 10:00:00+00');
+    $lesson = ($this->attend)($student);
+    ($this->sealJune)();
+    $june = ($this->juneStatement)();
+    // The state the old carry left: undone while June was "paid", then the payment voided.
+    ($this->paidFromTreasury)((string) $june->id);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk()->assertJsonPath('carried.amount_minor', 5000);
+    $this->asAcademy($this->academy);
+    DB::table('expenses')->where('payout_id', $june->id)->update(['voided_at' => now(), 'void_reason' => 'test']);
+    $july = ($this->julyStatement)();
+    expect((int) $july->total_minor)->toBe(-5000);
+
+    $this->clearTenantContext();
+    $this->artisan('payroll:fold-carried-removals', ['--academy' => $this->academy])->assertSuccessful();
+    $this->asAcademy($this->academy);
+    expect(DB::table('payout_line_items')->where('session_id', $lesson)->count())->toBe(1); // listed only
+
+    $this->clearTenantContext();
+    $this->artisan('payroll:fold-carried-removals', ['--academy' => $this->academy, '--apply' => true])
+        ->expectsOutputToContain('1 folded, 0 left')->assertSuccessful();
+
+    $this->asAcademy($this->academy);
+    $after = ($this->juneStatement)();
+    expect(DB::table('payout_line_items')->where('session_id', $lesson)->count())->toBe(0)
+        ->and((int) $after->total_minor)->toBe((int) $june->total_minor - 5000)
+        ->and((string) $after->finalized_at)->toBe((string) $june->finalized_at)
+        ->and(DB::table('payout_adjustments')->count())->toBe(0)
+        ->and((int) ($this->julyStatement)()->total_minor)->toBe(0)
+        ->and(($this->recalcOwed)())->toBe(0);
+
+    // Run again: nothing left to fold.
+    $this->clearTenantContext();
+    $this->artisan('payroll:fold-carried-removals', ['--academy' => $this->academy, '--apply' => true])
+        ->expectsOutputToContain('0 folded, 0 left')->assertSuccessful();
+});
+
+it('leaves a removal carried from a statement still paid from the treasury', function () {
+    cacCentreOn($this->academy);
+    $student = ($this->blockStudent)('Saleem');
+    ($this->block)($student);
+    $lesson = ($this->attend)($student);
+    ($this->sealJune)();
+    ($this->paidFromTreasury)((string) ($this->juneStatement)()->id);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk();
+
+    $this->clearTenantContext();
+    $this->artisan('payroll:fold-carried-removals', ['--academy' => $this->academy, '--apply' => true])
+        ->expectsOutputToContain('0 folded, 1 left')->assertSuccessful();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('payout_line_items')->where('session_id', $lesson)->count())->toBe(1)
+        ->and(DB::table('payout_adjustments')->count())->toBe(1);
 });
 
 it('takes a deleted family\'s unpaid charges with it, keeping what was paid', function () {

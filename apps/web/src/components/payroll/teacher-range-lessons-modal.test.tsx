@@ -225,3 +225,41 @@ it("stays one list by date without the switch", async () => {
   expect(await screen.findByTestId("range-lessons")).toBeInTheDocument();
   expect(screen.queryByTestId("range-lesson-blocks")).not.toBeInTheDocument();
 });
+
+it("points a 40-minute lesson's edit to the teacher's 40-minute price, only with the switch", async () => {
+  // Lingo 2026-11-26: "التعديل هنا مش بيفتح ع السعر" — the price is the teacher's, on their Salary tab.
+  getPayrollRangeLessons.mockResolvedValue({
+    lessons: [{ ...lesson("1", "Maya", "2026-10-25", 6000), duration_minutes: 40 }, lesson("2", "Omar", "2026-10-26", 9000)],
+    not_on_salary: [],
+  });
+  const user = userEvent.setup();
+  const owner = adjuster();
+  const { unmount } = render(
+    withAuth(
+      { ...owner, capabilities: [...(owner.capabilities ?? []), "lesson40_price"] },
+      <TeacherRangeLessonsModal target={TARGET} from="2026-10-24" to="2026-11-20" onClose={vi.fn()} />,
+    ),
+  );
+
+  await user.click(await screen.findByTestId("lesson-edit-1"));
+  const hint = await screen.findByTestId("lesson-edit-price40");
+  expect(hint).toHaveTextContent(ar.payroll.lessonPrice40Hint);
+  expect(within(hint).getByRole("link")).toHaveAttribute("href", "/teachers/t1?tab=salary");
+  unmount();
+
+  // An hour-long lesson, or an academy without the switch: nothing.
+  render(withAuth(adjuster(), <TeacherRangeLessonsModal target={TARGET} from="2026-10-24" to="2026-11-20" onClose={vi.fn()} />));
+  await user.click(await screen.findByTestId("lesson-edit-1"));
+  expect(await screen.findByTestId("lesson-edit-minutes")).toBeInTheDocument();
+  expect(screen.queryByTestId("lesson-edit-price40")).not.toBeInTheDocument();
+});
+
+it("says a removed lesson priced at nothing is simply not counted", async () => {
+  getPayrollRangeLessons.mockResolvedValue({
+    lessons: [{ ...lesson("1", "Nour", "2026-10-29", 0), finalized: true, removed: true }],
+    not_on_salary: [],
+  });
+  render(withAuth(adjuster(), <TeacherRangeLessonsModal target={TARGET} from="2026-10-24" to="2026-11-20" onClose={vi.fn()} />));
+
+  expect(await screen.findByTestId("lesson-removed-1")).toHaveTextContent(ar.payroll.lessonRemovedZeroTag);
+});

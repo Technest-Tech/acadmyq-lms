@@ -139,8 +139,11 @@ final class Payroll implements PayoutHook
      *
      * Except a curriculum centre on receipts (lingo, 2026-11-03): a lesson recorded on the wrong day
      * is found after the 3rd, and refusing left it stuck on the wrong day for good. There the sealed
-     * statement stays as it was paid and the pay comes off the teacher's open one, the same carry the
-     * payroll page's corrections use; marking the lesson again pays it on the open statement.
+     * statement is corrected in place, like every payroll-page correction ({@see correcting()}); only
+     * a statement paid from the treasury stays as it was paid, its pay coming off the teacher's open
+     * one. Carrying from a statement nobody paid kept the deleted lesson on the salary of the window
+     * it was taught in and docked the next one instead (lingo 2026-11-26: "محسوبه من ضمن الراتب").
+     * Marking the lesson again pays it on the open statement.
      */
     public function onSessionUnattended(object $session): void
     {
@@ -151,7 +154,6 @@ final class Payroll implements PayoutHook
         }
 
         $payoutId = (string) $line->payout_id;
-        $amountMinor = (int) $line->amount_minor;
         $academyId = (string) $line->academy_id;
 
         $payout = DB::table('payouts')->where('id', $payoutId)->first();
@@ -159,7 +161,11 @@ final class Payroll implements PayoutHook
         if ($payout !== null && $payout->finalized_at !== null) {
             $ctx = app()->bound(AuthContext::class) ? app(AuthContext::class) : null;
             if ($ctx !== null && CentreBooks::enabledFor($academyId)) {
-                $this->carryLessonDifference($payoutId, -$amountMinor, $this->lessonUndoneReason($session), (string) $ctx->userId, (string) $ctx->role);
+                if ($this->carriesCorrections($payoutId)) {
+                    $this->carryLessonDifference($payoutId, -(int) $line->amount_minor, $this->lessonUndoneReason($session), (string) $ctx->userId, (string) $ctx->role);
+                } else {
+                    $this->correcting($payoutId, fn () => $this->reverseLine($line, $session));
+                }
 
                 return;
             }
@@ -171,6 +177,15 @@ final class Payroll implements PayoutHook
                 ],
             ]);
         }
+
+        $this->reverseLine($line, $session);
+    }
+
+    /** Take a lesson's line off its (open) statement and the amount off its total. */
+    private function reverseLine(object $line, object $session): void
+    {
+        $payoutId = (string) $line->payout_id;
+        $amountMinor = (int) $line->amount_minor;
 
         DB::table('payout_line_items')->where('id', $line->id)->delete();
 
@@ -185,7 +200,7 @@ final class Payroll implements PayoutHook
             'payout.line_reversed',
             'payout',
             $payoutId,
-            $academyId,
+            (string) $line->academy_id,
             null,
             'SUPER_ADMIN',
             before: [
@@ -681,7 +696,8 @@ final class Payroll implements PayoutHook
         }
         $line = $this->lessonLine((string) $session->id);
 
-        return $line !== null && $line->finalized_at !== null
+        // Only a statement paid from the treasury carries; any other sealed one is corrected in place.
+        return $line !== null && $line->finalized_at !== null && $this->carriesCorrections((string) $line->payout_id)
             ? ['amount_minor' => (int) $line->amount_minor, 'currency' => (string) $line->currency]
             : null;
     }

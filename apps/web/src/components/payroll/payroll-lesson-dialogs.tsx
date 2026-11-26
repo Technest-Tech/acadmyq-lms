@@ -2,6 +2,7 @@
 
 import { academyToday } from "@/lib/academy-clock";
 import { Loader2 } from "lucide-react";
+import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { StudentPicker } from "@/components/groups/student-picker";
@@ -20,6 +21,7 @@ import {
   type PayrollRangeLesson,
   type SessionDurationImpact,
 } from "@/lib/api";
+import { useLesson40Price } from "@/lib/capabilities";
 import { formatMoney } from "@/lib/money";
 
 const inputClass =
@@ -35,15 +37,21 @@ function validMinutes(value: string): number | null {
 /** Correct a lesson's length. Shows the server's own calculation of what the new length moves. */
 export function EditLessonDialog({
   lesson,
+  teacherId,
   onClose,
   onDone,
 }: {
   lesson: PayrollRangeLesson;
+  /** Whose salary this is: the 40-minute price is theirs, set on their Salary tab. */
+  teacherId?: string;
   onClose: () => void;
   onDone: () => void;
 }) {
   const t = useTranslations("payroll");
   const locale = useLocale();
+  // A 40-minute lesson is priced by the teacher's own 40-minute price, not here: owners opened this
+  // to change that price and found only minutes (Lingo 2026-11-26), so say where it lives.
+  const lesson40 = useLesson40Price() && lesson.duration_minutes === 40 && teacherId !== undefined;
   const sessionId = lesson.session_id as string;
   const [value, setValue] = useState(String(lesson.duration_minutes ?? ""));
   const [impact, setImpact] = useState<SessionDurationImpact | null>(null);
@@ -121,6 +129,18 @@ export function EditLessonDialog({
             data-testid="lesson-edit-minutes"
           />
         </label>
+
+        {lesson40 && (
+          <p className="bg-muted/30 rounded-xl border p-3 text-xs leading-relaxed" data-testid="lesson-edit-price40">
+            {t("lessonPrice40Hint")}{" "}
+            <Link
+              href={`/teachers/${teacherId}?tab=salary`}
+              className="text-primary font-medium underline-offset-2 hover:underline"
+            >
+              {t("lessonPrice40Open")}
+            </Link>
+          </p>
+        )}
 
         {impact?.blockers.includes("NOT_ATTENDED") && (
           <p className="text-destructive text-xs leading-relaxed">{t("lessonEditNotAttended")}</p>

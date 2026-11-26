@@ -73,6 +73,11 @@ export function TeacherWorkspace({ teacherId }: { teacherId: string }) {
   const [teacher, setTeacher] = useState<TeacherRow | null>(null);
   const [students, setStudents] = useState<TeacherStudent[]>([]);
   const [tab, setTab] = useState<Tab>("profile");
+  // A link can open the Salary tab (`?tab=salary`, from the payroll lesson editor's 40-minute price).
+  const seesSalary = can("payout.read") || can("teacher.set_pay");
+  useEffect(() => {
+    if (seesSalary && new URLSearchParams(window.location.search).get("tab") === "salary") setTab("salary");
+  }, [seesSalary]);
   const paySummary = usePaySummary();
   const levelsOn = useLevelsOn();
   // A room-based centre has no Enter press to measure.
