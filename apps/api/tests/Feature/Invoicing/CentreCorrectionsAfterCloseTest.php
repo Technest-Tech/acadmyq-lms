@@ -269,6 +269,41 @@ it('folds a removal carried before: the line comes off its own statement, the de
         ->expectsOutputToContain('0 folded, 0 left')->assertSuccessful();
 });
 
+it('folds a removal whose student was renamed since, by date, only when one deduction fits', function () {
+    // lingo: "حمزه محمود" became "حمزه محمود برايفت" after three of his lessons were undone.
+    cacCentreOn($this->academy);
+    $student = ($this->blockStudent)('Hamza');
+    ($this->block)($student);
+    $lesson = ($this->attend)($student);
+    $other = ($this->blockStudent)('Omar');
+    ($this->block)($other);
+    $kept = ($this->attend)($other);
+    ($this->sealJune)();
+    $june = ($this->juneStatement)();
+    ($this->paidFromTreasury)((string) $june->id);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk();
+    // Omar's lesson the same day is undone and marked again: its deduction belongs to it.
+    $this->postJson("/api/sessions/{$kept}/attendance/revert")->assertOk();
+    $this->postJson("/api/sessions/{$kept}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->asAcademy($this->academy);
+    DB::table('students')->where('id', $student)->update(['full_name' => 'Hamza Private']);
+    DB::table('expenses')->where('payout_id', $june->id)->update(['voided_at' => now(), 'void_reason' => 'test']);
+
+    $this->clearTenantContext();
+    $this->artisan('payroll:fold-carried-removals', ['--academy' => $this->academy, '--apply' => true])
+        ->expectsOutputToContain('matched by date: «Hamza»')
+        ->expectsOutputToContain('1 folded, 0 left')->assertSuccessful();
+
+    $this->asAcademy($this->academy);
+    expect(DB::table('payout_line_items')->where('session_id', $lesson)->count())->toBe(0)
+        ->and(DB::table('payout_adjustments')->where('reason', 'like', '%Hamza%')->count())->toBe(0)
+        // Omar's stays: his June line, his deduction, his July line.
+        ->and(DB::table('payout_adjustments')->where('reason', 'like', '%Omar%')->count())->toBe(1)
+        ->and(DB::table('payout_line_items')->where('session_id', $kept)->count())->toBe(2)
+        ->and(($this->recalcOwed)())->toBe(0);
+});
+
 it('leaves a removal carried from a statement still paid from the treasury', function () {
     cacCentreOn($this->academy);
     $student = ($this->blockStudent)('Saleem');
