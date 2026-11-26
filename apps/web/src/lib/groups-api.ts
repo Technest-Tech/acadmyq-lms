@@ -261,6 +261,17 @@ export interface GroupInput {
   teacher_pay_minor?: number | null;
   teacher_share_bp?: number | null;
   teacher_share_basis?: GroupShareBasis;
+  /** An edit's new teacher pay: the lessons from now (default), or the lessons already paid too (`group_pay_backdate`). */
+  teacher_pay_apply?: "FORWARD" | "ALL";
+}
+
+/** What a new teacher pay would move on the lessons a group already paid (`group_pay_backdate`). */
+export interface GroupPastPay {
+  /** Lessons whose pay changes (statements paid from the treasury left out). */
+  lessons: number;
+  totals: { currency: string; now_minor: number; new_minor: number }[];
+  /** Lessons on statements paid from the treasury: they keep what they paid. */
+  kept_paid: number;
 }
 
 export interface GroupMoneyLine {
@@ -312,8 +323,18 @@ export function createGroup(input: GroupInput): Promise<{ group: GroupDetail; ge
 export function updateGroup(
   id: string,
   input: Partial<GroupInput>,
-): Promise<{ group: GroupDetail; generated: Generated }> {
+): Promise<{ group: GroupDetail; generated: Generated; repriced?: { lessons: number; kept_paid: number } }> {
   return apiFetch(`/api/groups/${id}`, { method: "PATCH", body: JSON.stringify(input) });
+}
+
+export function groupPastPay(
+  id: string,
+  pay: { teacher_pay_mode: GroupTeacherPayMode; teacher_pay_minor: number | null },
+): Promise<GroupPastPay> {
+  const qs = new URLSearchParams();
+  if (pay.teacher_pay_mode) qs.set("teacher_pay_mode", pay.teacher_pay_mode);
+  if (pay.teacher_pay_minor != null) qs.set("teacher_pay_minor", String(pay.teacher_pay_minor));
+  return apiFetch(`/api/groups/${id}/past-pay?${qs.toString()}`);
 }
 
 export function archiveGroup(id: string): Promise<{ group: GroupDetail; generated: Generated }> {

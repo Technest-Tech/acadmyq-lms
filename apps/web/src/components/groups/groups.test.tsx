@@ -22,6 +22,7 @@ const removeFromGroupLesson = vi.fn();
 const listGroupLessons = vi.fn();
 const createGroup = vi.fn();
 const updateGroup = vi.fn();
+const groupPastPay = vi.fn();
 
 vi.mock("@/lib/groups-api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/groups-api")>()),
@@ -32,6 +33,7 @@ vi.mock("@/lib/groups-api", async (importOriginal) => ({
   listGroupLessons: (id: string, p: unknown) => listGroupLessons(id, p),
   createGroup: (input: unknown) => createGroup(input),
   updateGroup: (id: string, input: unknown) => updateGroup(id, input),
+  groupPastPay: (id: string, pay: unknown) => groupPastPay(id, pay),
 }));
 
 const getGroupDefaults = vi.fn(() => Promise.resolve({ defaults: {} as Record<string, unknown> }));
@@ -417,6 +419,79 @@ describe("GroupLessonsPanel — the sheets still owed come first", () => {
 
     await screen.findByTestId("lessons-owed");
     expect(screen.queryByTestId("lesson-mark-owed")).not.toBeInTheDocument();
+  });
+});
+
+describe("GroupForm — a new teacher pay on the lessons already paid (`group_pay_backdate`)", () => {
+  const hourly = {
+    ...groupRow({ teacher_pay: { mode: "PER_HOUR", amount_minor: 10000, share_bp: null, currency: "EGP" } }),
+    notes: null,
+    effective_meeting_url: null,
+    members: [],
+    attendance_rate: null,
+  } as GroupDetail;
+  const session = (capabilities: string[]) =>
+    makeSession("ACADEMY_OWNER", { capabilities, permissions: ["group.read", "group.manage", "teacher.set_pay"] });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updateGroup.mockResolvedValue({ group: { id: "g1" }, generated: { created: 0, removed: 0 } });
+    groupPastPay.mockResolvedValue({ lessons: 6, totals: [{ currency: "EGP", now_minor: 60000, new_minor: 66000 }], kept_paid: 0 });
+  });
+
+  async function retype(user: ReturnType<typeof userEvent.setup>, amount: string) {
+    // The teachers loaded first: an empty amount is refilled from the teacher's rate when they land.
+    await waitFor(() => expect(screen.getByTestId("group-teacher").textContent).toContain("Mona"));
+    await user.clear(screen.getByTestId("group-pay-amount"));
+    await user.type(screen.getByTestId("group-pay-amount"), amount);
+    await user.click(screen.getByTestId("group-save"));
+  }
+
+  it("asks before the save, says what the old lessons move, and sends the choice", async () => {
+    const user = userEvent.setup();
+    const onSaved = vi.fn();
+    render(withAuth(session(["groups", "group_pay_backdate"]), <GroupForm group={hourly} onSaved={onSaved} onCancel={() => {}} />));
+
+    await retype(user, "110");
+    expect(await screen.findByTestId("group-past-pay")).toBeInTheDocument();
+    expect(groupPastPay).toHaveBeenCalledWith("g1", { teacher_pay_mode: "PER_HOUR", teacher_pay_minor: 11000 });
+    expect(updateGroup).not.toHaveBeenCalled();
+    expect(screen.getByTestId("group-past-pay-moves").textContent).toContain("6");
+
+    await user.click(screen.getByTestId("group-past-pay-all"));
+    await waitFor(() => expect(updateGroup).toHaveBeenCalledTimes(1));
+    expect(updateGroup.mock.calls[0]![1]).toMatchObject({ teacher_pay_minor: 11000, teacher_pay_apply: "ALL" });
+    expect(onSaved).toHaveBeenCalled();
+  });
+
+  it("\"new lessons only\" saves forward; no question when nothing already paid would move", async () => {
+    const user = userEvent.setup();
+    render(withAuth(session(["groups", "group_pay_backdate"]), <GroupForm group={hourly} onSaved={() => {}} onCancel={() => {}} />));
+    await retype(user, "110");
+    await user.click(await screen.findByTestId("group-past-pay-forward"));
+    await waitFor(() => expect(updateGroup).toHaveBeenCalledTimes(1));
+    expect(updateGroup.mock.calls[0]![1]).toMatchObject({ teacher_pay_minor: 11000, teacher_pay_apply: "FORWARD" });
+
+    updateGroup.mockClear();
+    groupPastPay.mockResolvedValueOnce({ lessons: 0, totals: [], kept_paid: 0 });
+    await retype(user, "120");
+    await waitFor(() => expect(updateGroup).toHaveBeenCalledTimes(1));
+    expect(updateGroup.mock.calls[0]![1]).not.toHaveProperty("teacher_pay_apply");
+  });
+
+  it("asks nothing without the switch, or when the pay did not change", async () => {
+    const user = userEvent.setup();
+    const { unmount } = render(withAuth(session(["groups"]), <GroupForm group={hourly} onSaved={() => {}} onCancel={() => {}} />));
+    await retype(user, "110");
+    await waitFor(() => expect(updateGroup).toHaveBeenCalledTimes(1));
+    expect(groupPastPay).not.toHaveBeenCalled();
+    unmount();
+
+    updateGroup.mockClear();
+    render(withAuth(session(["groups", "group_pay_backdate"]), <GroupForm group={hourly} onSaved={() => {}} onCancel={() => {}} />));
+    await user.click(screen.getByTestId("group-save"));
+    await waitFor(() => expect(updateGroup).toHaveBeenCalledTimes(1));
+    expect(groupPastPay).not.toHaveBeenCalled();
   });
 });
 

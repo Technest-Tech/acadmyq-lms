@@ -1372,3 +1372,112 @@ it('a group paid per lesson keeps its price whatever the teacher\'s 40-minute pr
     heldLesson($this, $groupId, '2026-06-08');
     expect((int) groupPayLines($this, $groupId)->first()->amount_minor)->toBe(9000);
 });
+
+// ── A new group pay on past lessons (`group_pay_backdate`, Lingo 2026-11-26) ─────────────────────
+
+function pastPayOn($test): void
+{
+    asTenant($test->academy, fn () => app(ModuleBilling::class)->setDisabledFeatures($test->academy, 'MANAGEMENT', [], ['group_pay_backdate']));
+}
+
+/** @return list<int> */
+function payAmounts($test, string $groupId): array
+{
+    return groupPayLines($test, $groupId)->sortBy('session_date')->pluck('amount_minor')->map(fn ($a) => (int) $a)->values()->all();
+}
+
+it('a new group pay reaches only the lessons from now unless the office says "old and new"', function () {
+    pastPayOn($this);
+    $groupId = moneyGroup($this, ['teacher_pay_mode' => 'PER_HOUR', 'teacher_pay_minor' => 6000, 'student_ids' => [$this->kids['Adam']]]);
+    heldLesson($this, $groupId, '2026-06-08');
+    heldLesson($this, $groupId, '2026-06-10');
+
+    // New lessons only — the default, and what every academy without the switch gets.
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/groups/{$groupId}", ['teacher_pay_mode' => 'PER_HOUR', 'teacher_pay_minor' => 7500])
+        ->assertOk()->assertJsonMissingPath('repriced');
+    expect(payAmounts($this, $groupId))->toBe([6000, 6000]);
+    heldLesson($this, $groupId, '2026-06-15');
+    expect(payAmounts($this, $groupId))->toBe([6000, 6000, 7500]);
+
+    // The question shows what "old and new" would move before the save.
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/groups/{$groupId}/past-pay?teacher_pay_mode=PER_HOUR&teacher_pay_minor=9000")
+        ->assertOk()
+        ->assertExactJson(['lessons' => 3, 'totals' => [['currency' => 'EGP', 'now_minor' => 19500, 'new_minor' => 27000]], 'kept_paid' => 0]);
+
+    $this->patchJson("/api/groups/{$groupId}", ['teacher_pay_mode' => 'PER_HOUR', 'teacher_pay_minor' => 9000, 'teacher_pay_apply' => 'ALL'])
+        ->assertOk()->assertJsonPath('repriced', ['lessons' => 3, 'kept_paid' => 0]);
+    $lines = groupPayLines($this, $groupId);
+    expect(payAmounts($this, $groupId))->toBe([9000, 9000, 9000])
+        ->and($lines->pluck('payout_id')->unique())->toHaveCount(1)
+        ->and((int) $lines->first()->total_minor)->toBe(27000);
+
+    // Nothing left to move.
+    $this->getJson("/api/groups/{$groupId}/past-pay?teacher_pay_mode=PER_HOUR&teacher_pay_minor=9000")
+        ->assertOk()->assertJsonPath('lessons', 0);
+});
+
+it('corrects a sealed statement in place for "old and new", and leaves one paid from the treasury as paid', function () {
+    pastPayOn($this);
+    $groupId = moneyGroup($this, ['teacher_pay_mode' => 'PER_HOUR', 'teacher_pay_minor' => 6000, 'student_ids' => [$this->kids['Adam']]]);
+    heldLesson($this, $groupId, '2026-06-08');
+    $june = groupPayLines($this, $groupId)->first()->payout_id;
+    $sealedAt = '2026-07-03 02:30:00+02';
+    asTenant($this->academy, fn () => DB::table('payouts')->where('id', $june)->update(['finalized_at' => $sealedAt]));
+    $statement = fn (string $id) => asTenant($this->academy, fn () => DB::table('payouts')->where('id', $id)->first());
+    $sealed = $statement($june)->finalized_at;
+
+    Carbon::setTestNow('2026-07-05 12:00:00');
+    heldLesson($this, $groupId, '2026-07-01');
+
+    Sanctum::actingAs($this->owner);
+    $this->patchJson("/api/groups/{$groupId}", ['teacher_pay_minor' => 9000, 'teacher_pay_apply' => 'ALL'])
+        ->assertOk()->assertJsonPath('repriced', ['lessons' => 2, 'kept_paid' => 0]);
+    expect(payAmounts($this, $groupId))->toBe([9000, 9000])
+        ->and((int) $statement($june)->total_minor)->toBe(9000)
+        ->and($statement($june)->finalized_at)->toBe($sealed);
+
+    // June is paid from the treasury now: it keeps what it paid; July still follows.
+    asTenant($this->academy, function () use ($june): void {
+        $account = (string) Str::uuid();
+        DB::table('cash_accounts')->insert(['id' => $account, 'academy_id' => $this->academy, 'name' => 'Drawer', 'kind' => 'CASH', 'currency' => 'EGP', 'opening_on' => '2026-01-01']);
+        $category = (string) Str::uuid();
+        DB::table('expense_categories')->insert(['id' => $category, 'academy_id' => $this->academy, 'name' => 'Salaries']);
+        DB::table('expenses')->insert([
+            'id' => (string) Str::uuid(), 'academy_id' => $this->academy, 'number' => 'E-1', 'spent_on' => '2026-07-04', 'category_id' => $category,
+            'amount_minor' => 9000, 'currency' => 'EGP', 'cash_account_id' => $account, 'payout_id' => $june,
+        ]);
+    });
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/groups/{$groupId}/past-pay?teacher_pay_mode=PER_HOUR&teacher_pay_minor=12000")
+        ->assertOk()
+        ->assertExactJson(['lessons' => 1, 'totals' => [['currency' => 'EGP', 'now_minor' => 9000, 'new_minor' => 12000]], 'kept_paid' => 1]);
+    $this->patchJson("/api/groups/{$groupId}", ['teacher_pay_minor' => 12000, 'teacher_pay_apply' => 'ALL'])
+        ->assertOk()->assertJsonPath('repriced', ['lessons' => 1, 'kept_paid' => 1]);
+    expect(payAmounts($this, $groupId))->toBe([9000, 12000])
+        ->and((int) $statement($june)->total_minor)->toBe(9000);
+});
+
+it('keeps "old and new" to the switch\'s academies, and never for a revenue share', function () {
+    $groupId = moneyGroup($this, ['teacher_pay_mode' => 'PER_HOUR', 'teacher_pay_minor' => 6000, 'student_ids' => [$this->kids['Adam']]]);
+    heldLesson($this, $groupId, '2026-06-08');
+
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/groups/{$groupId}/past-pay?teacher_pay_mode=PER_HOUR&teacher_pay_minor=9000")->assertForbidden();
+    $this->patchJson("/api/groups/{$groupId}", ['teacher_pay_minor' => 9000, 'teacher_pay_apply' => 'ALL'])
+        ->assertStatus(422)->assertJsonValidationErrors('teacher_pay_apply');
+    expect(payAmounts($this, $groupId))->toBe([6000]);
+    expect((int) asTenant($this->academy, fn () => DB::table('class_groups')->where('id', $groupId)->value('teacher_pay_minor')))->toBe(6000);
+
+    pastPayOn($this);
+    Sanctum::actingAs($this->owner);
+    $this->getJson("/api/groups/{$groupId}/past-pay?teacher_pay_mode=REVENUE_SHARE")
+        ->assertOk()->assertJsonPath('lessons', 0);
+    $this->patchJson("/api/groups/{$groupId}", ['teacher_pay_mode' => 'REVENUE_SHARE', 'teacher_share_bp' => 3000, 'teacher_pay_apply' => 'ALL'])
+        ->assertStatus(422)->assertJsonValidationErrors('teacher_pay_apply');
+
+    // A teacher sets no pay, so it cannot apply one either.
+    Sanctum::actingAs($this->teacherUser);
+    $this->getJson("/api/groups/{$groupId}/past-pay?teacher_pay_mode=PER_HOUR&teacher_pay_minor=9000")->assertForbidden();
+});

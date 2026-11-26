@@ -16,8 +16,10 @@ import { CURRENCIES } from "@/lib/countries";
 import { formatMoney } from "@/lib/money";
 import {
   createGroup,
+  groupPastPay,
   updateGroup,
   type GroupDetail,
+  type GroupPastPay,
   type GroupBillingMode,
   type GroupInput,
   type GroupMode,
@@ -30,7 +32,7 @@ import { LevelSelect } from "@/components/levels/level-select";
 import { RoomSelect } from "@/components/rooms/room-select";
 import { listRooms, type Room } from "@/lib/rooms-api";
 import { getGroupDefaults } from "@/lib/group-defaults-api";
-import { useCapability, useModernLook } from "@/lib/capabilities";
+import { useCapability, useGroupPayBackdate, useModernLook } from "@/lib/capabilities";
 import { cn } from "@/lib/utils";
 import { useLevelWord } from "@/lib/levels";
 
@@ -264,6 +266,12 @@ export function GroupForm({
   const [subjects, setSubjects] = useState<Specialization[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // A new teacher pay on a group that already paid lessons: "new lessons only, or old and new?"
+  // (`group_pay_backdate`, Lingo 2026-11-26) — asked before the edit is sent, with what it moves.
+  const pastPayOn = useGroupPayBackdate();
+  const [pastPay, setPastPay] = useState<{ preview: GroupPastPay } | null>(null);
+  // Another pay typed while the question is open: what it said no longer holds.
+  useEffect(() => setPastPay(null), [payMode, payAmount]);
 
   useEffect(() => {
     void fetchRoster(listTeachers, { filter: { status: "active" } })
@@ -408,14 +416,9 @@ export function GroupForm({
     return Math.round(h * 60);
   }
 
-  async function submit() {
-    const problem = validate();
-    if (problem) {
-      setError(problem);
-      return;
-    }
-
-    const input: GroupInput = {
+  /** The edit or the new group as the form holds it now. */
+  function buildInput(): GroupInput {
+    return {
       name: name.trim(),
       teacher_id: teacherId,
       specialization_id: specializationId || null,
@@ -458,11 +461,55 @@ export function GroupForm({
           }
         : {}),
     };
+  }
 
+  async function submit() {
+    const problem = validate();
+    if (problem) {
+      setError(problem);
+      return;
+    }
+
+    const input = buildInput();
+
+    if (editing && canPay && pastPayOn && payChanged()) {
+      setBusy(true);
+      setError(null);
+      try {
+        const preview = await groupPastPay(group.id, {
+          teacher_pay_mode: input.teacher_pay_mode ?? null,
+          teacher_pay_minor: input.teacher_pay_minor ?? null,
+        });
+        // Nothing already paid would move: no question, the edit simply saves.
+        if (preview.lessons > 0) {
+          setPastPay({ preview });
+          setBusy(false);
+          return;
+        }
+      } catch (err) {
+        setError(apiErrorMessage(err, t("form.errors.save")));
+        setBusy(false);
+        return;
+      }
+    }
+
+    await send(input);
+  }
+
+  /** Whether the form's teacher pay differs from the group's saved one (a revenue share is never asked about). */
+  function payChanged(): boolean {
+    const saved = group?.teacher_pay;
+    if (!saved || payMode === "REVENUE_SHARE" || saved.mode === "REVENUE_SHARE") return false;
+    if (payMode !== saved.mode) return true;
+    return payMode !== null && toMinor(payAmount) !== saved.amount_minor;
+  }
+
+  async function send(input: GroupInput) {
     setBusy(true);
     setError(null);
     try {
       const res = editing ? await updateGroup(group.id, input) : await createGroup(input);
+      setPastPay(null);
       onSaved(res.group);
     } catch (err) {
       setError(apiErrorMessage(err, t("form.errors.save")));
@@ -470,6 +517,11 @@ export function GroupForm({
       setBusy(false);
     }
   }
+
+  const pastPayMoney = (key: "now_minor" | "new_minor") =>
+    (pastPay?.preview.totals ?? [])
+      .map((row) => formatMoney({ amount: row[key], currency: row.currency }, locale, { trimZeroDecimals: true }))
+      .join(" + ");
 
   const sections = (
     <>
@@ -1070,12 +1122,39 @@ export function GroupForm({
           look ? "group-form__bar bg-card sticky bottom-0 z-10 rounded-2xl border p-3" : "border-t pt-4",
         )}
       >
-        <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
-          {t("form.cancel")}
-        </Button>
-        <Button type="button" onClick={() => void submit()} disabled={busy} data-testid="group-save">
-          {busy ? t("form.saving") : editing ? t("form.saveChanges") : t("form.create")}
-        </Button>
+        {pastPay ? (
+          <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center" data-testid="group-past-pay">
+            <div className="min-w-0 flex-1 text-sm">
+              <p className="font-bold">{t("form.pastPay.title")}</p>
+              <p className="text-muted-foreground mt-0.5" data-testid="group-past-pay-moves">
+                {t("form.pastPay.moves", { count: pastPay.preview.lessons, now: pastPayMoney("now_minor"), next: pastPayMoney("new_minor") })}
+              </p>
+              {pastPay.preview.kept_paid > 0 && (
+                <p className="text-muted-foreground mt-0.5">{t("form.pastPay.keptPaid", { count: pastPay.preview.kept_paid })}</p>
+              )}
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={() => setPastPay(null)} disabled={busy}>
+                {t("form.pastPay.back")}
+              </Button>
+              <Button type="button" variant="outline" onClick={() => void send({ ...buildInput(), teacher_pay_apply: "FORWARD" })} disabled={busy} data-testid="group-past-pay-forward">
+                {t("form.pastPay.forward")}
+              </Button>
+              <Button type="button" onClick={() => void send({ ...buildInput(), teacher_pay_apply: "ALL" })} disabled={busy} data-testid="group-past-pay-all">
+                {busy ? t("form.saving") : t("form.pastPay.all")}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+              {t("form.cancel")}
+            </Button>
+            <Button type="button" onClick={() => void submit()} disabled={busy} data-testid="group-save">
+              {busy ? t("form.saving") : editing ? t("form.saveChanges") : t("form.create")}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );

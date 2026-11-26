@@ -49,6 +49,7 @@ final class FeatureCatalog
         'course_students' => 'Course-only students — a student may join on a group alone (no private lessons), and a finished course turns its course-only students into former students in one go',
         'payroll_by_group' => 'Salary by group — a teacher\'s salary lessons read group by group (and student by student), not as one list by date',
         'lesson40_price' => 'A fixed 40-minute price — an hourly teacher may carry their own price for a 40-minute lesson, paid instead of two thirds of the hour',
+        'group_pay_backdate' => 'Group pay on past lessons — changing what a group pays its teacher asks whether the lessons already paid follow the new price too, or only the lessons from now',
         'modern_look' => 'Modern look — the new workspace design (cards, sidebar, slim dashboard) in the academy\'s own colours',
         'courses_art' => 'Courses & curricula theme — the modern look in ocean blue and coral, no ornaments, and a books-and-course banner picture (switches the modern look on with it)',
         'video.conferencing' => 'Video classroom (self-hosted rooms & recordings)',
@@ -196,6 +197,7 @@ final class FeatureCatalog
             'course_students',
             'payroll_by_group',
             'lesson40_price',
+            'group_pay_backdate',
             'modern_look',
             'courses_art',
         ],
@@ -242,6 +244,9 @@ final class FeatureCatalog
         // 2026-11-26). One client's ways: Ahmed keeps them to that client only.
         'payroll_by_group',
         'lesson40_price',
+        // A group's new teacher price may reach the lessons already paid, when the office says so
+        // (Lingo, 2026-11-26) — kept to that client like the two above.
+        'group_pay_backdate',
     ];
 
     /**

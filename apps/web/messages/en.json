@@ -5184,7 +5184,8 @@
       "student_cancel_charged": "A student's cancellation counts as a lesson taken — charged (off the package, or on the bill) unless the office says not to; teachers' pay unchanged",
       "course_students": "Course-only students — a student may join on a group or course alone, with no private lessons, and a finished course turns its students into former students in one go",
       "payroll_by_group": "Salary by group — a teacher's salary lessons read group by group (and private student by student), not as one list by date",
-      "lesson40_price": "A fixed 40-minute price — an hourly teacher may carry their own price for a 40-minute lesson instead of two thirds of the hour"
+      "lesson40_price": "A fixed 40-minute price — an hourly teacher may carry their own price for a 40-minute lesson instead of two thirds of the hour",
+      "group_pay_backdate": "Group pay on past lessons — changing what a group pays its teacher asks: new lessons only, or the lessons already paid too"
     }
   },
   "adminDashboard": {
@@ -8553,7 +8554,15 @@
       },
       "students": "Students",
       "studentsHint": "Optional. They join from the start date and their first month is raised at once.",
-      "durationOther": "Other…"
+      "durationOther": "Other…",
+      "pastPay": {
+        "title": "You changed what this group pays its teacher. Apply it to which lessons?",
+        "moves": "{count, plural, one {One lesson already paid {now}; at the new pay it becomes {next}.} other {# lessons already paid {now}; at the new pay they become {next}.}}",
+        "keptPaid": "{count, plural, one {One lesson on a statement paid from the treasury stays as paid.} other {# lessons on statements paid from the treasury stay as paid.}}",
+        "forward": "New lessons only",
+        "all": "Old and new",
+        "back": "Back"
+      }
     },
     "detail": {
       "back": "All groups",

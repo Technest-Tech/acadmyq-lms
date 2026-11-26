@@ -210,6 +210,7 @@ final class ClassGroupController extends Controller
         $academyId = $this->currentAcademyId();
         $group = $this->findGroup($id);
         $data = $this->validateGroup($request, creating: false, current: $group);
+        $pastPay = $this->pastPayChoice($request, $academyId, $group, $data);
 
         if (isset($data['teacher_id'])) {
             $this->assertActiveTeacher($data['teacher_id']);
@@ -233,7 +234,8 @@ final class ClassGroupController extends Controller
         }
 
         // One unit, so a failure part-way never leaves the times edited and the lessons not.
-        $counts = DB::transaction(function () use ($id, $fields, $data, $academyId, $group): array {
+        $repriced = null;
+        $counts = DB::transaction(function () use ($id, $fields, $data, $academyId, $group, $pastPay, &$repriced): array {
             if ($fields !== []) {
                 DB::table('class_groups')->where('id', $id)->update($fields + ['updated_at' => now()]);
             }
@@ -256,15 +258,77 @@ final class ClassGroupController extends Controller
                 $today = Carbon::now((string) $fresh->timezone);
                 $this->payroll->syncRevenueShare($fresh, (int) $today->year, (int) $today->month);
             }
+            // …unless the office chose "old and new": the lessons already paid follow the rule too.
+            if ($pastPay) {
+                $repriced = $this->payroll->repricePastLessons($fresh);
+            }
 
             return $counts;
         });
 
         Audit::log('class_group.updated', 'class_group', $id, $academyId, $this->ctx()->userId, $this->ctx()->role,
-            after: $fields + (array_key_exists('slots', $data) ? ['slots' => $data['slots']] : []) + ['generated' => $counts],
+            after: $fields + (array_key_exists('slots', $data) ? ['slots' => $data['slots']] : []) + ['generated' => $counts]
+                + ($repriced !== null ? ['teacher_pay_apply' => 'ALL', 'repriced' => $repriced] : []),
             before: array_intersect_key((array) $group, $fields));
 
-        return response()->json(['group' => $this->detail($id), 'generated' => $counts]);
+        return response()->json(['group' => $this->detail($id), 'generated' => $counts]
+            + ($repriced !== null ? ['repriced' => $repriced] : []));
+    }
+
+    /**
+     * GET /api/groups/{id}/past-pay?teacher_pay_mode=&teacher_pay_minor= — what the pay rule the
+     * form holds would move on the lessons this group already paid (`group_pay_backdate`, Lingo
+     * 2026-11-26): the question "new lessons only, or old and new?" shows it before the save.
+     */
+    public function pastPayPreview(Request $request, string $id): JsonResponse
+    {
+        Gate::authorize('group.manage');
+        Gate::authorize('teacher.set_pay');
+        $academyId = $this->currentAcademyId();
+        abort_unless(Entitlement::hasCapability($academyId, GroupPayroll::PAST_PAY_CAPABILITY), 403);
+
+        $group = $this->findGroup($id);
+        $data = $request->validate([
+            'teacher_pay_mode' => ['nullable', Rule::in(['PER_LESSON', 'PER_HOUR', 'PER_STUDENT', 'REVENUE_SHARE'])],
+            'teacher_pay_minor' => ['nullable', 'integer', 'min:0', 'max:1000000000000'],
+        ]);
+        $mode = $data['teacher_pay_mode'] ?? null;
+        if (in_array('REVENUE_SHARE', [$mode, $group->teacher_pay_mode], true)) {
+            return response()->json(['lessons' => 0, 'totals' => [], 'kept_paid' => 0]);
+        }
+
+        $proposed = (object) array_merge((array) $group, [
+            'teacher_pay_mode' => $mode,
+            'teacher_pay_minor' => $mode !== null ? ($data['teacher_pay_minor'] ?? null) : null,
+        ]);
+
+        return response()->json($this->payroll->pastLessonPreview($proposed));
+    }
+
+    /**
+     * `teacher_pay_apply` on an edit: FORWARD (the default — a new pay rule prices the lessons held
+     * from now) or ALL (the lessons already paid follow it too). ALL is for the switch's academies,
+     * and never with a revenue share, whose months are paid as a share of what was billed.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    private function pastPayChoice(Request $request, string $academyId, object $group, array $data): bool
+    {
+        $apply = $request->validate(['teacher_pay_apply' => ['sometimes', Rule::in(['FORWARD', 'ALL'])]])['teacher_pay_apply'] ?? 'FORWARD';
+        if ($apply !== 'ALL') {
+            return false;
+        }
+
+        Gate::authorize('teacher.set_pay');
+        if (! Entitlement::hasCapability($academyId, GroupPayroll::PAST_PAY_CAPABILITY)) {
+            throw ValidationException::withMessages(['teacher_pay_apply' => ['A new pay rule reaches the lessons held from now on. / سعر المعلم الجديد يُطبَّق على الحصص من الآن.']]);
+        }
+        $mode = array_key_exists('teacher_pay_mode', $data) ? $data['teacher_pay_mode'] : $group->teacher_pay_mode;
+        if (in_array('REVENUE_SHARE', [$mode, $group->teacher_pay_mode], true)) {
+            throw ValidationException::withMessages(['teacher_pay_apply' => ['A revenue share cannot be applied to lessons already paid. / لا يمكن تطبيق نسبة الإيراد على الحصص المحسوبة بالفعل.']]);
+        }
+
+        return true;
     }
 
     /** POST /api/groups/{id}/archive — stop the group: its future untouched lessons go, history stays. */

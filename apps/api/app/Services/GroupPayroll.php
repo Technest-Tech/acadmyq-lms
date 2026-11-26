@@ -6,6 +6,7 @@ namespace App\Services;
 
 use App\Support\Entitlement;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -31,6 +32,13 @@ use Illuminate\Support\Facades\DB;
  */
 final class GroupPayroll
 {
+    /**
+     * The academy switch that lets a change to a group's teacher pay reach the lessons already paid
+     * when the office says so ({@see repricePastLessons()}, Lingo 2026-11-26). Without it a new pay
+     * rule prices the lessons held from then on, as everywhere else.
+     */
+    public const PAST_PAY_CAPABILITY = 'group_pay_backdate';
+
     public function __construct(private readonly Payroll $payroll) {}
 
     public static function enabledFor(string $academyId): bool
@@ -78,6 +86,106 @@ final class GroupPayroll
             "{$group->name} — {$came}/{$marked}",
             $period['date'],
         )));
+    }
+
+    /**
+     * The lessons of this group already on a salary, each priced again under `$group`'s pay rule —
+     * the group as saved, or as an edit would leave it. One row per held lesson with a line: what it
+     * pays now, what the rule would pay, and whether its statement was paid from the treasury (that
+     * one stays as paid). A revenue share pays its lessons nothing, so it has no say here.
+     *
+     * @return Collection<int, array{lesson: object, now_minor: int, new_minor: int, currency: string, paid: bool}>
+     */
+    public function pastLessonPay(object $group): Collection
+    {
+        $lessons = DB::table('class_group_lessons as l')
+            ->join('payout_line_items as li', 'li.class_group_lesson_id', '=', 'l.id')
+            ->where('l.group_id', $group->id)
+            ->where('l.status', 'HELD')
+            ->orderBy('l.scheduled_at_utc')
+            ->get(['l.*', 'li.payout_id as line_payout_id', 'li.amount_minor as line_amount_minor', 'li.currency as line_currency']);
+        if ($lessons->isEmpty()) {
+            return collect();
+        }
+
+        $came = DB::table('class_group_attendance')
+            ->whereIn('lesson_id', $lessons->pluck('id')->all())
+            ->whereIn('status', ClassGroups::ATTENDED_STATUSES)
+            ->selectRaw('lesson_id, count(*) as n')
+            ->groupBy('lesson_id')
+            ->pluck('n', 'lesson_id');
+        $teachers = DB::table('teachers')->whereIn('id', $lessons->pluck('teacher_id')->unique()->all())->get()->keyBy('id');
+        $paid = [];
+
+        return $lessons
+            ->filter(fn (object $l) => $teachers->has($l->teacher_id))
+            ->map(function (object $l) use ($group, $came, $teachers, &$paid): array {
+                $payoutId = (string) $l->line_payout_id;
+                $paid[$payoutId] ??= $this->payroll->carriesCorrections($payoutId);
+
+                return [
+                    'lesson' => $l,
+                    'now_minor' => (int) $l->line_amount_minor,
+                    'new_minor' => $this->lessonAmount($group, $teachers[$l->teacher_id], (int) $l->duration_minutes, (int) ($came[$l->id] ?? 0)),
+                    'currency' => (string) $l->line_currency,
+                    'paid' => $paid[$payoutId],
+                ];
+            })
+            ->values();
+    }
+
+    /**
+     * What applying `$group`'s pay rule to the lessons already paid would move: the lessons whose pay
+     * changes, their totals before and after per currency, and the ones left as paid from the
+     * treasury.
+     *
+     * @return array{lessons: int, totals: list<array{currency: string, now_minor: int, new_minor: int}>, kept_paid: int}
+     */
+    public function pastLessonPreview(object $group): array
+    {
+        $moving = $this->pastLessonPay($group)->filter(fn (array $r) => $r['new_minor'] !== $r['now_minor']);
+        [$paid, $open] = $moving->partition(fn (array $r) => $r['paid']);
+
+        return [
+            'lessons' => $open->count(),
+            'totals' => $open->groupBy('currency')
+                ->map(fn (Collection $rows, string $currency) => [
+                    'currency' => $currency,
+                    'now_minor' => (int) $rows->sum('now_minor'),
+                    'new_minor' => (int) $rows->sum('new_minor'),
+                ])
+                ->values()
+                ->all(),
+            'kept_paid' => $paid->count(),
+        ];
+    }
+
+    /**
+     * Price every lesson of the group already on a salary by the group's pay rule as saved (Lingo,
+     * 2026-11-26: "old and new salaries, or new only?" — this is "old and new"). Each line moves on
+     * its own statement, a sealed one corrected in place like a sheet saved after the seal; a
+     * statement paid from the treasury keeps what it paid.
+     *
+     * @return array{lessons: int, kept_paid: int}
+     */
+    public function repricePastLessons(object $group): array
+    {
+        $moved = 0;
+        $keptPaid = 0;
+        foreach ($this->pastLessonPay($group) as $row) {
+            if ($row['new_minor'] === $row['now_minor']) {
+                continue;
+            }
+            if ($row['paid']) {
+                $keptPaid++;
+
+                continue;
+            }
+            $this->syncLessonPay($row['lesson']);
+            $moved++;
+        }
+
+        return ['lessons' => $moved, 'kept_paid' => $keptPaid];
     }
 
     /**

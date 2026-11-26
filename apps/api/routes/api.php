@@ -1073,6 +1073,7 @@ Route::middleware(['auth:sanctum', 'tenant.context'])->group(function () {
         Route::post('/groups', [ClassGroupController::class, 'store']);
         Route::get('/groups/{id}', [ClassGroupController::class, 'show'])->whereUuid(['id']);
         Route::patch('/groups/{id}', [ClassGroupController::class, 'update'])->whereUuid(['id']);
+        Route::get('/groups/{id}/past-pay', [ClassGroupController::class, 'pastPayPreview'])->whereUuid(['id']);
         Route::delete('/groups/{id}', [ClassGroupController::class, 'destroy'])->whereUuid(['id']);
         Route::post('/groups/{id}/archive', [ClassGroupController::class, 'archive'])->whereUuid(['id']);
         Route::post('/groups/{id}/restore', [ClassGroupController::class, 'restore'])->whereUuid(['id']);

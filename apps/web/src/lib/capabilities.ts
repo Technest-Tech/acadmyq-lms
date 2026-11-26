@@ -50,6 +50,15 @@ export function useLesson40Price(): boolean {
   return session?.capabilities?.includes("lesson40_price") ?? false;
 }
 
+/**
+ * A change to a group's teacher pay asks whether the lessons already paid follow it too
+ * (`group_pay_backdate`, Lingo 2026-11-26). Strict: only a session that lists it.
+ */
+export function useGroupPayBackdate(): boolean {
+  const { session } = useAuth();
+  return session?.capabilities?.includes("group_pay_backdate") ?? false;
+}
+
 export function useCapability(capability: string): boolean {
   const { session } = useAuth();
   return (
