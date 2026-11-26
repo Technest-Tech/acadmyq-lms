@@ -181,8 +181,11 @@ final class Payroll implements PayoutHook
         $this->reverseLine($line, $session);
     }
 
-    /** Take a lesson's line off its (open) statement and the amount off its total. */
-    private function reverseLine(object $line, object $session): void
+    /**
+     * Take this one line off its (open, or being corrected) statement and its amount off the total.
+     * Public for repairs that must name the exact line: {@see lessonLine()} prefers an open one.
+     */
+    public function reverseLine(object $line, object $session): void
     {
         $payoutId = (string) $line->payout_id;
         $amountMinor = (int) $line->amount_minor;

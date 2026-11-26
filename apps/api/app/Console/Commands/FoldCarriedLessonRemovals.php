@@ -65,6 +65,7 @@ final class FoldCarriedLessonRemovals extends Command
                     continue;
                 }
                 $this->line($what.($p['adjustment_id'] !== null ? "  → off {$p['carried_to']}" : '  (already 0)')
+                    .($p['again'] ? '  (marked again: its later line stays)' : '')
                     .(isset($p['by_date']) ? "  (matched by date: «{$p['by_date']}»)" : ''));
                 if (! $apply) {
                     continue;
@@ -73,7 +74,8 @@ final class FoldCarriedLessonRemovals extends Command
                 try {
                     Tenancy::withContext($ctx, function () use ($payroll, $p, $academyId): void {
                         $session = DB::table('sessions')->where('id', $p['session_id'])->first();
-                        $payroll->correcting($p['payout_id'], fn () => $payroll->onSessionUnattended($session));
+                        $line = DB::table('payout_line_items')->where('id', $p['line_id'])->first();
+                        $payroll->correcting($p['payout_id'], fn () => $payroll->reverseLine($line, $session));
                         if ($p['adjustment_id'] !== null) {
                             $payroll->correcting($p['adjustment_payout_id'], fn () => $payroll->removeAdjustment(
                                 $p['adjustment_id'], $academyId, self::SYSTEM_USER_ID, 'SUPER_ADMIN',
@@ -111,9 +113,6 @@ final class FoldCarriedLessonRemovals extends Command
             ->leftJoin('students as st', 'st.id', '=', 'se.student_id')
             ->leftJoin('teachers as t', 't.id', '=', 'p.teacher_id')
             ->whereNotNull('p.finalized_at')
-            // Marked again later: its pay lives on the later line, and recalculation already nets it.
-            ->whereNotExists(fn ($q) => $q->selectRaw('1')->from('payout_line_items as later')
-                ->whereColumn('later.session_id', 'li.session_id')->whereColumn('later.id', '<>', 'li.id'))
             ->orderBy('t.full_name')
             ->orderBy('li.session_date')
             ->get([
@@ -121,8 +120,13 @@ final class FoldCarriedLessonRemovals extends Command
                 'p.period_year', 'p.period_month', 't.full_name as teacher_name',
                 'se.status', 'se.bill_override', 'se.teacher_override', 'se.scheduled_at_utc',
                 'st.full_name as student_name',
+                // Undone, then marked again: its pay lives on a later line, so this one is the duplicate.
+                DB::raw('exists (select 1 from payout_line_items later where later.session_id = li.session_id and later.id <> li.id and later.created_at > li.created_at) as again'),
+                DB::raw('exists (select 1 from payout_line_items other where other.session_id = li.session_id and other.id <> li.id) as other_line'),
             ])
-            ->filter(fn (object $l) => ! PayrollLessonCorrection::paysTeacher($l));
+            ->filter(fn (object $l) => PayrollLessonCorrection::paysTeacher($l)
+                ? (bool) $l->again
+                : ! (bool) $l->other_line);
 
         $taken = [];
 
@@ -135,6 +139,8 @@ final class FoldCarriedLessonRemovals extends Command
             $key = $date.' · '.($l->student_name ?? '—');
             $row = [
                 'date' => $date,
+                'line_id' => (string) $l->id,
+                'again' => (bool) $l->again,
                 'session_id' => (string) $l->session_id,
                 'payout_id' => (string) $l->payout_id,
                 'amount_minor' => (int) $l->amount_minor,

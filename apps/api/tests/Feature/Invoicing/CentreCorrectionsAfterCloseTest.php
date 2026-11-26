@@ -283,7 +283,7 @@ it('folds a removal whose student was renamed since, by date, only when one dedu
     ($this->paidFromTreasury)((string) $june->id);
     Sanctum::actingAs($this->owner);
     $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk();
-    // Omar's lesson the same day is undone and marked again: its deduction belongs to it.
+    // Omar's lesson the same day is undone and marked again: its deduction is his, never Hamza's.
     $this->postJson("/api/sessions/{$kept}/attendance/revert")->assertOk();
     $this->postJson("/api/sessions/{$kept}/attendance", ['status' => 'ATTENDED'])->assertOk();
     $this->asAcademy($this->academy);
@@ -293,14 +293,46 @@ it('folds a removal whose student was renamed since, by date, only when one dedu
     $this->clearTenantContext();
     $this->artisan('payroll:fold-carried-removals', ['--academy' => $this->academy, '--apply' => true])
         ->expectsOutputToContain('matched by date: «Hamza»')
-        ->expectsOutputToContain('1 folded, 0 left')->assertSuccessful();
+        ->expectsOutputToContain('2 folded, 0 left')->assertSuccessful();
 
     $this->asAcademy($this->academy);
     expect(DB::table('payout_line_items')->where('session_id', $lesson)->count())->toBe(0)
-        ->and(DB::table('payout_adjustments')->where('reason', 'like', '%Hamza%')->count())->toBe(0)
-        // Omar's stays: his June line, his deduction, his July line.
-        ->and(DB::table('payout_adjustments')->where('reason', 'like', '%Omar%')->count())->toBe(1)
-        ->and(DB::table('payout_line_items')->where('session_id', $kept)->count())->toBe(2)
+        ->and(DB::table('payout_adjustments')->count())->toBe(0)
+        // Omar is paid once, on July.
+        ->and(DB::table('payout_line_items')->where('session_id', $kept)->pluck('payout_id')->all())->toBe([($this->julyStatement)()->id])
+        ->and((int) ($this->julyStatement)()->total_minor)->toBe(5000)
+        ->and(($this->recalcOwed)())->toBe(0);
+});
+
+it('folds a lesson undone and marked again: the sealed duplicate and its deduction go, the later line stays', function () {
+    // lingo: الاء 15/10 — paid on October and on November, docked on November: counted twice in its
+    // own window and docked in the one being paid.
+    cacCentreOn($this->academy);
+    $student = ($this->blockStudent)('Youssef');
+    ($this->block)($student);
+    $lesson = ($this->attend)($student);
+    ($this->sealJune)();
+    $june = ($this->juneStatement)();
+    ($this->paidFromTreasury)((string) $june->id);
+    Sanctum::actingAs($this->owner);
+    $this->postJson("/api/sessions/{$lesson}/attendance/revert")->assertOk();
+    $this->postJson("/api/sessions/{$lesson}/attendance", ['status' => 'ATTENDED'])->assertOk();
+    $this->asAcademy($this->academy);
+    DB::table('expenses')->where('payout_id', $june->id)->update(['voided_at' => now(), 'void_reason' => 'test']);
+    expect(DB::table('payout_line_items')->where('session_id', $lesson)->count())->toBe(2);
+
+    $this->clearTenantContext();
+    $this->artisan('payroll:fold-carried-removals', ['--academy' => $this->academy, '--apply' => true])
+        ->expectsOutputToContain('marked again')
+        ->expectsOutputToContain('1 folded, 0 left')->assertSuccessful();
+
+    $this->asAcademy($this->academy);
+    $july = ($this->julyStatement)();
+    expect(DB::table('payout_line_items')->where('payout_id', $june->id)->where('session_id', $lesson)->count())->toBe(0)
+        ->and(DB::table('payout_line_items')->where('payout_id', $july->id)->where('session_id', $lesson)->value('amount_minor'))->toBe(5000)
+        ->and((int) ($this->juneStatement)()->total_minor)->toBe((int) $june->total_minor - 5000)
+        ->and((int) $july->total_minor)->toBe(5000)
+        ->and(DB::table('payout_adjustments')->count())->toBe(0)
         ->and(($this->recalcOwed)())->toBe(0);
 });
 
